@@ -1,0 +1,13 @@
+services:
+  1shell:
+    build: .
+    container_name: 1shell
+    restart: unless-stopped
+    ports:
+      - "${PORT:-3301}:3301"
+    volumes:
+      - ./data:/app/data
+    env_file:
+      - .env
+    environment:
+      - NODE_ENV=production
