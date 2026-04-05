@@ -36,6 +36,7 @@
 | **AI Chat** | 集成 OpenAI 兼容 API，流式对话，终端上下文感知 |
 | **Ghost Text** | 终端输入时 AI 实时内联补全，Tab 采纳，低打扰 |
 | **AI 命令建议** | 自然语言描述需求，AI 生成可执行命令 |
+| **自选范围纠错** | 选定制定范围代码让ai辅助分析纠错 |
 | **MCP Server** | 标准 MCP 协议，让 claude-code 等 AI CLI 工具直接操控远端主机 |
 | **Bridge API** | HTTP API 桥接 SSH 执行，适配任意 CLI 工具 |
 | **网站任意门** | 每台主机关联多个业务入口，统一管理 |
