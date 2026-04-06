@@ -179,6 +179,16 @@ function createAgentPtyService({ hostService, providerRegistry }) {
 
       session.status = 'ready';
       emitAgentStatus(socket, session);
+
+      // 注入目标主机上下文：claude 启动后等待界面就绪，再发送初始提示
+      if (host.id !== 'local') {
+        const hostDesc = `${host.username}@${host.host}:${host.port}`;
+        const prompt = `你现在的任务是通过 1Shell MCP 工具管理远程主机 ${hostDesc}（主机ID: ${host.id}，名称: ${host.name}）。执行任何 shell 命令时，必须调用 mcp__1shell__execute_command 工具并传入 hostId="${host.id}"，不要在本机直接执行命令。`;
+        setTimeout(() => {
+          if (!session.isFinalized) session.write(prompt + '\r');
+        }, 2500);
+      }
+
       return session;
     } catch (error) {
       finalizeAgentSession(socket, session, 'error', { error: error.message });
