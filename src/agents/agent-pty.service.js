@@ -124,7 +124,18 @@ function createAgentPtyService({ hostService, providerRegistry }) {
     try {
       const isWin = os.platform() === 'win32';
       let command = provider.command;
-      let args = provider.args || [];
+      let args = [...(provider.args || [])];
+
+      // 远程主机：把目标主机上下文作为初始提示传给 claude，让它知道要用 MCP 工具
+      if (provider.id === 'claude-code' && host.id !== 'local') {
+        const hostDesc = `${host.username}@${host.host}:${host.port}`;
+        const initialPrompt = [
+          `当前目标主机：${host.name}（${hostDesc}，hostId="${host.id}"）。`,
+          `所有 shell 命令必须通过 MCP 工具 mcp__1shell__execute_ssh_command 执行，并传入 hostId="${host.id}"。`,
+          `禁止在本机直接执行命令。可先调用 mcp__1shell__list_hosts 确认主机列表。`,
+        ].join(' ');
+        args = [...args, initialPrompt];
+      }
 
       // Windows 兼容：npm 全局包（如 claude）是 .ps1 脚本，node-pty 无法直接执行
       // 改为通过 powershell.exe 调用
@@ -179,16 +190,6 @@ function createAgentPtyService({ hostService, providerRegistry }) {
 
       session.status = 'ready';
       emitAgentStatus(socket, session);
-
-      // 注入目标主机上下文：claude 启动后等待界面就绪，再发送初始提示
-      if (host.id !== 'local') {
-        const hostDesc = `${host.username}@${host.host}:${host.port}`;
-        const prompt = `你现在的任务是通过 1Shell MCP 工具管理远程主机 ${hostDesc}（主机ID: ${host.id}，名称: ${host.name}）。需要在该主机执行命令时，使用 mcp__1shell__execute_ssh_command 工具并传入 hostId="${host.id}"。可先用 mcp__1shell__list_hosts 确认主机列表。不要在本机直接执行任何 shell 命令。`;
-        setTimeout(() => {
-          if (!session.isFinalized) session.write(prompt + '\r');
-        }, 2500);
-      }
-
       return session;
     } catch (error) {
       finalizeAgentSession(socket, session, 'error', { error: error.message });
