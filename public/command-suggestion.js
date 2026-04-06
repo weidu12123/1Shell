@@ -50,10 +50,14 @@
       resetResult();
       cmdInlinePanelEl.classList.remove('hidden');
       cmdPromptEl.focus();
+      // 面板展开后终端高度缩小，触发 refit
+      setTimeout(() => window.dispatchEvent(new Event('resize')), 30);
     }
 
     function closeCmdModal() {
       cmdInlinePanelEl.classList.add('hidden');
+      // 面板收起后终端高度恢复，触发 refit
+      setTimeout(() => window.dispatchEvent(new Event('resize')), 30);
     }
 
     async function generateCommandSuggestion() {
