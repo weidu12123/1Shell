@@ -265,3 +265,6 @@ PORT=3301
 ## License
 
 [MIT](LICENSE) © 2026 weidu12123
+
+## 友链
+http://linux.do/
