@@ -1,6 +1,11 @@
 (() => {
   'use strict';
 
+  function getCsrfToken() {
+    const match = document.cookie.match(/(?:^|;\s*)mvps_csrf_token=([^;]+)/);
+    return match ? decodeURIComponent(match[1]) : '';
+  }
+
   function createAiChatModule({
     escapeHtml,
     getActiveHost,
@@ -140,7 +145,7 @@
 
         const response = await fetch('/api/chat', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: { 'Content-Type': 'application/json', 'x-csrf-token': getCsrfToken() },
           body: JSON.stringify(requestBody),
         });
 
