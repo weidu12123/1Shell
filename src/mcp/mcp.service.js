@@ -32,7 +32,10 @@ function createMcpService({ bridgeService, hostService, auditService }) {
   // ─── SSE 工具函数 ────────────────────────────────────────────────────────
 
   function sseWrite(res, event, data) {
-    res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
+    // message 事件的 data 是 JSON 对象，需要序列化；
+    // endpoint 事件的 data 是裸 URL 字符串，不能额外加引号
+    const dataStr = typeof data === 'string' ? data : JSON.stringify(data);
+    res.write(`event: ${event}\ndata: ${dataStr}\n\n`);
   }
 
   function sendMessage(sessionId, payload) {

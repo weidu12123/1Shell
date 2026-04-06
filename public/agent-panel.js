@@ -235,7 +235,7 @@
       agentTabsEl.innerHTML = html;
 
       document.getElementById('agent-new-session-btn')?.addEventListener('click', () => {
-        try { startAgent(); } catch (e) { showErrorMessage(e); }
+        Promise.resolve(startAgent()).catch(showErrorMessage);
       });
 
       for (const tabEl of agentTabsEl.querySelectorAll('[data-agent-tab]')) {
@@ -304,8 +304,13 @@
         const res  = await fetch('/api/agent/mcp-status');
         const json = await res.json();
         const provider = providerSelectEl?.value || 'claude-code';
-        syncSetupButton(json?.status?.providers?.[provider]?.configured || false);
-      } catch { /* silent */ }
+        const configured = json?.status?.providers?.[provider]?.configured || false;
+        syncSetupButton(configured);
+        return configured;
+      } catch {
+        syncSetupButton(false);
+        return false;
+      }
     }
 
     async function handleSetup() {
@@ -315,7 +320,7 @@
         const res  = await fetch('/api/agent/mcp-setup', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', 'x-csrf-token': getCsrfToken() },
-          body: JSON.stringify({ provider }),
+          body: JSON.stringify({ provider, serverUrl: window.location.origin }),
         });
         const json = await res.json();
         if (!json.ok) {
@@ -332,6 +337,31 @@
       } finally {
         if (setupBtnEl) setupBtnEl.disabled = false;
       }
+    }
+
+    async function ensureClaudeCodeMcpSetup() {
+      const provider = providerSelectEl?.value || 'claude-code';
+      if (provider !== 'claude-code') return false;
+
+      const configured = await checkMcpStatus();
+      if (configured) return false;
+
+      appendSystemLine('[Setup] 检测到 Claude Code 尚未接入 1Shell，正在自动配置…');
+
+      const res = await fetch('/api/agent/mcp-setup', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-csrf-token': getCsrfToken() },
+        body: JSON.stringify({ provider, serverUrl: window.location.origin }),
+      });
+      const json = await res.json();
+
+      if (!json.ok) {
+        throw new Error(json.error || 'MCP 配置失败');
+      }
+
+      syncSetupButton(true);
+      appendSystemLine('[Setup] 已写入 Claude Code MCP 配置，本次新启动的会话将直接加载 1Shell 工具。');
+      return true;
     }
 
     // ─── Panel open / close ────────────────────────────────────────────────
@@ -424,7 +454,7 @@
 
     // ─── Start / stop agent ────────────────────────────────────────────────
 
-    function startAgent() {
+    async function startAgent() {
       const socket          = getSocket();
       const sessionTerminal = getSessionTerminalModule?.();
       const host            = getActiveHost?.();
@@ -442,6 +472,13 @@
       bindSocketEvents();
       loadProviders();
       setStatus('启动中…');
+
+      try {
+        await ensureClaudeCodeMcpSetup();
+      } catch (error) {
+        setStatus(error.message || '启动 Agent 失败');
+        throw error;
+      }
 
       socket.emit('agent:start', {
         providerId: providerSelectEl?.value || 'claude-code',
@@ -543,7 +580,7 @@
 
       closeBtnEl?.addEventListener('click', closePanel);
       startBtnEl?.addEventListener('click', () => {
-        try { startAgent(); } catch (e) { showErrorMessage(e); }
+        Promise.resolve(startAgent()).catch(showErrorMessage);
       });
       stopBtnEl?.addEventListener('click', stopAgent);
       clearBtnEl?.addEventListener('click', clearTerminal);

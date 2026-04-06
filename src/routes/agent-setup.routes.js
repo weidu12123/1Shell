@@ -114,7 +114,7 @@ function createAgentSetupRouter() {
   const SUPPORTED_PROVIDERS = ['claude-code', 'gemini-cli', 'opencode'];
 
   // GET /api/agent/mcp-status
-  router.get('/agent/mcp-status', (req, res) => {
+  router.get('/agent/mcp-status', (_req, res) => {
     const bridgeReady = Boolean(BRIDGE_TOKEN);
     const status = {
       bridgeReady,
