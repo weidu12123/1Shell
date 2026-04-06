@@ -33,7 +33,7 @@ function createHostRouter({ hostRepository, hostService, auditService, isUsingFa
     try {
       const hostId = req.params.id;
       if (hostId === LOCAL_HOST_ID) {
-        return res.status(400).json({ error: '本机为内置主机，不能编辑' });
+        return res.status(400).json({ error: '请使用 PUT /api/hosts/local-config 更新本机配置' });
       }
 
       const hosts = hostRepository.readStoredHosts();
@@ -45,6 +45,20 @@ function createHostRouter({ hostRepository, hostService, auditService, isUsingFa
       hostRepository.writeStoredHosts(hosts);
       auditService?.log({ action: 'host_update', source: 'web_ui', hostId: nextHost.id, hostName: nextHost.name, clientIp: req.ip });
       return res.json({ host: hostService.toPublicHost(nextHost) });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  router.put('/hosts/local-config', (req, res, next) => {
+    try {
+      const config = {
+        name: String(req.body?.name || '').trim() || '本机',
+        links: Array.isArray(req.body?.links) ? req.body.links : [],
+      };
+      hostService.saveLocalHostConfig(config);
+      auditService?.log({ action: 'local_config_update', source: 'web_ui', hostId: LOCAL_HOST_ID, clientIp: req.ip });
+      return res.json({ ok: true, config });
     } catch (error) {
       next(error);
     }

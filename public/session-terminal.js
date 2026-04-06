@@ -51,7 +51,6 @@
     let initialized = false;
 
     term.loadAddon(fitAddon);
-    term.open(terminalContainerEl);
 
     function emitTo(listeners, payload) {
       listeners.forEach((listener) => {
@@ -194,7 +193,16 @@
           };
           setSessionStatus(session.status, textMap[session.status] || session.status);
           if (session.status === 'ready') {
-            terminalHintEl.textContent = `当前终端已切换到 ${session.hostName}`;
+            if (session.hostId !== LOCAL_HOST_ID) {
+              terminalHintEl.textContent = `当前终端已切换到 ${session.hostName}`;
+              setTimeout(() => {
+                if (terminalHintEl.textContent === `当前终端已切换到 ${session.hostName}`) {
+                  terminalHintEl.textContent = '';
+                }
+              }, 3000);
+            } else {
+              terminalHintEl.textContent = '';
+            }
           }
           if (session.status === 'error') {
             terminalHintEl.textContent = session.lastError || '会话错误';
@@ -311,7 +319,16 @@
           forceReconnect,
         });
         term.write(state.sessionBuffers.get(session.id) || '');
-        terminalHintEl.textContent = `当前终端已切换到 ${host.name}`;
+        if (hostId !== LOCAL_HOST_ID) {
+          terminalHintEl.textContent = `当前终端已切换到 ${host.name}`;
+          setTimeout(() => {
+            if (terminalHintEl.textContent === `当前终端已切换到 ${host.name}`) {
+              terminalHintEl.textContent = '';
+            }
+          }, 3000);
+        } else {
+          terminalHintEl.textContent = '';
+        }
         setSessionStatus(session.status, session.status === 'ready' ? '已连接' : session.status);
         renderHosts();
         focusTerminal();
@@ -338,6 +355,22 @@
     function initialize() {
       if (initialized) return;
       initialized = true;
+
+      // 延迟打开终端，等登录成功后再 open
+      const appShell = document.getElementById('app-shell');
+      if (appShell && !appShell.classList.contains('hidden')) {
+        term.open(terminalContainerEl);
+        fitAddon.fit();
+      } else if (appShell) {
+        const observer = new MutationObserver(() => {
+          if (!appShell.classList.contains('hidden')) {
+            term.open(terminalContainerEl);
+            fitAddon.fit();
+            observer.disconnect();
+          }
+        });
+        observer.observe(appShell, { attributes: true, attributeFilter: ['class'] });
+      }
 
       term.onData((data) => {
         sendSessionInput(data);

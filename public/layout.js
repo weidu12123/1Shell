@@ -1,6 +1,35 @@
 (() => {
   'use strict';
 
+  // ── 移动端侧边栏关闭 ────────────────────────────────────────────────────
+  const mobileCloseBtn = document.getElementById('mobile-sidebar-close-btn');
+  const mobileOverlay = document.getElementById('mobile-overlay');
+  const sidebarEl = document.querySelector('.sidebar.left-panel');
+
+  function closeMobileSidebar() {
+    if (sidebarEl) sidebarEl.classList.remove('mobile-open');
+    if (mobileOverlay) mobileOverlay.classList.add('hidden');
+  }
+
+  function openMobileSidebar() {
+    if (sidebarEl) sidebarEl.classList.add('mobile-open');
+    if (mobileOverlay) mobileOverlay.classList.remove('hidden');
+  }
+
+  if (mobileCloseBtn) {
+    mobileCloseBtn.addEventListener('click', closeMobileSidebar);
+  }
+
+  if (mobileOverlay) {
+    mobileOverlay.addEventListener('click', closeMobileSidebar);
+  }
+
+  // 同步 app.js 的 hamburger 按钮
+  const mobileMenuBtn = document.getElementById('mobile-menu-btn');
+  if (mobileMenuBtn) {
+    mobileMenuBtn.addEventListener('click', openMobileSidebar);
+  }
+
   // ── 左栏：VPS 列表 / 文件树 缩放切换 ───────────────────────────────────
   const vpsSection = document.getElementById('lp-vps-section');
   const fileSection = document.getElementById('lp-file-section');
@@ -56,25 +85,56 @@
   // ── 右侧 AI 面板折叠/展开 ──────────────────────────────────────────────
   const aiPanel = document.querySelector('.ai-panel');
   const toggleBtn = document.getElementById('ai-panel-toggle-btn');
+  const mobileAiBackdrop = document.getElementById('mobile-ai-backdrop');
+
+  function isMobileBreakpoint() {
+    return window.matchMedia('(max-width: 1024px)').matches;
+  }
+
+  function closeMobileAiPanel() {
+    aiPanel.classList.remove('mobile-ai-open');
+    if (mobileAiBackdrop) mobileAiBackdrop.classList.remove('active');
+    toggleBtn.textContent = 'AI 展开';
+  }
+
+  if (mobileAiBackdrop) {
+    mobileAiBackdrop.addEventListener('click', closeMobileAiPanel);
+  }
 
   if (toggleBtn && aiPanel) {
     toggleBtn.addEventListener('click', () => {
+      if (isMobileBreakpoint()) {
+        // 移动端：切换底部抽屉
+        const isOpen = aiPanel.classList.contains('mobile-ai-open');
+        if (isOpen) {
+          closeMobileAiPanel();
+        } else {
+          aiPanel.classList.add('mobile-ai-open');
+          if (mobileAiBackdrop) mobileAiBackdrop.classList.add('active');
+          toggleBtn.textContent = 'AI 折叠';
+        }
+        return;
+      }
+
+      // 桌面端：原有折叠/展开逻辑
       const collapsed = aiPanel.getAttribute('data-collapsed') === 'true';
 
       if (collapsed) {
-        aiPanel.style.width = '280px';
-        aiPanel.style.minWidth = '280px';
+        aiPanel.style.width = '';
+        aiPanel.style.minWidth = '';
         aiPanel.style.opacity = '1';
         aiPanel.style.pointerEvents = '';
+        aiPanel.style.display = '';
         aiPanel.setAttribute('data-collapsed', 'false');
-        toggleBtn.textContent = '›';
+        toggleBtn.textContent = 'AI 折叠';
       } else {
         aiPanel.style.width = '0px';
         aiPanel.style.minWidth = '0px';
         aiPanel.style.opacity = '0';
         aiPanel.style.pointerEvents = 'none';
+        aiPanel.style.display = 'none';
         aiPanel.setAttribute('data-collapsed', 'true');
-        toggleBtn.textContent = '‹';
+        toggleBtn.textContent = 'AI 展开';
       }
 
       // 触发 xterm refit
@@ -244,10 +304,10 @@
     pickerEl.innerHTML = html;
 
     // 定位
-    const tabsRect = tabsContainer.getBoundingClientRect();
+    const anchorRect = anchorEl.getBoundingClientRect();
     pickerEl.style.position = 'fixed';
-    pickerEl.style.top = (tabsRect.bottom + 4) + 'px';
-    pickerEl.style.left = tabsRect.left + 'px';
+    pickerEl.style.top = (anchorRect.bottom + 4) + 'px';
+    pickerEl.style.left = anchorRect.left + 'px';
     document.body.appendChild(pickerEl);
 
     pickerEl.addEventListener('click', (e) => {
@@ -268,6 +328,8 @@
     if (!probeInfoEl) return;
     const fmt = (v) => v != null ? v + '%' : '--';
     probeInfoEl.innerHTML =
+      `<span class="topbar-slogan" style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Inter,sans-serif;font-style:italic;font-size:10px;letter-spacing:0.05em;color:#94a3b8">One Shell to rule them all.</span>` +
+      `<span class="w-px h-3 bg-slate-300"></span>` +
       `<span>CPU <b class="text-slate-700">${fmt(data.cpu)}</b></span>` +
       `<span class="w-px h-3 bg-slate-300"></span>` +
       `<span>内存 <b class="text-slate-700">${fmt(data.memory)}</b></span>` +
@@ -308,6 +370,42 @@
       startProbePolling();
     }
   }
+
+  // ── Agent 面板：2:4:4 布局切换 ──────────────────────────────────────────
+  const agentPanelEl   = document.getElementById('agent-panel');
+  const terminalAreaEl = document.querySelector('.terminal-area');
+  const aiPanelEl      = document.querySelector('.ai-panel');
+
+  /**
+   * 打开时：AI 面板隐藏，终端区收缩到 4，Agent 面板展开到 4（2:4:4 布局）
+   * 关闭时：恢复 AI 面板（除非它之前已被手动折叠），终端区恢复 flex-1
+   */
+  window.setAgentPanelOpen = function (open) {
+    if (!agentPanelEl || !terminalAreaEl || !aiPanelEl) return;
+
+    if (open) {
+      // 记住 AI 面板折叠状态，避免关闭 Agent 时错误恢复
+      agentPanelEl._aiWasCollapsed = aiPanelEl.getAttribute('data-collapsed') === 'true';
+      aiPanelEl.style.display = 'none';
+      terminalAreaEl.style.flex = '4 4 0';
+      terminalAreaEl.style.minWidth = '0';
+      agentPanelEl.classList.remove('hidden');
+      agentPanelEl.style.flex = '4 4 0';
+      agentPanelEl.style.minWidth = '0';
+    } else {
+      if (!agentPanelEl._aiWasCollapsed) {
+        aiPanelEl.style.display = '';
+      }
+      terminalAreaEl.style.flex = '';
+      terminalAreaEl.style.minWidth = '';
+      agentPanelEl.classList.add('hidden');
+      agentPanelEl.style.flex = '';
+      agentPanelEl.style.minWidth = '';
+    }
+
+    // 触发 xterm refit
+    setTimeout(() => window.dispatchEvent(new Event('resize')), 60);
+  };
 
   // ── 主题切换 + localStorage 持久化 ─────────────────────────────────────
   const themeBtn = document.getElementById('theme-toggle-btn');

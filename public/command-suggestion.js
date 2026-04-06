@@ -7,7 +7,7 @@
     requestJson,
     showErrorMessage,
   }) {
-    const cmdModalEl = document.getElementById('cmd-modal');
+    const cmdInlinePanelEl = document.getElementById('cmd-inline-panel');
     const cmdSuggestBtnEl = document.getElementById('cmd-suggest-btn');
     const cmdCloseBtnEl = document.getElementById('cmd-close-btn');
     const cmdPromptEl = document.getElementById('cmd-prompt');
@@ -48,12 +48,12 @@
     function openCmdModal() {
       cmdPromptEl.value = '';
       resetResult();
-      cmdModalEl.classList.remove('hidden');
+      cmdInlinePanelEl.classList.remove('hidden');
       cmdPromptEl.focus();
     }
 
     function closeCmdModal() {
-      cmdModalEl.classList.add('hidden');
+      cmdInlinePanelEl.classList.add('hidden');
     }
 
     async function generateCommandSuggestion() {
@@ -64,12 +64,18 @@
       setGenerating(true);
 
       try {
+        const customConfig = window.__aiApiConfig || {};
+        const body = {
+          prefix: `${getHostPromptPrefix()}${prompt}`,
+          mode: 'command',
+        };
+        if (customConfig.apiBase) body.apiBase = customConfig.apiBase;
+        if (customConfig.apiKey) body.apiKey = customConfig.apiKey;
+        if (customConfig.model) body.model = customConfig.model;
+
         const response = await requestJson('/api/complete', {
           method: 'POST',
-          body: JSON.stringify({
-            prefix: `${getHostPromptPrefix()}${prompt}`,
-            mode: 'command',
-          }),
+          body: JSON.stringify(body),
         });
 
         commandSuggestion = response.completion || '';

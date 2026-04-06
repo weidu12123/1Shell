@@ -13,6 +13,7 @@ const {
   HOSTS_FILE,
   PORT,
   ROOT_DIR,
+  USING_DEFAULT_CREDENTIALS,
 } = require('./src/config/env');
 const { createApp } = require('./src/app/createApp');
 const { createServer } = require('./src/app/createServer');
@@ -43,6 +44,8 @@ const { createHostService } = require('./src/services/host.service');
 const { createProbeService } = require('./src/services/probe.service');
 const { createSessionService } = require('./src/services/session.service');
 const { createFileService } = require('./src/services/file.service');
+const { createIpFilterService } = require('./src/services/ip-filter.service');
+const { createIpFilterRouter } = require('./src/routes/ip-filter.routes');
 
 // ─── 初始化核心服务 ─────────────────────────────────────────────────────
 const dataDir = path.join(ROOT_DIR, 'data');
@@ -61,14 +64,21 @@ const agentPtyService = createAgentPtyService({ hostService, providerRegistry: a
 const sshPool = createSshPool({ hostService });
 const bridgeService = createBridgeService({ hostService, auditService, sshPool });
 const fileService = createFileService({ hostService });
+const ipFilterService = createIpFilterService({ db });
 const mcpService = createMcpService({ bridgeService, hostService, auditService });
 
 // ─── 路由挂载 ───────────────────────────────────────────────────────────
 app.use('/api/auth', createAuthRouter(authService));
 
+// 健康检查：公开端点，无需鉴权（供 CI / K8s / 负载均衡器使用）
+app.use('/api', createHealthRouter({ isUsingFallbackSecret }));
+
 // Bridge 内部 API 和 MCP 使用 BRIDGE_TOKEN 鉴权，不走 Web session
 app.use('/api', createBridgeRouter({ bridgeService }));
 app.use('/mcp', createMcpRouter({ mcpService }));
+
+// IP 访问控制：在鉴权之前执行（未登录的请求也要过滤）
+app.use(ipFilterService.ipFilterMiddleware);
 
 // 以下路由需要 Web session 鉴权
 app.use('/api', authService.requireAuth);
@@ -80,10 +90,10 @@ app.use('/api', createHostRouter({
   auditService,
   isUsingFallbackSecret,
 }));
-app.use('/api', createHealthRouter({ isUsingFallbackSecret }));
 app.use('/api', createProbeRouter({ probeService }));
 app.use('/api', createAgentSetupRouter());
 app.use('/api', createFileRouter({ fileService }));
+app.use('/api', createIpFilterRouter({ ipFilterService }));
 
 // ─── Socket.IO ──────────────────────────────────────────────────────────
 io.use(authService.authenticateSocket);
@@ -105,6 +115,9 @@ server.listen(PORT, () => {
   log.info('1Shell 已启动', { port: PORT, url: `http://localhost:${PORT}`, db: db ? 'sqlite' : 'file' });
   if (isUsingFallbackSecret()) {
     log.warn('未设置 APP_SECRET，当前凭据加密使用默认开发密钥');
+  }
+  if (USING_DEFAULT_CREDENTIALS) {
+    log.warn('⚠️  当前使用默认登录凭据 admin/admin，请在 .env 中设置 APP_LOGIN_USERNAME 和 APP_LOGIN_PASSWORD');
   }
 });
 

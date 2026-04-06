@@ -12,7 +12,7 @@ const {
 const COMPLETION_PROMPTS = Object.freeze({
   chat: '你是智能输入补全引擎。根据前缀预测并补全内容。只返回补全部分，不重复前缀，不加解释，不超过两句话。',
   command: '你是 Linux Shell 专家。根据自然语言描述返回完整可执行命令，只返回命令本身，无解释，无 markdown。危险命令前加 # DANGER: 注释。',
-  terminalInline: '你是终端内联补全引擎。用户正在 shell 中输入命令。只返回当前光标后的补全文本，不重复已有输入，不加解释，不换行，不要包裹 markdown，不要返回多条候选。若不适合补全则返回空字符串。',
+  terminalInline: '你是终端命令行内联补全引擎。用户正在 shell 中输入命令或参数。只返回当前光标后需要追加的补全文本（不含已有输入），不加解释，不换行，不加 markdown，不返回多条候选。补全应优先考虑常见 CLI 命令名（如 curl、grep、docker 等）或合法参数，而不是普通英文单词。若输入已是完整命令或不适合补全则返回空字符串。',
   analyzeSelection: `你是终端输出诊断专家。用户在终端中选中了一段文本，请分析并返回如下 JSON（无任何额外字段，无 markdown 包裹）：
 {
   "summary": "一句话摘要，说明选中内容是什么（命令输出/错误/普通文本）",
@@ -32,8 +32,13 @@ const INLINE_COMPLETION_TIMEOUT_MS = 7000;
 
 function createAIService({ fetchImpl = fetch } = {}) {
   function resolveConfig(body = {}) {
+    let rawBase = (body.apiBase || ENV_API_BASE) + '';
+    // 自动补 /v1 后缀（兼容 One-API / New-API 等中转站）
+    if (rawBase && !/\/v1$/.test(rawBase)) {
+      rawBase = rawBase.replace(/\/$/, '') + '/v1';
+    }
     return {
-      base: ((body.apiBase || ENV_API_BASE) + '').replace(/\/$/, ''),
+      base: rawBase.replace(/\/$/, ''),
       key: body.apiKey || ENV_API_KEY,
       model: body.model || ENV_MODEL,
     };

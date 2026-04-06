@@ -187,15 +187,20 @@
       setLoading(true);
 
       try {
-        // 修复1：从 terminalAiModule 取 recentCommands，不依赖 sessionTerminalModule
+        const customConfig = window.__aiApiConfig || {};
         const recentCommands = getRecentCommands?.() || [];
+        const body = {
+          ...getHostPayload(),
+          selectedText,
+          recentCommands,
+        };
+        if (customConfig.apiBase) body.apiBase = customConfig.apiBase;
+        if (customConfig.apiKey) body.apiKey = customConfig.apiKey;
+        if (customConfig.model) body.model = customConfig.model;
+
         const result = await requestJson('/api/ai/terminal/analyze-selection', {
           method: 'POST',
-          body: JSON.stringify({
-            ...getHostPayload(),
-            selectedText,
-            recentCommands,
-          }),
+          body: JSON.stringify(body),
         });
         renderResult(result);
       } catch (error) {

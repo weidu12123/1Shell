@@ -14,6 +14,7 @@
     const loginScreenEl = document.getElementById('login-screen');
     const appShellEl = document.getElementById('app-shell');
     const loginFormEl = document.getElementById('login-form');
+    const loginUsernameEl = document.getElementById('login-username');
     const loginPasswordEl = document.getElementById('login-password');
     const logoutBtnEl = document.getElementById('logout-btn');
     let initialized = false;
@@ -35,7 +36,7 @@
       logoutBtnEl.classList.toggle('hidden', !state.authEnabled || !state.authenticated);
 
       if (!state.authenticated) {
-        requestAnimationFrame(() => loginPasswordEl.focus());
+        requestAnimationFrame(() => loginUsernameEl?.focus());
       }
     }
 
@@ -73,10 +74,27 @@
       try {
         await requestJson('/api/auth/login', {
           method: 'POST',
-          body: JSON.stringify({ password: loginPasswordEl.value }),
+          body: JSON.stringify({
+            username: loginUsernameEl?.value || '',
+            password: loginPasswordEl.value,
+          }),
         });
+        loginUsernameEl && (loginUsernameEl.value = '');
         loginPasswordEl.value = '';
         await checkAuthStatus();
+
+        // 登录凭据正确，但仍未进入主界面 → 极可能是 HTTP 下 Cookie 被浏览器拦截
+        if (!state.authenticated) {
+          const isHttp = window.location.protocol === 'http:';
+          const isNotLocalhost = !['localhost', '127.0.0.1', '::1'].includes(window.location.hostname);
+          if (isHttp && isNotLocalhost) {
+            loginErrorEl.textContent =
+              '登录凭据正确，但 Cookie 被浏览器拦截。' +
+              '请通过 HTTPS（域名 + SSL 证书）访问，或在浏览器设置中允许 http:// 下的 Cookie。';
+          } else {
+            loginErrorEl.textContent = '登录成功，但会话同步失败，请刷新页面重试。';
+          }
+        }
       } catch (error) {
         loginErrorEl.textContent = error.message;
       }

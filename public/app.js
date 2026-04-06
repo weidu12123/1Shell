@@ -111,6 +111,7 @@
   });
 
   terminalAiModule = window.createTerminalAiModule({
+    escapeHtml,
     getActiveHost,
     getSessionTerminalModule: () => sessionTerminalModule,
     requestJson,
@@ -177,25 +178,9 @@
     sessionTerminalModule.connectToHost(state.activeHostId, true).catch(showErrorMessage);
   });
 
-  // 移动端侧边栏 toggle
-  const sidebarEl = document.querySelector('.sidebar');
+  // 移动端侧边栏 toggle - 由 layout.js 处理
   const overlayEl = document.getElementById('mobile-overlay');
-  const menuBtnEl = document.getElementById('mobile-menu-btn');
-
-  function closeMobileSidebar() {
-    sidebarEl.classList.remove('mobile-open');
-    overlayEl.classList.remove('visible');
-  }
-
-  if (menuBtnEl) {
-    menuBtnEl.addEventListener('click', () => {
-      const isOpen = sidebarEl.classList.toggle('mobile-open');
-      overlayEl.classList.toggle('visible', isOpen);
-    });
-  }
-  if (overlayEl) {
-    overlayEl.addEventListener('click', closeMobileSidebar);
-  }
+  const sidebarEl = document.querySelector('.sidebar');
 
   document.addEventListener('keydown', (event) => {
     if (event.key === 'Escape') {
@@ -203,6 +188,8 @@
       probeModule.closeProbeDrawer();
       commandSuggestionModule.closeCmdModal();
       terminalAnalyzeModule.closePanel();
+      document.getElementById('settings-modal')?.classList.add('hidden');
+      document.getElementById('ai-api-modal')?.classList.add('hidden');
       // 分析面板关闭时恢复 AI Chat 面板
       document.querySelector('.ai-panel')?.classList.remove('ai-panel--hidden-by-analyze');
     }
@@ -212,6 +199,175 @@
       commandSuggestionModule.openCmdModal();
     }
   });
+
+  // ── 设置弹窗 ──────────────────────────────────────────────
+  const settingsBtn = document.getElementById('settings-btn');
+  const settingsModal = document.getElementById('settings-modal');
+  const settingsForm = document.getElementById('settings-form');
+  const settingsCloseBtn = document.getElementById('settings-modal-close');
+  const settingsErrorEl = document.getElementById('settings-error');
+
+  // Tab 切换
+  document.getElementById('settings-tabs')?.addEventListener('click', (e) => {
+    const btn = e.target.closest('.settings-tab-btn');
+    if (!btn) return;
+    const tab = btn.dataset.tab;
+    document.querySelectorAll('.settings-tab-btn').forEach(b => {
+      b.classList.toggle('bg-blue-500', b.dataset.tab === tab);
+      b.classList.toggle('text-white', b.dataset.tab === tab);
+      b.classList.toggle('border', b.dataset.tab !== tab);
+      b.classList.toggle('border-slate-200', b.dataset.tab !== tab);
+      b.classList.toggle('text-slate-500', b.dataset.tab !== tab);
+    });
+    document.querySelectorAll('.settings-tab-panel').forEach(p => {
+      p.classList.toggle('hidden', p.id !== `settings-tab-${tab}`);
+    });
+    if (tab === 'ipfilter') ipFilterModule.load();
+  });
+
+  // ── IP 访问控制模块 ───────────────────────────────────────
+  const ipFilterModule = (() => {
+    let rules = [];
+
+    function renderRules() {
+      const listEl = document.getElementById('ipf-rules-list');
+      const emptyEl = document.getElementById('ipf-empty-hint');
+      if (!rules.length) {
+        listEl.innerHTML = '';
+        emptyEl?.classList.remove('hidden');
+        listEl.appendChild(emptyEl);
+        return;
+      }
+      emptyEl?.classList.add('hidden');
+      listEl.innerHTML = rules.map(r => `
+        <div class="flex items-center px-3 py-2 text-xs gap-2 hover:bg-slate-50" data-rule-id="${r.id}">
+          <span class="w-16 shrink-0">
+            <span class="px-1.5 py-0.5 rounded text-[10px] font-semibold ${r.type === 'allow' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-600'}">
+              ${r.type === 'allow' ? '白名单' : '黑名单'}
+            </span>
+          </span>
+          <span class="flex-1 font-mono text-slate-700">${escapeHtml(r.cidr)}</span>
+          <span class="w-24 text-slate-400 truncate">${escapeHtml(r.note || '')}</span>
+          <button class="w-12 text-red-400 hover:text-red-600 transition-colors ipf-delete-btn" data-id="${r.id}" type="button">删除</button>
+        </div>
+      `).join('');
+
+      listEl.querySelectorAll('.ipf-delete-btn').forEach(btn => {
+        btn.addEventListener('click', async () => {
+          try {
+            await requestJson(`/api/ip-filter/rules/${btn.dataset.id}`, { method: 'DELETE' });
+            await load();
+            window.appShared.showToast('规则已删除', 'success');
+          } catch (e) { window.appShared.showErrorMessage(e); }
+        });
+      });
+    }
+
+    async function load() {
+      try {
+        const data = await requestJson('/api/ip-filter');
+        rules = data.rules || [];
+        document.getElementById('ipf-allowlist-toggle').checked = !!data.allowlistEnabled;
+        document.getElementById('ipf-denylist-toggle').checked = !!data.denylistEnabled;
+        renderRules();
+      } catch (e) { window.appShared.showErrorMessage(e); }
+    }
+
+    async function saveToggle(key, value) {
+      try {
+        await requestJson('/api/ip-filter/config', {
+          method: 'PATCH',
+          body: JSON.stringify({ [key]: value }),
+        });
+        window.appShared.showToast(value ? '已开启' : '已关闭', 'success');
+      } catch (e) {
+        window.appShared.showErrorMessage(e);
+        await load(); // 失败时回滚开关状态
+      }
+    }
+
+    document.getElementById('ipf-allowlist-toggle')?.addEventListener('change', e => {
+      saveToggle('allowlistEnabled', e.target.checked);
+    });
+    document.getElementById('ipf-denylist-toggle')?.addEventListener('change', e => {
+      saveToggle('denylistEnabled', e.target.checked);
+    });
+
+    document.getElementById('ipf-add-btn')?.addEventListener('click', async () => {
+      const type = document.getElementById('ipf-new-type').value;
+      const cidr = document.getElementById('ipf-new-cidr').value.trim();
+      const note = document.getElementById('ipf-new-note').value.trim();
+      if (!cidr) {
+        window.appShared.showToast('请输入 IP 或 CIDR', 'warn');
+        return;
+      }
+      try {
+        await requestJson('/api/ip-filter/rules', {
+          method: 'POST',
+          body: JSON.stringify({ type, cidr, note }),
+        });
+        document.getElementById('ipf-new-cidr').value = '';
+        document.getElementById('ipf-new-note').value = '';
+        await load();
+        window.appShared.showToast('规则已添加', 'success');
+      } catch (e) { window.appShared.showErrorMessage(e); }
+    });
+
+    return { load };
+  })();
+
+  if (settingsBtn && settingsModal) {
+    settingsBtn.addEventListener('click', () => {
+      settingsErrorEl.textContent = '';
+      document.getElementById('settings-username').value = '';
+      document.getElementById('settings-password').value = '';
+      document.getElementById('settings-password-confirm').value = '';
+      // 默认显示账号标签
+      document.querySelectorAll('.settings-tab-btn').forEach(b => {
+        const isAccount = b.dataset.tab === 'account';
+        b.classList.toggle('bg-blue-500', isAccount);
+        b.classList.toggle('text-white', isAccount);
+        b.classList.toggle('border', !isAccount);
+        b.classList.toggle('border-slate-200', !isAccount);
+        b.classList.toggle('text-slate-500', !isAccount);
+      });
+      document.querySelectorAll('.settings-tab-panel').forEach(p => {
+        p.classList.toggle('hidden', p.id !== 'settings-tab-account');
+      });
+      settingsModal.classList.remove('hidden');
+    });
+
+    settingsCloseBtn?.addEventListener('click', () => {
+      settingsModal.classList.add('hidden');
+    });
+
+    settingsForm?.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      settingsErrorEl.textContent = '';
+
+      const username = document.getElementById('settings-username').value.trim();
+      const password = document.getElementById('settings-password').value;
+      const passwordConfirm = document.getElementById('settings-password-confirm').value;
+
+      if (password && password !== passwordConfirm) {
+        settingsErrorEl.textContent = '两次输入的口令不一致';
+        return;
+      }
+
+      // 保存到 localStorage
+      const newCreds = {};
+      if (username) newCreds.username = username;
+      if (password) newCreds.password = password;
+
+      if (Object.keys(newCreds).length > 0) {
+        const existing = JSON.parse(localStorage.getItem('1shell-settings-creds') || '{}');
+        const merged = { ...existing, ...newCreds };
+        localStorage.setItem('1shell-settings-creds', JSON.stringify(merged));
+        settingsModal.classList.add('hidden');
+        window.appShared?.showToast?.('设置已保存，下次登录生效', 'success', 2000);
+      }
+    });
+  }
 
   // 终端 Tabs 接入真实会话
   if (typeof window.initTerminalTabs === 'function') {

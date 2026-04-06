@@ -1,5 +1,7 @@
 'use strict';
 
+const { TRUSTED_PROXY_IPS } = require('../config/env');
+
 /**
  * 简易滑动窗口限流中间件
  *
@@ -25,9 +27,13 @@ function createRateLimiter({
   cleanupInterval.unref?.();
 
   return function rateLimiter(req, res, next) {
-    const ip = req.headers['x-forwarded-for']?.split(',')[0]?.trim()
-      || req.socket?.remoteAddress
-      || 'unknown';
+    const remoteIp = req.socket?.remoteAddress || 'unknown';
+    // 只有来自受信任代理 IP 的请求才读取 X-Forwarded-For，防止伪造绕过限流
+    let ip = remoteIp;
+    if (TRUSTED_PROXY_IPS.length > 0 && TRUSTED_PROXY_IPS.includes(remoteIp)) {
+      const forwarded = req.headers['x-forwarded-for'];
+      if (forwarded) ip = String(forwarded).split(',')[0].trim();
+    }
 
     const now = Date.now();
     let record = clients.get(ip);

@@ -22,6 +22,12 @@ function registerSessionSocketHandlers(io, { sessionService }) {
         const validated = validateSessionCreatePayload(payload);
         const cols = normalizePort(validated.cols, DEFAULT_COLS);
         const rows = normalizePort(validated.rows, DEFAULT_ROWS);
+        log.info('终端会话创建', {
+          socketId: socket.id,
+          hostId: validated.hostId,
+          cols,
+          rows,
+        });
         const session = sessionService.createSessionForHost(socket, validated.hostId, cols, rows);
         reply({ ok: true, session: sessionService.serializeSession(session) });
       } catch (err) {
@@ -32,6 +38,12 @@ function registerSessionSocketHandlers(io, { sessionService }) {
     socket.on('session:input', (payload = {}) => {
       try {
         const validated = validateSessionInputPayload(payload);
+        log.info('终端输入', {
+          socketId: socket.id,
+          sessionId: validated.sessionId,
+          dataLength: String(validated.data || '').length,
+          preview: String(validated.data || '').slice(0, 40),
+        });
         sessionService.writeToSession(socket.id, validated.sessionId, validated.data);
       } catch {
         // ignore invalid payload

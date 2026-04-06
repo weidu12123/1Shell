@@ -115,56 +115,9 @@ function createSessionService({ hostService }) {
   function createLocalSession(socket, host, cols, rows) {
     const session = createSessionBase(socket, host);
     const shell = resolveLocalShell();
-    const args = os.platform() === 'win32' ? [] : ['-l'];
-
-    if (os.platform() === 'win32') {
-      const child = spawn(shell, args, {
-        cwd: os.homedir(),
-        env: process.env,
-        stdio: ['pipe', 'pipe', 'pipe'],
-      });
-
-      session.write = (data) => {
-        if (!session.isFinalized) child.stdin.write(data);
-      };
-
-      session.resize = () => {
-        // child_process fallback does not support PTY resize on Windows
-      };
-
-      session.dispose = () => {
-        try { child.kill(); } catch { /* ignore */ }
-      };
-
-      const handleOutput = (chunk) => {
-        if (session.isFinalized) return;
-        socket.emit('session:output', {
-          sessionId: session.id,
-          hostId: session.hostId,
-          data: chunk.toString('utf8'),
-        });
-      };
-
-      child.stdout.on('data', handleOutput);
-      child.stderr.on('data', handleOutput);
-
-      child.on('error', (childError) => {
-        finalizeSession(socket, session, 'error', { error: childError.message });
-      });
-
-      child.on('close', (exitCode, signal) => {
-        finalizeSession(socket, session, 'closed', { exitCode, signal });
-      });
-
-      session.status = 'ready';
-      emitSessionStatus(socket, session, {
-        warning: 'Windows 开发环境下本机会话使用 child_process 回退，暂不支持完整 PTY resize。',
-      });
-      return session;
-    }
 
     try {
-      const ptyProcess = pty.spawn(shell, args, {
+      const ptyProcess = pty.spawn(shell, [], {
         name: 'xterm-256color',
         cols,
         rows,

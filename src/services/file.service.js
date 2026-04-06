@@ -15,11 +15,67 @@ const os = require('os');
  * sshPool 为 exec 模式设计，SFTP 需要长连接且操作模式不同。
  */
 function createFileService({ hostService }) {
+  // 应用敏感路径：阻止文件浏览 API 访问自身凭据和配置
+  const APP_ROOT = path.resolve(__dirname, '..', '..');
+  const SENSITIVE_PATHS = [
+    path.join(APP_ROOT, 'data'),
+    path.join(APP_ROOT, '.env'),
+  ];
+
+  /**
+   * 检查路径是否指向应用自身的敏感目录/文件
+   */
+  function isSensitivePath(targetPath) {
+    const resolved = path.resolve(targetPath);
+    return SENSITIVE_PATHS.some((sensitive) =>
+      resolved === sensitive || resolved.startsWith(sensitive + path.sep),
+    );
+  }
+  /**
+   * 获取 Windows 所有可用盘符
+   */
+  function getWindowsDrives() {
+    const drives = [];
+    const possibleDrives = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('');
+    for (const letter of possibleDrives) {
+      const drivePath = `${letter}:\\`;
+      try {
+        fs.accessSync(drivePath);
+        drives.push({
+          name: `${letter}:\\`,
+          path: drivePath,
+          isDir: true,
+          size: 0,
+          mtime: 0,
+          isDrive: true,
+        });
+      } catch {
+        // 盘符不存在或不可访问
+      }
+    }
+    return drives;
+  }
+
   /**
    * 列出本机目录内容
    */
   async function listLocal(dirPath) {
-    const resolvedPath = dirPath || os.homedir();
+    // Windows 下如果 dirPath 为空，返回所有盘符列表
+    if (os.platform() === 'win32' && (!dirPath || dirPath.trim() === '')) {
+      return {
+        path: '此电脑',
+        parent: null,
+        items: getWindowsDrives(),
+        isRoot: true,
+      };
+    }
+
+    const resolvedPath = dirPath ? path.resolve(dirPath) : os.homedir();
+
+    if (isSensitivePath(resolvedPath)) {
+      throw new Error('访问被拒绝：该路径为应用敏感目录');
+    }
+
     const entries = await fs.promises.readdir(resolvedPath, { withFileTypes: true });
 
     const items = [];
@@ -27,12 +83,14 @@ function createFileService({ hostService }) {
       const name = entry.name;
       try {
         const fullPath = path.join(resolvedPath, name);
+        // 从列表中隐藏应用敏感路径
+        if (isSensitivePath(fullPath)) continue;
         const isDir = entry.isDirectory();
         const stat = await fs.promises.stat(fullPath).catch(() => null);
 
         items.push({
           name,
-          path: fullPath.replace(/\\/g, '/'),
+          path: fullPath,
           isDir,
           size: stat ? stat.size : 0,
           mtime: stat ? stat.mtimeMs : 0,
@@ -47,10 +105,15 @@ function createFileService({ hostService }) {
       return a.name.localeCompare(b.name);
     });
 
+    const parentDir = path.dirname(resolvedPath);
+    // Windows 盘符根目录的 parent 是自身（如 C:\ 的 dirname 还是 C:\）
+    const isDriveRoot = /^[A-Z]:\\$/i.test(resolvedPath);
+
     return {
-      path: resolvedPath.replace(/\\/g, '/'),
-      parent: path.dirname(resolvedPath).replace(/\\/g, '/'),
+      path: resolvedPath,
+      parent: isDriveRoot ? null : parentDir,
       items,
+      isRoot: isDriveRoot,
     };
   }
 
@@ -164,17 +227,23 @@ function createFileService({ hostService }) {
    * 读取本机文件内容
    */
   async function readLocalFile(filePath, maxBytes = 512 * 1024) {
-    const stat = await fs.promises.stat(filePath);
+    const resolved = path.resolve(filePath);
+
+    if (isSensitivePath(resolved)) {
+      throw new Error('访问被拒绝：该文件为应用敏感文件');
+    }
+
+    const stat = await fs.promises.stat(resolved);
 
     if (stat.size > maxBytes) {
       throw new Error(`文件过大 (${(stat.size / 1024 / 1024).toFixed(1)}MB)，最大支持 ${(maxBytes / 1024 / 1024).toFixed(1)}MB 预览`);
     }
 
-    const content = await fs.promises.readFile(filePath, 'utf8');
+    const content = await fs.promises.readFile(resolved, 'utf8');
     return {
       content,
       size: stat.size,
-      path: filePath.replace(/\\/g, '/'),
+      path: resolved.replace(/\\/g, '/'),
     };
   }
 

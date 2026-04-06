@@ -1,6 +1,7 @@
 'use strict';
 
 const express = require('express');
+const log = require('../../lib/logger');
 const {
   validateChatRequestBody,
   validateCompletionRequestBody,
@@ -95,7 +96,22 @@ function createAiRouter(aiService) {
 
   router.post('/ai/terminal/complete-inline', inlineLimiter, async (req, res, next) => {
     try {
-      const result = await aiService.requestTerminalInlineCompletion(validateTerminalInlineCompletionBody(req.body));
+      const body = validateTerminalInlineCompletionBody(req.body);
+      log.info('终端补全请求', {
+        method: req.method,
+        url: req.originalUrl,
+        hostId: body.hostId,
+        currentInputLength: String(body.currentInput || '').length,
+        recentCommandsCount: Array.isArray(body.recentCommands) ? body.recentCommands.length : 0,
+      });
+      const result = await aiService.requestTerminalInlineCompletion(body);
+      log.info('终端补全响应', {
+        hostId: body.hostId,
+        currentInputLength: String(body.currentInput || '').length,
+        completionLength: String(result.completion || '').length,
+        confidence: result.confidence,
+        hasRequestId: Boolean(result.requestId),
+      });
       res.json(result);
     } catch (error) {
       next(error);

@@ -7,6 +7,11 @@
 button { cursor: pointer; font-family: inherit; }
 .hidden { display: none !important; }
 
+/* ── 伪元素定位基准（渐变装饰线需要） ───────────────────── */
+.topbar, .terminal-area, .ai-panel, .agent-side-panel,
+.modal-box, .drawer, .login-screen > div,
+#lp-vps-section, #lp-file-section, #terminal-tabs { position: relative; }
+
 /* ── 状态点动态颜色（JS 动态设置 class） ─────────────────── */
 .status-dot.connecting { background: #d97706 !important; }
 .status-dot.ready, .status-dot.online { background: #059669 !important; }
@@ -211,17 +216,47 @@ button { cursor: pointer; font-family: inherit; }
 .analyze-insert-confirm .btn-secondary { background: #2d2d4a; border: 1px solid #3d3d6b; color: #e2e8f0; min-height: 28px; padding: 0 10px; font-size: 12px; border-radius: 6px; }
 
 /* ── 移动端响应式 ─────────────────────────────────────────── */
-
-/* 中屏：左栏收窄，右面板隐藏 */
 @media (max-width: 1024px) {
   .left-panel { width: 180px !important; }
   .right-panel { display: none !important; }
+  /* 底部抽屉模式：AI 面板弹出为全宽抽屉 */
+  .right-panel.mobile-ai-open {
+    display: flex !important;
+    position: fixed !important;
+    bottom: 0; left: 0; right: 0;
+    width: 100% !important;
+    height: 65vh;
+    max-height: 65vh;
+    z-index: 1400;
+    border-radius: 16px 16px 0 0 !important;
+    box-shadow: 0 -8px 32px rgba(0,0,0,0.18) !important;
+    overflow: hidden;
+    flex-direction: column;
+    animation: _drawer-up 0.28s cubic-bezier(0.4,0,0.2,1);
+  }
+  @keyframes _drawer-up {
+    from { transform: translateY(60%); opacity: 0; }
+    to   { transform: translateY(0);   opacity: 1; }
+  }
+  /* 抽屉打开时的遮罩 */
+  .mobile-ai-backdrop {
+    display: none;
+  }
+  .mobile-ai-backdrop.active {
+    display: block;
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.4);
+    z-index: 1399;
+    animation: _fade-in 0.2s ease;
+  }
+  @keyframes _fade-in {
+    from { opacity: 0; }
+    to   { opacity: 1; }
+  }
 }
-
-/* 小屏：左栏变为滑出抽屉，右面板隐藏 */
 @media (max-width: 768px) {
   .main-content { flex-direction: column !important; }
-
   .sidebar.left-panel {
     position: fixed !important; top: 0; left: 0;
     width: 85vw !important; max-width: 320px; height: 100vh !important;
@@ -234,25 +269,19 @@ button { cursor: pointer; font-family: inherit; }
   }
   .dark .sidebar.left-panel { background: #111827; }
   .sidebar.left-panel.mobile-open { transform: translateX(0) !important; }
-
   .ai-panel.right-panel { display: none !important; }
+  .ai-panel.right-panel.mobile-ai-open { display: flex !important; }
   .terminal-area { border-radius: 12px !important; }
-
-  /* 顶栏紧凑 */
   .topbar { height: auto !important; min-height: 44px; padding: 6px 10px !important; flex-wrap: wrap; gap: 4px; }
   #topbar-probe-info { display: none !important; }
   .topbar-actions { flex-wrap: wrap; gap: 3px; }
   .topbar-actions button { height: 28px !important; padding: 0 6px !important; font-size: 10px !important; }
-
-  /* 终端 tabs 可横向滚动 */
   #terminal-tabs { overflow-x: auto; flex-wrap: nowrap; }
 }
 
 /* ══════════════════════════════════════════════════════════
    暗色主题：JS 动态渲染的组件覆盖
    ══════════════════════════════════════════════════════════ */
-
-/* 主机卡片 */
 .dark .host-item { background: #111827; border-color: #1e293b; }
 .dark .host-item:hover { border-color: #3b82f6; background: #1a2332; }
 .dark .host-item.active { border-color: #3b82f6; background: rgba(59,130,246,0.12); }
@@ -265,13 +294,11 @@ button { cursor: pointer; font-family: inherit; }
 .dark .host-link-chip { background: rgba(59,130,246,0.12); border-color: rgba(59,130,246,0.35); color: #93c5fd; }
 .dark .host-empty { color: #64748b; border-color: #1e293b; }
 
-/* AI 聊天气泡 */
 .dark .avatar { background: #1e293b; color: #94a3b8; }
 .dark .message.user .avatar { background: rgba(59,130,246,0.2); color: #60a5fa; }
 .dark .bubble { background: #1a2332; border-color: #1e293b; color: #e2e8f0; }
 .dark .message.user .bubble { background: rgba(59,130,246,0.12); border-color: rgba(59,130,246,0.35); }
 
-/* 探针卡片 */
 .dark .probe-summary-item { background: #111827; border-color: #1e293b; }
 .dark .probe-stat-value { color: #e2e8f0; }
 .dark .probe-stat-label { color: #64748b; }
@@ -282,12 +309,593 @@ button { cursor: pointer; font-family: inherit; }
 .dark .probe-detail-block { background: #0b1324; border-color: #1e293b; }
 .dark .probe-detail-toggle { background: rgba(59,130,246,0.12); border-color: rgba(59,130,246,0.35); color: #93c5fd; }
 
-/* 链接编辑器 */
 .dark .link-row { background: #0b1324; border-color: #1e293b; }
-
-/* 认证 Tab */
 .dark .auth-tab { background: #1a2332; border-color: #1e293b; color: #94a3b8; }
 .dark .auth-tab.active { border-color: #3b82f6 !important; background: rgba(59,130,246,0.18) !important; color: #60a5fa !important; }
-
-/* Banner */
 .dark .banner { background: rgba(217,119,6,0.12); border-color: rgba(217,119,6,0.35); color: #fbbf24; }
+
+/* ══════════════════════════════════════════════════════════
+   美化追加层 — 仅视觉增强，不碰任何布局属性
+   ══════════════════════════════════════════════════════════ */
+
+/* ── 1. body 背景：光晕 + 科技点阵 ─────────────────────── */
+body {
+  background-image:
+    radial-gradient(ellipse 80% 50% at 50% -5%, rgba(99,149,255,0.22) 0%, transparent 60%),
+    radial-gradient(ellipse 50% 40% at 100% 100%, rgba(168,85,247,0.12) 0%, transparent 55%),
+    radial-gradient(ellipse 40% 35% at 0% 80%, rgba(56,189,248,0.08) 0%, transparent 50%),
+    radial-gradient(circle 1px at center, rgba(148,163,184,0.18) 1px, transparent 1px);
+  background-size: 100% 100%, 100% 100%, 100% 100%, 24px 24px;
+  background-repeat: no-repeat, no-repeat, no-repeat, repeat;
+  background-attachment: fixed;
+}
+.dark body {
+  background-image:
+    radial-gradient(ellipse 70% 50% at 50% -5%, rgba(59,130,246,0.20) 0%, transparent 60%),
+    radial-gradient(ellipse 45% 40% at 0% 100%, rgba(124,58,237,0.14) 0%, transparent 55%),
+    radial-gradient(ellipse 35% 30% at 100% 0%, rgba(56,189,248,0.07) 0%, transparent 50%),
+    radial-gradient(circle 1px at center, rgba(148,163,184,0.06) 1px, transparent 1px);
+  background-size: 100% 100%, 100% 100%, 100% 100%, 24px 24px;
+  background-repeat: no-repeat, no-repeat, no-repeat, repeat;
+  background-attachment: fixed;
+}
+
+/* ── 2. 登录页美化 ──────────────────────────────────────── */
+.login-screen {
+  background-image:
+    radial-gradient(ellipse 60% 55% at 30% 20%, rgba(99,149,255,0.18) 0%, transparent 60%),
+    radial-gradient(ellipse 50% 50% at 80% 80%, rgba(168,85,247,0.14) 0%, transparent 55%),
+    linear-gradient(180deg, transparent 0%, rgba(148,163,184,0.04) 100%) !important;
+}
+.login-screen > div {
+  box-shadow:
+    0 25px 60px -15px rgba(0,0,0,0.12),
+    0 0 0 1px rgba(255,255,255,0.25),
+    inset 0 1px 0 rgba(255,255,255,0.60) !important;
+}
+.login-screen > div::before {
+  content: '';
+  position: absolute; top: 0; left: 0; right: 0; height: 3px;
+  background: linear-gradient(90deg, #3b82f6, #8b5cf6, #06b6d4, #3b82f6);
+  background-size: 300% 100%;
+  border-radius: 24px 24px 0 0;
+  animation: _gradient-slide 4s linear infinite;
+}
+.dark .login-screen > div {
+  box-shadow:
+    0 25px 60px -15px rgba(0,0,0,0.50),
+    0 0 0 1px rgba(59,130,246,0.15),
+    inset 0 1px 0 rgba(255,255,255,0.05) !important;
+}
+@keyframes _gradient-slide {
+  0%   { background-position: 0% 50%; }
+  100% { background-position: 300% 50%; }
+}
+
+/* ── 3. 顶栏：渐变底线 + 玻璃质感 ──────────────────────── */
+.topbar {
+  background-image: linear-gradient(100deg,
+    rgba(219,234,254,0.30) 0%,
+    rgba(237,233,254,0.18) 50%,
+    rgba(207,250,254,0.12) 100%) !important;
+  box-shadow:
+    0 2px 12px rgba(71,85,105,0.08),
+    inset 0 1px 0 rgba(255,255,255,0.85) !important;
+}
+.topbar::after {
+  content: '';
+  position: absolute; bottom: 0; left: 12px; right: 12px; height: 2px;
+  background: linear-gradient(90deg,
+    transparent 0%, rgba(59,130,246,0.4) 20%,
+    rgba(139,92,246,0.3) 50%,
+    rgba(6,182,212,0.4) 80%, transparent 100%);
+  border-radius: 2px;
+}
+.dark .topbar {
+  background-image: linear-gradient(100deg,
+    rgba(59,130,246,0.08) 0%,
+    rgba(124,58,237,0.05) 50%,
+    rgba(56,189,248,0.04) 100%) !important;
+  box-shadow:
+    0 4px 20px rgba(0,0,0,0.35),
+    inset 0 1px 0 rgba(255,255,255,0.05) !important;
+}
+.dark .topbar::after {
+  background: linear-gradient(90deg,
+    transparent 0%, rgba(59,130,246,0.5) 20%,
+    rgba(139,92,246,0.4) 50%,
+    rgba(6,182,212,0.5) 80%, transparent 100%);
+}
+
+/* ── 4. 面板：顶部渐变线 + 阴影增强 ────────────────────── */
+#lp-vps-section, #lp-file-section {
+  box-shadow:
+    0 4px 16px rgba(71,85,105,0.07),
+    inset 0 1px 0 rgba(255,255,255,0.85) !important;
+}
+#lp-vps-section::before, #lp-file-section::before {
+  content: '';
+  position: absolute; top: 0; left: 8px; right: 8px; height: 2px;
+  background: linear-gradient(90deg,
+    transparent 0%, rgba(59,130,246,0.35) 30%,
+    rgba(139,92,246,0.25) 70%, transparent 100%);
+  border-radius: 0 0 2px 2px;
+  z-index: 1;
+}
+.dark #lp-vps-section, .dark #lp-file-section {
+  box-shadow:
+    0 4px 20px rgba(0,0,0,0.40),
+    inset 0 1px 0 rgba(255,255,255,0.05) !important;
+}
+.dark #lp-vps-section::before, .dark #lp-file-section::before {
+  background: linear-gradient(90deg,
+    transparent 0%, rgba(59,130,246,0.45) 30%,
+    rgba(139,92,246,0.35) 70%, transparent 100%);
+}
+.terminal-area {
+  box-shadow:
+    0 4px 20px rgba(71,85,105,0.08),
+    inset 0 1px 0 rgba(255,255,255,0.85) !important;
+}
+.terminal-area::before {
+  content: '';
+  position: absolute; top: 0; left: 10px; right: 10px; height: 2px;
+  background: linear-gradient(90deg,
+    transparent 0%, rgba(6,182,212,0.3) 25%,
+    rgba(59,130,246,0.4) 50%,
+    rgba(139,92,246,0.3) 75%, transparent 100%);
+  border-radius: 0 0 2px 2px;
+  z-index: 1;
+}
+.dark .terminal-area {
+  box-shadow:
+    0 6px 28px rgba(0,0,0,0.50),
+    inset 0 1px 0 rgba(255,255,255,0.05) !important;
+}
+.dark .terminal-area::before {
+  background: linear-gradient(90deg,
+    transparent 0%, rgba(6,182,212,0.4) 25%,
+    rgba(59,130,246,0.5) 50%,
+    rgba(139,92,246,0.4) 75%, transparent 100%);
+}
+.ai-panel {
+  box-shadow:
+    0 4px 16px rgba(71,85,105,0.07),
+    inset 0 1px 0 rgba(255,255,255,0.85) !important;
+}
+.ai-panel::before {
+  content: '';
+  position: absolute; top: 0; left: 8px; right: 8px; height: 2px;
+  background: linear-gradient(90deg,
+    transparent 0%, rgba(139,92,246,0.35) 30%,
+    rgba(59,130,246,0.25) 70%, transparent 100%);
+  border-radius: 0 0 2px 2px;
+  z-index: 1;
+}
+.dark .ai-panel {
+  box-shadow:
+    0 4px 20px rgba(0,0,0,0.40),
+    inset 0 1px 0 rgba(255,255,255,0.05) !important;
+}
+.dark .ai-panel::before {
+  background: linear-gradient(90deg,
+    transparent 0%, rgba(139,92,246,0.45) 30%,
+    rgba(59,130,246,0.35) 70%, transparent 100%);
+}
+
+/* ── 5. 通用按钮美化 ───────────────────────────────────── */
+.topbar-actions button {
+  transition: all 0.2s cubic-bezier(0.4,0,0.2,1) !important;
+  position: relative;
+  overflow: hidden;
+}
+.topbar-actions button:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 3px 10px rgba(59,130,246,0.15);
+}
+.topbar-actions button:active {
+  transform: translateY(0) scale(0.97);
+}
+/* 渐变按钮发光效果 */
+.topbar-actions button[id="ai-api-config-btn"] {
+  box-shadow: 0 2px 10px rgba(139,92,246,0.25) !important;
+}
+.topbar-actions button[id="ai-api-config-btn"]:hover {
+  box-shadow: 0 4px 20px rgba(139,92,246,0.40) !important;
+}
+.dark .topbar-actions button:hover {
+  box-shadow: 0 3px 12px rgba(59,130,246,0.25);
+}
+/* 登录按钮 */
+#login-submit-btn {
+  background: linear-gradient(135deg, #3b82f6 0%, #6366f1 50%, #8b5cf6 100%) !important;
+  background-size: 200% 200% !important;
+  box-shadow: 0 4px 15px rgba(59,130,246,0.35);
+  transition: all 0.3s cubic-bezier(0.4,0,0.2,1);
+}
+#login-submit-btn:hover {
+  background-position: 100% 0 !important;
+  box-shadow: 0 6px 25px rgba(99,102,241,0.45);
+  transform: translateY(-1px);
+}
+#login-submit-btn:active {
+  transform: translateY(0) scale(0.98);
+}
+/* 发送按钮 */
+.send-btn {
+  background: linear-gradient(135deg, #3b82f6 0%, #6366f1 100%) !important;
+  box-shadow: 0 3px 10px rgba(59,130,246,0.30);
+  transition: all 0.2s cubic-bezier(0.4,0,0.2,1) !important;
+}
+.send-btn:hover {
+  box-shadow: 0 5px 18px rgba(99,102,241,0.40) !important;
+  transform: translateY(-1px);
+}
+/* 弹窗中主要按钮 */
+.btn-primary {
+  transition: all 0.2s cubic-bezier(0.4,0,0.2,1) !important;
+}
+.btn-primary:hover {
+  box-shadow: 0 4px 16px rgba(59,130,246,0.35);
+  transform: translateY(-1px);
+}
+.btn-primary:active {
+  transform: translateY(0) scale(0.97);
+}
+/* icon-btn 和 btn-secondary 优化 */
+.icon-btn, .btn-secondary {
+  transition: all 0.18s cubic-bezier(0.4,0,0.2,1) !important;
+}
+.icon-btn:hover, .btn-secondary:hover {
+  transform: translateY(-0.5px);
+}
+.icon-btn:active, .btn-secondary:active {
+  transform: translateY(0) scale(0.97);
+}
+
+/* ── 6. 主机卡片：左侧彩线 + hover 动画 ───────────────── */
+.host-item {
+  transition: all 0.22s cubic-bezier(0.4,0,0.2,1) !important;
+  border-left: 3px solid transparent !important;
+}
+.host-item:hover {
+  transform: translateY(-1px);
+  border-left-color: rgba(59,130,246,0.5) !important;
+  box-shadow: 0 4px 14px rgba(59,130,246,0.12) !important;
+}
+.host-item.active {
+  border-left-color: #3b82f6 !important;
+  box-shadow: 0 0 0 1px rgba(59,130,246,0.20),
+              0 3px 12px rgba(59,130,246,0.12) !important;
+}
+.dark .host-item:hover {
+  border-left-color: rgba(59,130,246,0.6) !important;
+  box-shadow: 0 4px 16px rgba(59,130,246,0.20) !important;
+}
+.dark .host-item.active {
+  border-left-color: #60a5fa !important;
+  box-shadow: 0 0 0 1px rgba(59,130,246,0.35),
+              0 3px 14px rgba(59,130,246,0.22) !important;
+}
+
+/* ── 7. 状态点呼吸动画 ─────────────────────────────────── */
+.status-dot.ready, .status-dot.online {
+  animation: _pulse-green 2.4s ease-out infinite;
+}
+.status-dot.connecting {
+  animation: _pulse-amber 1.4s ease-out infinite;
+}
+@keyframes _pulse-green {
+  0%   { box-shadow: 0 0 0 0   rgba(5,150,105,0.55); }
+  55%  { box-shadow: 0 0 0 6px rgba(5,150,105,0);    }
+  100% { box-shadow: 0 0 0 0   rgba(5,150,105,0);    }
+}
+@keyframes _pulse-amber {
+  0%   { box-shadow: 0 0 0 0   rgba(217,119,6,0.55); }
+  55%  { box-shadow: 0 0 0 6px rgba(217,119,6,0);    }
+  100% { box-shadow: 0 0 0 0   rgba(217,119,6,0);    }
+}
+
+/* ── 8. AI 聊天气泡渐变 ────────────────────────────────── */
+.bubble {
+  background: linear-gradient(135deg, #f8fafc 0%, #f0f4ff 100%) !important;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.75),
+              0 1px 4px rgba(0,0,0,0.05) !important;
+}
+.message.user .bubble {
+  background: linear-gradient(135deg, #eff6ff 0%, #e0e7ff 100%) !important;
+}
+.dark .bubble {
+  background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%) !important;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.04),
+              0 1px 4px rgba(0,0,0,0.25) !important;
+}
+.dark .message.user .bubble {
+  background: linear-gradient(135deg,
+    rgba(59,130,246,0.18) 0%, rgba(99,102,241,0.10) 100%) !important;
+}
+
+/* ── 9. 探针卡片 hover 上浮 ────────────────────────────── */
+.probe-card {
+  transition: all 0.22s cubic-bezier(0.4,0,0.2,1) !important;
+}
+.probe-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 24px rgba(71,85,105,0.12) !important;
+}
+.dark .probe-card:hover {
+  box-shadow: 0 8px 24px rgba(0,0,0,0.35) !important;
+}
+
+/* ── 10. 滚动条渐变 ────────────────────────────────────── */
+::-webkit-scrollbar { width: 4px; height: 4px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb {
+  background: linear-gradient(180deg,
+    rgba(99,149,255,0.35) 0%, rgba(168,85,247,0.30) 100%);
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: linear-gradient(180deg,
+    rgba(99,149,255,0.60) 0%, rgba(168,85,247,0.55) 100%);
+}
+.dark ::-webkit-scrollbar-thumb {
+  background: linear-gradient(180deg,
+    rgba(59,130,246,0.35) 0%, rgba(124,58,237,0.30) 100%);
+}
+.dark ::-webkit-scrollbar-thumb:hover {
+  background: linear-gradient(180deg,
+    rgba(59,130,246,0.60) 0%, rgba(124,58,237,0.55) 100%);
+}
+
+/* ── 11. 弹窗美化 ──────────────────────────────────────── */
+.modal-box, .drawer {
+  box-shadow:
+    0 25px 60px -12px rgba(0,0,0,0.20),
+    0 0 0 1px rgba(255,255,255,0.12) !important;
+}
+.modal-box::before, .drawer::before {
+  content: '';
+  position: absolute; top: 0; left: 12px; right: 12px; height: 2px;
+  background: linear-gradient(90deg,
+    transparent 0%, rgba(59,130,246,0.4) 25%,
+    rgba(139,92,246,0.4) 50%,
+    rgba(6,182,212,0.4) 75%, transparent 100%);
+  border-radius: 0 0 2px 2px;
+  z-index: 1;
+}
+.dark .modal-box, .dark .drawer {
+  box-shadow:
+    0 25px 60px -12px rgba(0,0,0,0.60),
+    0 0 0 1px rgba(59,130,246,0.12) !important;
+}
+.dark .modal-box::before, .dark .drawer::before {
+  background: linear-gradient(90deg,
+    transparent 0%, rgba(59,130,246,0.5) 25%,
+    rgba(139,92,246,0.5) 50%,
+    rgba(6,182,212,0.5) 75%, transparent 100%);
+}
+
+/* ── 12. Agent 面板渐变线 ──────────────────────────────── */
+.agent-side-panel {
+  box-shadow:
+    0 4px 16px rgba(71,85,105,0.07),
+    inset 0 1px 0 rgba(255,255,255,0.85) !important;
+}
+.agent-side-panel::before {
+  content: '';
+  position: absolute; top: 0; left: 8px; right: 8px; height: 2px;
+  background: linear-gradient(90deg,
+    transparent 0%, rgba(139,92,246,0.4) 30%,
+    rgba(168,85,247,0.35) 70%, transparent 100%);
+  border-radius: 0 0 2px 2px;
+  z-index: 1;
+}
+.dark .agent-side-panel {
+  box-shadow:
+    0 4px 20px rgba(0,0,0,0.40),
+    inset 0 1px 0 rgba(255,255,255,0.05) !important;
+}
+
+/* ── 13. 输入框聚焦发光 ────────────────────────────────── */
+input:focus, textarea:focus, select:focus {
+  box-shadow: 0 0 0 3px rgba(59,130,246,0.12),
+              0 1px 3px rgba(0,0,0,0.05) !important;
+}
+.dark input:focus, .dark textarea:focus, .dark select:focus {
+  box-shadow: 0 0 0 3px rgba(59,130,246,0.20),
+              0 1px 3px rgba(0,0,0,0.20) !important;
+}
+
+/* ── 14. 面板区域分隔线渐变 ────────────────────────────── */
+.rp-chat-header, .agent-side-panel-header {
+  background-image: linear-gradient(90deg,
+    transparent 0%, rgba(139,92,246,0.06) 50%, transparent 100%) !important;
+}
+.dark .rp-chat-header, .dark .agent-side-panel-header {
+  background-image: linear-gradient(90deg,
+    transparent 0%, rgba(139,92,246,0.08) 50%, transparent 100%) !important;
+}
+
+/* ── 15. Logo 闪光动画 ─────────────────────────────────── */
+.topbar .text-xl {
+  animation: _logo-shimmer 6s ease-in-out infinite;
+}
+@keyframes _logo-shimmer {
+  0%, 100% { filter: brightness(1); }
+  50%      { filter: brightness(1.15); }
+}
+
+/* ══════════════════════════════════════════════════════════
+   16. 面板纹理 — 柔和雾气光斑，消除纯白单调感
+   ══════════════════════════════════════════════════════════ */
+
+/* ���有面板：多层柔和渐变光斑 */
+#lp-vps-section, #lp-file-section {
+  background-image:
+    radial-gradient(ellipse 70% 60% at 10% 10%, rgba(59,130,246,0.06) 0%, transparent 70%),
+    radial-gradient(ellipse 60% 50% at 90% 80%, rgba(139,92,246,0.05) 0%, transparent 65%),
+    radial-gradient(ellipse 80% 40% at 50% 50%, rgba(6,182,212,0.03) 0%, transparent 60%) !important;
+  background-color: #f8fafc !important;
+}
+.terminal-area {
+  background-image:
+    radial-gradient(ellipse 60% 50% at 5% 5%,   rgba(59,130,246,0.05) 0%, transparent 65%),
+    radial-gradient(ellipse 50% 45% at 95% 90%,  rgba(139,92,246,0.04) 0%, transparent 60%),
+    radial-gradient(ellipse 40% 35% at 50% 100%, rgba(6,182,212,0.03) 0%, transparent 55%),
+    radial-gradient(ellipse 35% 30% at 80% 20%,  rgba(168,85,247,0.025) 0%, transparent 55%) !important;
+  background-color: #f8fafc !important;
+}
+.ai-panel, .agent-side-panel {
+  background-image:
+    radial-gradient(ellipse 70% 55% at 50% 0%,  rgba(139,92,246,0.06) 0%, transparent 65%),
+    radial-gradient(ellipse 55% 50% at 10% 90%, rgba(59,130,246,0.04) 0%, transparent 60%),
+    radial-gradient(ellipse 50% 40% at 80% 60%, rgba(6,182,212,0.03) 0%, transparent 55%) !important;
+  background-color: #f8fafc !important;
+}
+
+/* 暗色面板：深色雾气 */
+.dark #lp-vps-section, .dark #lp-file-section {
+  background-image:
+    radial-gradient(ellipse 70% 60% at 10% 10%, rgba(59,130,246,0.07) 0%, transparent 70%),
+    radial-gradient(ellipse 60% 50% at 90% 80%, rgba(139,92,246,0.06) 0%, transparent 65%),
+    radial-gradient(ellipse 80% 40% at 50% 50%, rgba(6,182,212,0.04) 0%, transparent 60%) !important;
+  background-color: #111827 !important;
+}
+.dark .terminal-area {
+  background-image:
+    radial-gradient(ellipse 60% 50% at 5% 5%,   rgba(59,130,246,0.06) 0%, transparent 65%),
+    radial-gradient(ellipse 50% 45% at 95% 90%,  rgba(139,92,246,0.05) 0%, transparent 60%),
+    radial-gradient(ellipse 40% 35% at 50% 100%, rgba(6,182,212,0.04) 0%, transparent 55%),
+    radial-gradient(ellipse 35% 30% at 80% 20%,  rgba(168,85,247,0.035) 0%, transparent 55%) !important;
+  background-color: #111827 !important;
+}
+.dark .ai-panel, .dark .agent-side-panel {
+  background-image:
+    radial-gradient(ellipse 70% 55% at 50% 0%,  rgba(139,92,246,0.07) 0%, transparent 65%),
+    radial-gradient(ellipse 55% 50% at 10% 90%, rgba(59,130,246,0.05) 0%, transparent 60%),
+    radial-gradient(ellipse 50% 40% at 80% 60%, rgba(6,182,212,0.04) 0%, transparent 55%) !important;
+  background-color: #111827 !important;
+}
+
+/* 顶栏保持玻璃渐变 */
+.topbar {
+  background-image:
+    linear-gradient(100deg,
+      rgba(219,234,254,0.30) 0%,
+      rgba(237,233,254,0.18) 50%,
+      rgba(207,250,254,0.12) 100%),
+    radial-gradient(ellipse 40% 80% at 0% 50%, rgba(59,130,246,0.06) 0%, transparent 70%) !important;
+}
+.dark .topbar {
+  background-image:
+    linear-gradient(100deg,
+      rgba(59,130,246,0.08) 0%,
+      rgba(124,58,237,0.05) 50%,
+      rgba(56,189,248,0.04) 100%),
+    radial-gradient(ellipse 40% 80% at 0% 50%, rgba(59,130,246,0.05) 0%, transparent 70%) !important;
+}
+
+/* 终端 tabs 行底部柔和渐变线 */
+#terminal-tabs {
+  background-image:
+    linear-gradient(90deg,
+      transparent 0%, rgba(59,130,246,0.04) 50%, transparent 100%) !important;
+}
+#terminal-tabs::after {
+  content: '';
+  position: absolute; bottom: 0; left: 20px; right: 20px; height: 1px;
+  background: linear-gradient(90deg,
+    transparent, rgba(59,130,246,0.15) 30%,
+    rgba(139,92,246,0.15) 70%, transparent);
+}
+
+/* ══════════════════════════════════════════════════════════
+   17. 暗色模式 — 星空背景
+   ══════════════════════════════════════════════════════════ */
+
+/* 星空容器 — 挂在 app-shell 上，避免遮挡交互 */
+.dark .app-shell::before,
+.dark .app-shell::after {
+  content: '';
+  position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+  pointer-events: none;
+  z-index: 0;
+}
+
+/* 第一层星星：小而密 */
+.dark .app-shell::before {
+  background-image:
+    radial-gradient(1px 1px at  5%  8%, rgba(255,255,255,0.6) 0%, transparent 100%),
+    radial-gradient(1px 1px at 12% 35%, rgba(255,255,255,0.4) 0%, transparent 100%),
+    radial-gradient(1px 1px at 18% 72%, rgba(255,255,255,0.5) 0%, transparent 100%),
+    radial-gradient(1px 1px at 25% 15%, rgba(186,230,253,0.5) 0%, transparent 100%),
+    radial-gradient(1px 1px at 32% 55%, rgba(255,255,255,0.3) 0%, transparent 100%),
+    radial-gradient(1px 1px at 38% 88%, rgba(196,181,253,0.5) 0%, transparent 100%),
+    radial-gradient(1px 1px at 45% 28%, rgba(255,255,255,0.5) 0%, transparent 100%),
+    radial-gradient(1px 1px at 52% 65%, rgba(255,255,255,0.4) 0%, transparent 100%),
+    radial-gradient(1px 1px at 58% 42%, rgba(186,230,253,0.4) 0%, transparent 100%),
+    radial-gradient(1px 1px at 65% 78%, rgba(255,255,255,0.5) 0%, transparent 100%),
+    radial-gradient(1px 1px at 72% 12%, rgba(255,255,255,0.3) 0%, transparent 100%),
+    radial-gradient(1px 1px at 78% 50%, rgba(196,181,253,0.4) 0%, transparent 100%),
+    radial-gradient(1px 1px at 85% 92%, rgba(255,255,255,0.5) 0%, transparent 100%),
+    radial-gradient(1px 1px at 92% 25%, rgba(186,230,253,0.5) 0%, transparent 100%),
+    radial-gradient(1px 1px at 97% 68%, rgba(255,255,255,0.4) 0%, transparent 100%);
+  animation: _stars-twinkle-1 4s ease-in-out infinite alternate;
+}
+
+/* 第二层星星：大而疏，亮一些 */
+.dark .app-shell::after {
+  background-image:
+    radial-gradient(1.5px 1.5px at  8% 22%, rgba(186,230,253,0.7) 0%, transparent 100%),
+    radial-gradient(2px   2px   at 20% 60%, rgba(196,181,253,0.6) 0%, transparent 100%),
+    radial-gradient(1.5px 1.5px at 35% 85%, rgba(255,255,255,0.7) 0%, transparent 100%),
+    radial-gradient(2px   2px   at 50% 10%, rgba(186,230,253,0.5) 0%, transparent 100%),
+    radial-gradient(1.5px 1.5px at 62% 45%, rgba(255,255,255,0.6) 0%, transparent 100%),
+    radial-gradient(2px   2px   at 75% 75%, rgba(196,181,253,0.7) 0%, transparent 100%),
+    radial-gradient(1.5px 1.5px at 88% 30%, rgba(186,230,253,0.6) 0%, transparent 100%),
+    radial-gradient(2px   2px   at 95% 55%, rgba(255,255,255,0.5) 0%, transparent 100%);
+  animation: _stars-twinkle-2 5s ease-in-out infinite alternate;
+}
+
+@keyframes _stars-twinkle-1 {
+  0%   { opacity: 0.5; }
+  100% { opacity: 1;   }
+}
+@keyframes _stars-twinkle-2 {
+  0%   { opacity: 1;   }
+  100% { opacity: 0.4; }
+}
+
+/* 暗色登录页也加星空 */
+.dark .login-screen {
+  background-image:
+    radial-gradient(ellipse 60% 55% at 30% 20%, rgba(59,130,246,0.15) 0%, transparent 60%),
+    radial-gradient(ellipse 50% 50% at 80% 80%, rgba(124,58,237,0.12) 0%, transparent 55%),
+    radial-gradient(1px 1px at 10% 15%, rgba(255,255,255,0.5) 0%, transparent 100%),
+    radial-gradient(1px 1px at 25% 45%, rgba(186,230,253,0.4) 0%, transparent 100%),
+    radial-gradient(1.5px 1.5px at 40% 80%, rgba(196,181,253,0.6) 0%, transparent 100%),
+    radial-gradient(1px 1px at 55% 25%, rgba(255,255,255,0.4) 0%, transparent 100%),
+    radial-gradient(1.5px 1.5px at 70% 60%, rgba(186,230,253,0.5) 0%, transparent 100%),
+    radial-gradient(1px 1px at 85% 35%, rgba(255,255,255,0.5) 0%, transparent 100%),
+    radial-gradient(1px 1px at 93% 75%, rgba(196,181,253,0.4) 0%, transparent 100%) !important;
+}
+
+/* ══════════════════════════════════════════════════════════
+   18. 英文标语样式
+   ══════════════════════════════════════════════════════════ */
+.topbar .italic,
+.topbar-slogan {
+  background: linear-gradient(90deg, #94a3b8 0%, #7c8da3 50%, #94a3b8 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  letter-spacing: 0.05em;
+}
+.dark .topbar .italic,
+.dark .topbar-slogan {
+  background: linear-gradient(90deg, #64748b 0%, #536179 50%, #64748b 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}

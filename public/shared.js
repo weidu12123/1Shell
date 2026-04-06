@@ -10,11 +10,22 @@
       .replace(/'/g, '&#39;');
   }
 
+  function getCsrfToken() {
+    const match = document.cookie.match(/(?:^|;\s*)mvps_csrf_token=([^;]+)/);
+    return match ? decodeURIComponent(match[1]) : '';
+  }
+
   function createRequestJson({ onUnauthorized } = {}) {
     return async function requestJson(url, options = {}) {
+      const method = (options.method || 'GET').toUpperCase();
+      const csrfHeaders = (method !== 'GET' && method !== 'HEAD' && method !== 'OPTIONS')
+        ? { 'x-csrf-token': getCsrfToken() }
+        : {};
+
       const response = await fetch(url, {
         headers: {
           'Content-Type': 'application/json',
+          ...csrfHeaders,
           ...(options.headers || {}),
         },
         ...options,

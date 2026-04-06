@@ -1,5 +1,6 @@
 'use strict';
 
+const crypto = require('crypto');
 const { Router } = require('express');
 const { BRIDGE_TOKEN } = require('../config/env');
 const { normalizePort } = require('../utils/common');
@@ -29,8 +30,9 @@ function createBridgeRouter({ bridgeService }) {
       });
     }
 
-    const token = req.headers['x-bridge-token'];
-    if (!token || token !== BRIDGE_TOKEN) {
+    const token = req.headers['x-bridge-token'] || '';
+    if (!token || token.length !== BRIDGE_TOKEN.length
+      || !crypto.timingSafeEqual(Buffer.from(token), Buffer.from(BRIDGE_TOKEN))) {
       return res.status(401).json({
         ok: false,
         error: 'Bridge Token 无效',

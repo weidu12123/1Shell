@@ -2,7 +2,10 @@ node_modules/
 .env
 *.log
 data/*.db
+data/*.db-shm
+data/*.db-wal
 data/*.log
+data/*.json
 data/bridge-token.json
 data/audit.log
 .DS_Store
@@ -10,3 +13,9 @@ Thumbs.db
 test-results/
 *.pyc
 __pycache__/
+
+# 部署脚本（含服务器凭据，仅本地使用）
+deploy.js
+
+# 内部规格/设计文档（不对外发布）
+.spec-workflow/

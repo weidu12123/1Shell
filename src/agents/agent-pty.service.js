@@ -64,20 +64,6 @@ function createAgentPtyService({ hostService, providerRegistry }) {
     });
   }
 
-  function buildHostBanner(host) {
-    const hostName = host?.name || '未知主机';
-    const hostMeta = host?.type === 'local'
-      ? '本机 / 控制节点'
-      : `${host.username}@${host.host}:${host.port}`;
-
-    return [
-      '[1Shell System]',
-      `当前目标主机：${hostName} (${hostMeta})`,
-      '请把后续任务的目标锁定到该主机。',
-      '不要修改 1Shell 主控机本地文件；需要远端执行时优先使用后续提供的 1Shell Bridge。',
-    ].join('\n');
-  }
-
   function finalizeAgentSession(socket, session, status, extra = {}) {
     if (!session || session.isFinalized) return;
 
@@ -95,17 +81,6 @@ function createAgentPtyService({ hostService, providerRegistry }) {
     emitAgentStatus(socket, session, extra);
   }
 
-  function getExistingAgentSession(socketId) {
-    const sessions = socketAgentSessions.get(socketId);
-    if (!sessions) return null;
-
-    for (const session of sessions.values()) {
-      if (!session.isFinalized) return session;
-    }
-
-    return null;
-  }
-
   function createAgentSession(socket, {
     providerId,
     hostId,
@@ -113,10 +88,6 @@ function createAgentPtyService({ hostService, providerRegistry }) {
     rows = AGENT_DEFAULT_ROWS,
   }) {
     const sessions = getSocketAgentSessionMap(socket.id);
-    const existing = getExistingAgentSession(socket.id);
-    if (existing) {
-      return existing;
-    }
     if (sessions.size >= AGENT_MAX_SESSIONS_PER_SOCKET) {
       throw new Error('当前连接的 Agent 会话数量已达上限');
     }
@@ -151,7 +122,22 @@ function createAgentPtyService({ hostService, providerRegistry }) {
     emitAgentStatus(socket, session);
 
     try {
-      const ptyProcess = pty.spawn(provider.command, provider.args || [], {
+      const isWin = os.platform() === 'win32';
+      let command = provider.command;
+      let args = provider.args || [];
+
+      // Windows 兼容：npm 全局包（如 claude）是 .ps1 脚本，node-pty 无法直接执行
+      // 改为通过 powershell.exe 调用
+      if (isWin) {
+        const { findExecutableCommand } = require('./windows-compat');
+        const resolved = findExecutableCommand(command);
+        if (resolved) {
+          command = resolved.command;
+          args = [...resolved.args, ...args];
+        }
+      }
+
+      const ptyProcess = pty.spawn(command, args, {
         name: 'xterm-256color',
         cols,
         rows,
@@ -193,7 +179,6 @@ function createAgentPtyService({ hostService, providerRegistry }) {
 
       session.status = 'ready';
       emitAgentStatus(socket, session);
-      ptyProcess.write(`${buildHostBanner(host)}\r`);
       return session;
     } catch (error) {
       finalizeAgentSession(socket, session, 'error', { error: error.message });
@@ -225,7 +210,6 @@ function createAgentPtyService({ hostService, providerRegistry }) {
     session.hostId = host.id;
     session.hostName = host.name;
     emitAgentStatus(socket, session);
-    session.process?.write(`${buildHostBanner(host)}\r`);
   }
 
   function stopAgentSession(socket, agentSessionId) {

@@ -48,12 +48,13 @@
 
     /* xterm 覆盖 */
     #terminal-container .xterm, #terminal-container .xterm-viewport { height: 100% !important; }
-    #agent-terminal .xterm, #agent-terminal .xterm-viewport { height: 100% !important; }
+    #agent-terminal-wrap .xterm, #agent-terminal-wrap .xterm-viewport { height: 100% !important; }
+    .agent-session-term .xterm, .agent-session-term .xterm-viewport { height: 100% !important; }
 
     /* ── 暗色主题：整体覆盖 ─────────────────────────────── */
     /* 登录页 */
-    .dark .login-screen { @apply bg-[#0b1220]; }
-    .dark .login-screen > div { @apply bg-[#111827] border-[#1e293b] text-slate-200; }
+    .dark .login-screen { background-color: rgba(11, 18, 32, 0.6); backdrop-filter: blur(24px); }
+    .dark .login-screen > div { background-color: rgba(17, 24, 39, 0.8); backdrop-filter: blur(40px); border-color: rgba(30, 41, 59, 0.8); color: #e2e8f0; box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25); }
     .dark .login-screen input { @apply bg-[#0b1324] border-[#1e293b] text-slate-200; }
     .dark .login-screen label { @apply text-slate-400; }
 
@@ -111,16 +112,28 @@
 <body class="bg-slate-700 dark:bg-[#0b0e18] w-screen h-screen overflow-hidden text-sm text-slate-700 dark:text-slate-200">
 
   <!-- ════════════════════════════════════════════════════════
-       登录页
+       登录页（默认显示，JS 加载成功后由 auth.js 控制显隐）
        ════════════════════════════════════════════════════════ -->
-  <div class="login-screen hidden fixed inset-0 z-[9000] flex items-center justify-center bg-slate-100 p-6" id="login-screen">
-    <div class="w-full max-w-sm p-8 bg-white rounded-2xl shadow-xl border border-slate-200">
+  <div class="login-screen fixed inset-0 z-[9000] flex items-center justify-center bg-slate-100/40 backdrop-blur-md p-6" id="login-screen">
+    <div class="w-full max-w-sm p-8 bg-white/80 backdrop-blur-2xl rounded-3xl shadow-2xl border border-white/60 dark:border-[#1e293b]/60">
       <div class="text-3xl font-extrabold bg-gradient-to-r from-blue-500 to-purple-500 bg-clip-text text-transparent">1Shell</div>
-      <div class="mt-1 text-slate-500 text-sm">请输入访问口令后再进入多 VPS 控制台</div>
+      <div class="mt-0.5 text-[11px] text-slate-400 italic font-medium tracking-wide">One Shell to rule them all.</div>
+      <div class="mt-1 text-slate-500 text-sm">请输入账号和密码后进入多 VPS 控制台</div>
       <form id="login-form" class="mt-6 flex flex-col gap-4" autocomplete="off">
+        <!-- HTTP 访问警告（JS 动态显隐） -->
+        <div id="http-warning" class="hidden px-3 py-2.5 rounded-xl bg-amber-50 border border-amber-200 text-xs text-amber-700 leading-relaxed dark:bg-amber-900/20 dark:border-amber-700/40 dark:text-amber-300">
+          <span class="font-semibold">⚠ 非 HTTPS 访问</span><br>
+          当前通过 <code class="font-mono bg-amber-100 dark:bg-amber-900/40 px-1 rounded">http://</code> 访问，部分浏览器（Safari / iOS / 隐私模式）会拦截 Cookie，导致登录后无法跳转。<br>
+          建议配置域名 + SSL 证书后通过 <code class="font-mono bg-amber-100 dark:bg-amber-900/40 px-1 rounded">https://</code> 访问。
+        </div>
+        <div class="flex flex-col gap-1.5">
+          <label for="login-username" class="text-xs font-semibold text-slate-500">用户名</label>
+          <input id="login-username" type="text" autocomplete="username" placeholder="admin" required
+            class="w-full h-9 px-3 rounded-lg border border-slate-300 bg-white text-slate-700 text-sm outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100" />
+        </div>
         <div class="flex flex-col gap-1.5">
           <label for="login-password" class="text-xs font-semibold text-slate-500">访问口令</label>
-          <input id="login-password" type="password" autocomplete="current-password" placeholder="输入 APP_LOGIN_PASSWORD" required
+          <input id="login-password" type="password" autocomplete="current-password" placeholder="输入访问口令" required
             class="w-full h-9 px-3 rounded-lg border border-slate-300 bg-white text-slate-700 text-sm outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100" />
         </div>
         <div class="text-red-500 text-xs" id="login-error"></div>
@@ -140,11 +153,13 @@
       <div class="flex items-center gap-3">
         <button class="mobile-menu-btn md:hidden h-8 w-8 flex items-center justify-center rounded-lg border border-slate-200 dark:border-[#1e293b] text-lg" id="mobile-menu-btn" type="button">☰</button>
         <div class="text-xl font-extrabold bg-gradient-to-r from-blue-500 to-purple-500 bg-clip-text text-transparent select-none">1Shell</div>
-        <span class="text-[11px] text-slate-400 hidden lg:inline">多机管理中枢</span>
+        <span class="text-[11px] text-slate-400 hidden lg:inline italic">One Shell to rule them all.</span>
       </div>
 
-      <!-- 中：本机探针 Mock -->
-      <div id="topbar-probe-info" class="flex items-center gap-4 text-xs text-slate-500 font-mono">
+      <!-- 中：本机探针 -->
+      <div id="topbar-probe-info" class="absolute left-1/2 -translate-x-1/2 flex items-center gap-4 text-xs text-slate-500 font-mono">
+        <span class="topbar-slogan" style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Inter,sans-serif;font-style:italic;font-size:10px;letter-spacing:0.05em;color:#94a3b8">One Shell to rule them all.</span>
+        <span class="w-px h-3 bg-slate-300"></span>
         <span>CPU <b class="text-slate-700">15%</b></span>
         <span class="w-px h-3 bg-slate-300"></span>
         <span>内存 <b class="text-slate-700">42%</b></span>
@@ -155,12 +170,15 @@
       </div>
 
       <!-- 右：操作按钮 -->
-      <div class="topbar-actions flex items-center gap-2">
+      <div class="topbar-actions flex items-center gap-2 ml-auto">
         <button class="h-8 px-3 rounded-lg border border-slate-200 bg-white text-xs font-semibold text-slate-600 hover:border-blue-300 hover:text-blue-500 transition-all" id="add-host-btn" type="button">+ 添加主机</button>
         <button class="h-8 px-3 rounded-lg border border-slate-200 bg-white text-xs font-semibold text-slate-600 hover:border-blue-300 hover:text-blue-500 transition-all hidden" id="refresh-hosts-btn" type="button">刷新</button>
         <button class="h-8 px-3 rounded-lg border border-slate-200 bg-white text-xs font-semibold text-slate-600 hover:border-blue-300 hover:text-blue-500 transition-all hidden" id="logout-btn" type="button">退出</button>
         <button class="h-8 px-3 rounded-lg border border-slate-200 bg-white text-xs font-semibold text-slate-600 hover:border-blue-300 hover:text-blue-500 transition-all" id="probe-btn" type="button">探针</button>
         <button class="h-8 px-3 rounded-lg border border-slate-200 bg-white text-xs font-semibold text-slate-600 hover:border-purple-300 hover:text-purple-500 transition-all" id="agent-panel-btn" type="button">AI Agent</button>
+        <button class="h-8 px-3 rounded-lg border border-slate-200 bg-white text-xs font-semibold text-slate-600 hover:border-blue-300 hover:text-blue-500 transition-all" id="ai-panel-toggle-btn" type="button" title="折叠/展开 AI 面板">AI 折叠</button>
+        <button class="h-8 px-3 rounded-lg bg-gradient-to-r from-purple-500 to-blue-500 text-white text-xs font-semibold shadow-md hover:shadow-lg transition-all" id="ai-api-config-btn" type="button" title="AI API 配置">⚙ AI 配置</button>
+        <button class="h-8 px-3 rounded-lg border border-slate-200 bg-white text-xs font-semibold text-slate-600 hover:border-slate-400 transition-all" id="settings-btn" type="button" title="系统设置">⚙ 设置</button>
         <button class="h-8 px-3 rounded-lg border border-slate-200 bg-white text-xs font-semibold text-slate-600 hover:border-slate-400 transition-all" id="theme-toggle-btn" type="button" title="切换主题">☀</button>
       </div>
     </header>
@@ -169,7 +187,10 @@
     <div class="main-content flex flex-1 gap-2 min-h-0">
 
       <!-- ── 左侧栏 ─────────────────────────────────────── -->
-      <aside class="sidebar left-panel w-[220px] shrink-0 flex flex-col gap-2 min-h-0">
+      <aside class="sidebar left-panel w-[20%] shrink-0 flex flex-col gap-2 min-h-0 relative">
+
+        <!-- 移动端关闭按钮 -->
+        <button class="md:hidden absolute top-2 right-2 z-50 h-7 w-7 flex items-center justify-center rounded-lg bg-slate-100 dark:bg-slate-700 text-slate-500 hover:text-red-500 transition-colors" id="mobile-sidebar-close-btn" type="button">✕</button>
 
         <!-- VPS 列表区（上） -->
         <div id="lp-vps-section" class="bg-shell-panel rounded-2xl border border-slate-200 shadow-sm flex flex-col overflow-hidden transition-all duration-300" style="flex: 5;">
@@ -220,12 +241,39 @@
           <div class="session-status flex items-center gap-2">
             <span class="status-dot w-2 h-2 rounded-full bg-slate-300" id="session-status-dot"></span>
             <span class="text-slate-500" id="session-status-text">未连接</span>
+            <span class="hidden text-[11px] font-mono text-blue-500 dark:text-blue-300" id="terminal-inline-preview"></span>
             <span class="panel-subtitle text-slate-400 hidden" id="ai-context-text">当前上下文：本机</span>
           </div>
           <div class="panel-actions flex items-center gap-1.5">
             <button class="icon-btn h-6 px-2 rounded-md border border-slate-200 text-[11px] text-slate-500 hover:text-blue-500 hover:border-blue-300 transition-all" id="reconnect-btn" type="button">重连</button>
             <button class="icon-btn h-6 px-2 rounded-md border border-slate-200 text-[11px] text-slate-500 hover:text-blue-500 hover:border-blue-300 transition-all" id="cmd-suggest-btn" type="button">AI 命令</button>
             <button class="icon-btn h-6 px-2 rounded-md border border-slate-200 text-[11px] text-slate-500 hover:text-blue-500 hover:border-blue-300 transition-all" id="clear-term-btn" type="button">清屏</button>
+          </div>
+        </div>
+
+        <div id="terminal-inline-suggestion-box" class="shrink-0 mx-3 mt-2 px-3 py-2 rounded-xl border border-blue-200 bg-blue-50 text-xs shadow-sm dark:border-blue-500/30 dark:bg-blue-500/10 min-h-[48px]">
+          <div class="flex items-center gap-2">
+            <span class="font-semibold text-blue-600 dark:text-blue-300 shrink-0">补全建议：</span>
+            <span id="terminal-inline-suggestion-text" class="font-mono text-[13px] text-slate-700 dark:text-slate-100 break-all">等待输入…</span>
+          </div>
+          <div class="mt-1 text-[11px] text-slate-500 dark:text-slate-400">按 Tab 或 → 采纳，按 Esc 拒绝</div>
+        </div>
+
+        <!-- AI 命令建议内嵌面板（点击"AI 命令"后展开，在终端上方） -->
+        <div id="cmd-inline-panel" class="hidden shrink-0 border-b border-slate-100 bg-slate-50 dark:bg-[#0d1117]">
+          <div class="flex items-center gap-2 px-3 py-2">
+            <span class="text-xs font-semibold text-blue-600 dark:text-blue-400 shrink-0">AI 命令</span>
+            <input id="cmd-prompt" type="text" placeholder="描述目标，例如：查看占用磁盘最多的目录" autocomplete="off"
+              class="flex-1 h-7 px-2.5 rounded-lg border border-slate-200 bg-white dark:bg-[#0b1324] dark:border-[#1e293b] dark:text-slate-200 text-xs outline-none focus:border-blue-400 focus:ring-1 focus:ring-blue-100" />
+            <button id="cmd-generate-btn" class="shrink-0 h-7 px-3 rounded-lg bg-gradient-to-r from-blue-500 to-blue-600 text-white text-xs font-semibold shadow-sm hover:shadow-md transition-all" type="button">生成命令</button>
+            <button id="cmd-close-btn" class="shrink-0 h-7 w-7 flex items-center justify-center rounded-lg border border-slate-200 dark:border-[#1e293b] text-slate-400 hover:text-red-500 hover:border-red-200 transition-all text-xs" type="button">✕</button>
+          </div>
+          <div id="cmd-result" class="hidden flex items-center gap-2 px-3 pb-2">
+            <pre id="cmd-result-code" class="flex-1 px-3 py-1.5 rounded-lg bg-slate-800 text-slate-200 font-mono text-xs overflow-x-auto whitespace-pre-wrap break-all"></pre>
+            <div class="flex flex-col gap-1 shrink-0">
+              <button id="cmd-copy-btn" class="h-7 px-2.5 rounded-lg border border-slate-200 dark:border-[#1e293b] text-xs text-slate-600 dark:text-slate-300 hover:border-blue-300 hover:text-blue-500 transition-all" type="button">复制</button>
+              <button id="cmd-insert-btn" class="h-7 px-2.5 rounded-lg bg-blue-500 text-white text-xs font-semibold hover:bg-blue-600 transition-all" type="button">注入终端</button>
+            </div>
           </div>
         </div>
 
@@ -242,17 +290,16 @@
       </main>
 
       <!-- ── 右侧 AI 面板 ───────────────────────────────── -->
-      <aside class="ai-panel right-panel w-[280px] shrink-0 flex flex-col min-h-0 bg-shell-panel rounded-2xl border border-slate-200 shadow-sm overflow-hidden transition-all duration-300 ease-in-out" data-collapsed="false">
+      <aside class="ai-panel right-panel w-[20%] shrink-0 flex flex-col min-h-0 bg-shell-panel rounded-2xl border border-slate-200 shadow-sm overflow-hidden transition-all duration-300 ease-in-out" data-collapsed="false">
 
         <!-- AI Chat Header -->
         <div class="rp-chat-header shrink-0 flex items-center justify-between px-3 h-10 border-b border-slate-100">
           <div class="panel-title-block flex items-center gap-2">
             <span class="panel-title text-sm font-bold text-slate-700">AI 运维助手</span>
           </div>
-          <div class="flex items-center gap-1.5">
-            <button class="icon-btn h-6 px-2 rounded-md border border-slate-200 text-[11px] text-slate-500 hover:text-red-400 hover:border-red-200 transition-all" id="clear-chat-btn" type="button">清空</button>
-            <button class="h-6 w-6 rounded-md border border-slate-200 flex items-center justify-center text-slate-400 hover:text-blue-500 hover:border-blue-300 transition-all text-xs" id="ai-panel-toggle-btn" type="button" title="折叠/展开">›</button>
-          </div>
+        <div class="flex items-center gap-1.5">
+          <button class="icon-btn h-6 px-2 rounded-md border border-slate-200 text-[11px] text-slate-500 hover:text-red-400 hover:border-red-200 transition-all" id="clear-chat-btn" type="button">清空</button>
+        </div>
         </div>
 
         <!-- AI Chat Messages -->
@@ -273,10 +320,180 @@
           <button class="send-btn self-end h-8 px-4 rounded-lg bg-gradient-to-r from-blue-500 to-blue-600 text-white text-xs font-semibold shadow-md hover:shadow-lg transition-all" id="send-btn" type="button">发送</button>
         </div>
       </aside>
-    </div>
+      <!-- ── Agent 面板（内嵌右侧，默认隐藏，打开后变为 2:4:4 布局） ─────── -->
+      <aside class="agent-side-panel hidden flex flex-col min-h-0 bg-shell-panel rounded-2xl border border-slate-200 shadow-sm overflow-hidden" id="agent-panel">
 
-    <!-- 隐藏保活区：移动端 overlay -->
+        <!-- 会话标签页（类似终端 tabs） -->
+        <div id="agent-tabs" class="shrink-0 flex items-center gap-1 px-3 h-9 border-b border-slate-100 bg-slate-50/50 overflow-x-auto">
+          <button class="h-7 px-2.5 rounded-lg border border-dashed border-slate-300 text-xs text-slate-400 hover:border-purple-300 hover:text-purple-500 transition-all shrink-0" id="agent-new-session-btn">+ 新会话</button>
+        </div>
+
+        <!-- 标题栏 -->
+        <div class="agent-side-panel-header shrink-0 flex items-center justify-between gap-3 px-4 py-2 border-b border-slate-100">
+          <div class="panel-title-block flex items-center gap-3">
+            <span class="panel-title text-sm font-bold text-slate-700">AI Agent</span>
+            <span class="panel-subtitle text-[11px] text-slate-400" id="agent-target-text">当前目标：本机</span>
+          </div>
+          <button class="icon-btn h-6 px-2 rounded-md border border-slate-200 text-[11px] text-slate-500 hover:text-red-400 hover:border-red-200 transition-all" id="agent-panel-close-btn" type="button">关闭</button>
+        </div>
+
+        <!-- Provider 选择 + 状态 -->
+        <div class="agent-toolbar shrink-0 flex items-center gap-2 px-4 py-2 border-b border-slate-100">
+          <select id="agent-provider-select" class="flex-1 min-h-[28px] px-2 rounded-lg border border-slate-200 bg-slate-50 text-xs outline-none"></select>
+          <button class="btn-link text-purple-500 text-xs font-semibold hover:underline" id="agent-setup-btn" type="button" title="一键将当前 AI CLI 工具接入 1Shell MCP">⚡ 一键接入</button>
+          <span class="text-slate-400 text-[11px] whitespace-nowrap" id="agent-status-text">未启动</span>
+        </div>
+
+        <!-- 终端区（多会话，JS 动态渲染） -->
+        <div id="agent-terminal-wrap" class="flex-1 min-h-0 overflow-hidden p-2"></div>
+
+        <!-- 操作按钮 -->
+        <div class="shrink-0 flex items-center justify-end gap-2 px-4 py-2 border-t border-slate-100">
+          <button class="h-7 px-3 rounded-lg bg-gradient-to-r from-purple-500 to-purple-600 text-white text-xs font-semibold shadow-md hover:shadow-lg transition-all" id="agent-start-btn" type="button">启动</button>
+          <button class="h-7 px-3 rounded-lg border border-slate-200 text-xs font-semibold text-slate-600 hover:border-purple-300 hover:text-purple-500 transition-all" id="agent-stop-btn" type="button">停止</button>
+          <button class="h-7 px-3 rounded-lg border border-slate-200 text-xs font-semibold text-slate-600 hover:border-slate-400 transition-all" id="agent-clear-btn" type="button">清屏</button>
+        </div>
+      </aside>
+    </div>
     <div class="mobile-overlay fixed inset-0 bg-black/40 z-[500] hidden" id="mobile-overlay"></div>
+    <div class="mobile-ai-backdrop" id="mobile-ai-backdrop"></div>
+  </div>
+
+  <!-- ════════════════════════════════════════════════════════
+       弹窗层：系统设置
+       ════════════════════════════════════════════════════════ -->
+  <div class="modal-overlay hidden fixed inset-0 z-[2000] flex items-center justify-center bg-black/50 backdrop-blur-sm" id="settings-modal">
+    <div class="modal-box w-full max-w-lg bg-white rounded-2xl shadow-2xl border border-slate-200">
+      <div class="modal-header flex items-center justify-between px-5 py-3.5 border-b border-slate-100">
+        <div class="modal-title text-base font-bold text-slate-700">系统设置</div>
+        <button class="icon-btn h-7 px-2.5 rounded-lg border border-slate-200 text-xs text-slate-500 hover:text-red-500 hover:border-red-200 transition-all" id="settings-modal-close" type="button">关闭</button>
+      </div>
+
+      <!-- 标签页切换 -->
+      <div class="flex gap-1 px-5 pt-4" id="settings-tabs">
+        <button class="settings-tab-btn h-8 px-4 rounded-lg text-xs font-semibold transition-all bg-blue-500 text-white" data-tab="account">账号设置</button>
+        <button class="settings-tab-btn h-8 px-4 rounded-lg text-xs font-semibold transition-all border border-slate-200 text-slate-500 hover:border-blue-300 hover:text-blue-500" data-tab="ipfilter">IP 访问控制</button>
+      </div>
+
+      <!-- 账号设置 -->
+      <div id="settings-tab-account" class="settings-tab-panel">
+        <form id="settings-form" class="p-5 flex flex-col gap-4" autocomplete="off">
+          <div class="form-group flex flex-col gap-1.5">
+            <label for="settings-username" class="text-xs font-semibold text-slate-500">用户名</label>
+            <input id="settings-username" type="text" placeholder="admin"
+              class="w-full h-9 px-3 rounded-lg border border-slate-200 bg-slate-50 text-sm outline-none focus:border-blue-400 focus:ring-1 focus:ring-blue-100" />
+          </div>
+          <div class="form-group flex flex-col gap-1.5">
+            <label for="settings-password" class="text-xs font-semibold text-slate-500">新访问口令</label>
+            <input id="settings-password" type="password" placeholder="留空表示不修改" autocomplete="new-password"
+              class="w-full h-9 px-3 rounded-lg border border-slate-200 bg-slate-50 text-sm outline-none focus:border-blue-400 focus:ring-1 focus:ring-blue-100" />
+          </div>
+          <div class="form-group flex flex-col gap-1.5">
+            <label for="settings-password-confirm" class="text-xs font-semibold text-slate-500">确认新访问口令</label>
+            <input id="settings-password-confirm" type="password" placeholder="再次输入新口令" autocomplete="new-password"
+              class="w-full h-9 px-3 rounded-lg border border-slate-200 bg-slate-50 text-sm outline-none focus:border-blue-400 focus:ring-1 focus:ring-blue-100" />
+          </div>
+          <div class="form-footer flex items-center justify-between pt-2 border-t border-slate-100">
+            <div class="form-error text-red-500 text-xs" id="settings-error"></div>
+            <button class="btn-primary h-9 px-5 rounded-lg bg-gradient-to-r from-blue-500 to-blue-600 text-white text-sm font-semibold shadow-md hover:shadow-lg transition-all" type="submit">保存设置</button>
+          </div>
+        </form>
+      </div>
+
+      <!-- IP 访问控制 -->
+      <div id="settings-tab-ipfilter" class="settings-tab-panel hidden p-5 flex flex-col gap-4">
+        <!-- 开关行 -->
+        <div class="flex items-center justify-between p-3 rounded-xl border border-slate-200 bg-slate-50">
+          <div>
+            <div class="text-xs font-semibold text-slate-700">IP 白名单</div>
+            <div class="text-[11px] text-slate-400 mt-0.5">开启后仅允许名单内的 IP 访问</div>
+          </div>
+          <label class="relative inline-flex items-center cursor-pointer">
+            <input type="checkbox" id="ipf-allowlist-toggle" class="sr-only peer" />
+            <div class="w-10 h-5 bg-slate-300 peer-checked:bg-blue-500 rounded-full transition-colors after:content-[''] after:absolute after:top-0.5 after:left-0.5 after:w-4 after:h-4 after:bg-white after:rounded-full after:transition-all peer-checked:after:translate-x-5"></div>
+          </label>
+        </div>
+        <div class="flex items-center justify-between p-3 rounded-xl border border-slate-200 bg-slate-50">
+          <div>
+            <div class="text-xs font-semibold text-slate-700">IP 黑名单</div>
+            <div class="text-[11px] text-slate-400 mt-0.5">开启后拒绝名单内的 IP 访问</div>
+          </div>
+          <label class="relative inline-flex items-center cursor-pointer">
+            <input type="checkbox" id="ipf-denylist-toggle" class="sr-only peer" />
+            <div class="w-10 h-5 bg-slate-300 peer-checked:bg-red-500 rounded-full transition-colors after:content-[''] after:absolute after:top-0.5 after:left-0.5 after:w-4 after:h-4 after:bg-white after:rounded-full after:transition-all peer-checked:after:translate-x-5"></div>
+          </label>
+        </div>
+
+        <!-- 新增规则行 -->
+        <div class="flex items-center gap-2">
+          <select id="ipf-new-type" class="h-8 px-2 rounded-lg border border-slate-200 bg-slate-50 text-xs outline-none focus:border-blue-400">
+            <option value="allow">白名单</option>
+            <option value="deny">黑名单</option>
+          </select>
+          <input id="ipf-new-cidr" type="text" placeholder="IP 或 CIDR，如 192.168.1.0/24"
+            class="flex-1 h-8 px-3 rounded-lg border border-slate-200 bg-slate-50 text-xs outline-none focus:border-blue-400 focus:ring-1 focus:ring-blue-100" />
+          <input id="ipf-new-note" type="text" placeholder="备注（可选）"
+            class="w-24 h-8 px-2 rounded-lg border border-slate-200 bg-slate-50 text-xs outline-none focus:border-blue-400" />
+          <button id="ipf-add-btn" type="button"
+            class="h-8 px-3 rounded-lg bg-blue-500 text-white text-xs font-semibold hover:bg-blue-600 transition-all shrink-0">添加</button>
+        </div>
+
+        <!-- 规则列表 -->
+        <div class="rounded-xl border border-slate-200 overflow-hidden">
+          <div class="flex items-center px-3 py-2 bg-slate-50 border-b border-slate-100 text-[11px] font-semibold text-slate-400 uppercase tracking-wide">
+            <span class="w-16 shrink-0">类型</span>
+            <span class="flex-1">IP / CIDR</span>
+            <span class="w-24 shrink-0">备注</span>
+            <span class="w-12 shrink-0"></span>
+          </div>
+          <div id="ipf-rules-list" class="max-h-48 overflow-y-auto divide-y divide-slate-100">
+            <div class="px-3 py-4 text-xs text-slate-400 text-center" id="ipf-empty-hint">暂无规则</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ════════════════════════════════════════════════════════
+       弹窗层：AI API 配置
+       ════════════════════════════════════════════════════════ -->
+  <div class="modal-overlay hidden fixed inset-0 z-[2000] flex items-center justify-center bg-black/50 backdrop-blur-sm" id="ai-api-modal">
+    <div class="modal-box w-full max-w-md bg-white rounded-2xl shadow-2xl border border-slate-200">
+      <div class="modal-header flex items-center justify-between px-5 py-3.5 border-b border-slate-100">
+        <div>
+          <div class="modal-title text-base font-bold text-slate-700">AI API 配置</div>
+          <div class="text-xs text-slate-400 mt-0.5">配置 OpenAI 兼容的 API 中转站地址和密钥</div>
+        </div>
+        <button class="icon-btn h-7 px-2.5 rounded-lg border border-slate-200 text-xs text-slate-500 hover:text-red-500 hover:border-red-200 transition-all" id="ai-api-modal-close" type="button">关闭</button>
+      </div>
+      <form id="ai-api-form" class="p-5 flex flex-col gap-4" autocomplete="off">
+        <div class="form-group flex flex-col gap-1.5">
+          <label for="ai-api-base" class="text-xs font-semibold text-slate-500">API 基础地址</label>
+          <input id="ai-api-base" type="text" placeholder="https://api.openai.com/v1" required
+            class="w-full h-9 px-3 rounded-lg border border-slate-200 bg-slate-50 text-sm outline-none focus:border-blue-400 focus:ring-1 focus:ring-blue-100" />
+          <div class="form-help text-[11px] text-slate-400">不含 /chat/completions 的完整地址</div>
+        </div>
+        <div class="form-group flex flex-col gap-1.5">
+          <label for="ai-api-key" class="text-xs font-semibold text-slate-500">API Key</label>
+          <input id="ai-api-key" type="password" placeholder="sk-..." autocomplete="off"
+            class="w-full h-9 px-3 rounded-lg border border-slate-200 bg-slate-50 text-sm outline-none focus:border-blue-400 focus:ring-1 focus:ring-blue-100" />
+        </div>
+        <div class="form-group flex flex-col gap-1.5">
+          <label for="ai-model" class="text-xs font-semibold text-slate-500">模型名称</label>
+          <div class="flex items-center gap-2">
+            <input id="ai-model" type="text" placeholder="gpt-4o" list="ai-model-list"
+              class="flex-1 h-9 px-3 rounded-lg border border-slate-200 bg-slate-50 text-sm outline-none focus:border-blue-400 focus:ring-1 focus:ring-blue-100" />
+            <button class="h-9 px-3 rounded-lg border border-slate-200 bg-slate-50 text-xs font-medium text-slate-500 hover:text-blue-500 hover:border-blue-300 transition-all shrink-0" id="fetch-models-btn" type="button" title="获取模型列表">获取模型</button>
+          </div>
+          <datalist id="ai-model-list"></datalist>
+          <div class="form-help text-[11px] text-slate-400">点击"获取模型"自动填充，也可手动输入</div>
+        </div>
+        <div class="form-footer flex items-center justify-between pt-2 border-t border-slate-100">
+          <div class="form-error text-red-500 text-xs" id="ai-api-error"></div>
+          <button class="btn-primary h-9 px-5 rounded-lg bg-gradient-to-r from-blue-500 to-blue-600 text-white text-sm font-semibold shadow-md hover:shadow-lg transition-all" type="submit">保存配置</button>
+        </div>
+      </form>
+    </div>
   </div>
 
   <!-- ════════════════════════════════════════════════════════
@@ -395,37 +612,6 @@
     </div>
   </div>
 
-  <!-- ════════════════════════════════════════════════════════
-       弹窗层：AI 命令建议
-       ════════════════════════════════════════════════════════ -->
-  <div class="modal-overlay hidden fixed inset-0 z-[2000] flex items-center justify-center bg-black/50 backdrop-blur-sm" id="cmd-modal">
-    <div class="modal-box modal-box-sm w-full max-w-md bg-white rounded-2xl shadow-2xl border border-slate-200 overflow-hidden">
-      <div class="modal-header flex items-center justify-between px-5 py-3.5 border-b border-slate-100">
-        <div>
-          <div class="modal-title text-base font-bold text-slate-700">AI 命令建议</div>
-          <div class="text-xs text-slate-400 mt-0.5">描述目标，生成适合当前主机的命令建议</div>
-        </div>
-        <button class="icon-btn h-7 px-2.5 rounded-lg border border-slate-200 text-xs text-slate-500 hover:text-red-500 hover:border-red-200 transition-all" id="cmd-close-btn" type="button">关闭</button>
-      </div>
-      <div class="p-5 flex flex-col gap-3">
-        <div class="form-group flex flex-col gap-1.5">
-          <label for="cmd-prompt" class="text-xs font-semibold text-slate-500">你想做什么</label>
-          <input id="cmd-prompt" type="text" placeholder="例如：查看占用磁盘最多的目录" autocomplete="off"
-            class="w-full h-9 px-3 rounded-lg border border-slate-200 bg-slate-50 text-sm outline-none focus:border-blue-400 focus:ring-1 focus:ring-blue-100" />
-        </div>
-        <div class="cmd-toolbar flex justify-end">
-          <button class="btn-primary h-8 px-4 rounded-lg bg-gradient-to-r from-blue-500 to-blue-600 text-white text-xs font-semibold shadow-md hover:shadow-lg transition-all" id="cmd-generate-btn" type="button">生成命令</button>
-        </div>
-        <div class="cmd-result hidden flex flex-col gap-2.5" id="cmd-result">
-          <pre id="cmd-result-code" class="p-3 rounded-lg bg-slate-800 text-slate-200 font-mono text-xs overflow-x-auto"></pre>
-          <div class="cmd-actions flex justify-end gap-2">
-            <button class="btn-secondary h-7 px-3 rounded-lg border border-slate-200 text-xs text-slate-600 hover:border-blue-300 hover:text-blue-500 transition-all" id="cmd-copy-btn" type="button">复制</button>
-            <button class="btn-primary h-7 px-3 rounded-lg bg-blue-500 text-white text-xs font-semibold hover:bg-blue-600 transition-all" id="cmd-insert-btn" type="button">注入终端</button>
-          </div>
-        </div>
-      </div>
-    </div>
-  </div>
 
   <!-- ════════════════════════════════════════════════════════
        浮层：选区右键菜单
@@ -489,37 +675,41 @@
   </div>
 
   <!-- ════════════════════════════════════════════════════════
-       浮层：Agent 面板
-       ════════════════════════════════════════════════════════ -->
-  <aside class="agent-side-panel hidden fixed top-16 right-4 w-[400px] h-[calc(100vh-80px)] flex flex-col bg-white rounded-2xl shadow-2xl border border-slate-200 z-[250] overflow-hidden" id="agent-panel">
-    <div class="agent-side-panel-header flex items-center justify-between gap-3 px-4 py-3 border-b border-slate-100">
-      <div class="panel-title-block flex flex-col gap-0.5">
-        <span class="panel-title text-sm font-bold text-slate-700">AI Agent</span>
-        <span class="panel-subtitle text-[11px] text-slate-400" id="agent-target-text">当前目标：本机</span>
-      </div>
-      <button class="icon-btn h-7 px-2.5 rounded-lg border border-slate-200 text-xs text-slate-500 hover:text-red-500 hover:border-red-200 transition-all" id="agent-panel-close-btn" type="button">关闭</button>
-    </div>
-    <div class="agent-toolbar flex items-center gap-2.5 px-4 py-2.5 border-b border-slate-100">
-      <select id="agent-provider-select" class="flex-1 min-h-[32px] px-2.5 rounded-lg border border-slate-200 bg-slate-50 text-xs outline-none"></select>
-      <button class="btn-link text-purple-500 text-xs font-semibold hover:underline" id="agent-setup-btn" type="button" title="一键将当前 AI CLI 工具接入 1Shell MCP">⚡ 一键接入</button>
-      <span class="agent-status-text text-slate-400 text-[11px] whitespace-nowrap" id="agent-status-text">未启动</span>
-    </div>
-    <div class="agent-terminal-wrap flex-1 min-h-0 p-2.5">
-      <div id="agent-terminal" class="w-full h-full border border-slate-200 rounded-lg bg-slate-900 overflow-hidden"></div>
-    </div>
-    <div class="agent-toolbar agent-toolbar-actions flex items-center justify-end gap-2 px-4 py-2.5 border-t border-slate-100">
-      <button class="btn-primary h-8 px-3 rounded-lg bg-gradient-to-r from-blue-500 to-blue-600 text-white text-xs font-semibold shadow-md hover:shadow-lg transition-all" id="agent-start-btn" type="button">启动</button>
-      <button class="btn-secondary h-8 px-3 rounded-lg border border-slate-200 text-xs font-semibold text-slate-600 hover:border-blue-300 hover:text-blue-500 transition-all" id="agent-stop-btn" type="button">停止</button>
-      <button class="btn-secondary h-8 px-3 rounded-lg border border-slate-200 text-xs font-semibold text-slate-600 hover:border-slate-400 transition-all" id="agent-clear-btn" type="button">清屏</button>
-    </div>
-  </aside>
-
-  <!-- ════════════════════════════════════════════════════════
        Scripts
        ════════════════════════════════════════════════════════ -->
+  <!-- 全局错误捕获：防止 JS 异常导致白屏 -->
+  <script>
+    window.addEventListener('error', function(e) {
+      console.error('[1Shell] Script error:', e.message, e.filename, e.lineno);
+      var loginEl = document.getElementById('login-screen');
+      var errEl = document.getElementById('login-error');
+      if (loginEl) loginEl.classList.remove('hidden');
+      if (errEl && !errEl.textContent) {
+        errEl.textContent = '前端资源加载异常: ' + (e.message || '未知错误') + ' — 请检查网络或浏览器控制台';
+      }
+    });
+  </script>
+  <!-- HTTP 警告：在非 HTTPS + 非 localhost 时显示提示横幅 -->
+  <script>
+    (function() {
+      var proto = window.location.protocol;
+      var host  = window.location.hostname;
+      var isLocalhost = host === 'localhost' || host === '127.0.0.1' || host === '::1';
+      if (proto === 'http:' && !isLocalhost) {
+        var el = document.getElementById('http-warning');
+        if (el) el.classList.remove('hidden');
+      }
+    })();
+  </script>
   <script src="/socket.io/socket.io.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/xterm@5.3.0/lib/xterm.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/xterm-addon-fit@0.8.0/lib/xterm-addon-fit.min.js"></script>
+  <!-- CDN 加载检查 -->
+  <script>
+    if (typeof io === 'undefined') console.error('[1Shell] socket.io 加载失败，请检查服务端是否正常运行');
+    if (typeof Terminal === 'undefined') console.error('[1Shell] xterm.js 加载失败，请检查 CDN 访问');
+    if (typeof FitAddon === 'undefined') console.error('[1Shell] xterm-addon-fit 加载失败，请检查 CDN 访问');
+  </script>
   <script src="shared.js"></script>
   <script src="event-bus.js"></script>
   <script src="session-terminal.js"></script>

@@ -1,5 +1,6 @@
 'use strict';
 
+const crypto = require('crypto');
 const { createId } = require('../utils/common');
 const { BRIDGE_TOKEN } = require('../config/env');
 const { TOOLS, makeTextContent, formatExecResult } = require('./mcp.tools');
@@ -181,8 +182,9 @@ function createMcpService({ bridgeService, hostService, auditService }) {
    * 验证请求的 Bridge Token。
    */
   function validateToken(token) {
-    if (!BRIDGE_TOKEN) return false;
-    return token === BRIDGE_TOKEN;
+    if (!BRIDGE_TOKEN || !token) return false;
+    if (token.length !== BRIDGE_TOKEN.length) return false;
+    return crypto.timingSafeEqual(Buffer.from(token), Buffer.from(BRIDGE_TOKEN));
   }
 
   return { connect, disconnect, receiveMessage, validateToken };

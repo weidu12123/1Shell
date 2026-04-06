@@ -144,7 +144,7 @@
             </div>
             <div class="host-actions">
               <button class="host-action-btn" data-action="connect" data-host-id="${host.id}" type="button">切换</button>
-              ${host.id === LOCAL_HOST_ID ? '' : `<button class="host-action-btn" data-action="edit" data-host-id="${host.id}" type="button">编辑</button><button class="host-action-btn" data-action="delete" data-host-id="${host.id}" type="button">删除</button>`}
+              ${host.id === LOCAL_HOST_ID ? `<button class="host-action-btn" data-action="edit" data-host-id="${host.id}" type="button">编辑</button>` : `<button class="host-action-btn" data-action="edit" data-host-id="${host.id}" type="button">编辑</button><button class="host-action-btn" data-action="delete" data-host-id="${host.id}" type="button">删除</button>`}
             </div>
           </div>
         `;
@@ -211,6 +211,7 @@
 
       const hostId = hostIdEl.value.trim();
       const isEditing = Boolean(hostId);
+      const isLocalHost = hostId === LOCAL_HOST_ID;
       const payload = {
         name: hostNameEl.value.trim(),
         host: hostAddressEl.value.trim(),
@@ -235,7 +236,16 @@
       }
 
       try {
-        if (hostId) {
+        if (isLocalHost) {
+          // 本机只保存名称和链接
+          await requestJson('/api/hosts/local-config', {
+            method: 'PUT',
+            body: JSON.stringify({
+              name: payload.name,
+              links: payload.links,
+            }),
+          });
+        } else if (hostId) {
           await requestJson(`/api/hosts/${encodeURIComponent(hostId)}`, {
             method: 'PUT',
             body: JSON.stringify(payload),
@@ -249,7 +259,7 @@
 
         await loadHosts();
         closeHostModal();
-        showToast?.(hostId ? '主机已更新' : '主机已添加', 'success');
+        showToast?.(isLocalHost ? '本机配置已更新' : (hostId ? '主机已更新' : '主机已添加'), 'success');
       } catch (error) {
         hostFormErrorEl.textContent = error.message;
       }

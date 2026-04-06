@@ -1,7 +1,9 @@
 'use strict';
 
-const { decryptText, encryptText, isUsingFallbackSecret } = require('../../lib/crypto');
-const { LOCAL_HOST_ID } = require('../config/env');
+const fs = require('fs');
+const path = require('path');
+const { decryptText, encryptText } = require('../../lib/crypto');
+const { LOCAL_HOST_ID, ROOT_DIR } = require('../config/env');
 const {
   createId,
   hasOwn,
@@ -16,6 +18,22 @@ function createValidationError(message) {
   return error;
 }
 
+const LOCAL_HOST_CONFIG_FILE = path.join(ROOT_DIR, 'data', 'local-host-config.json');
+
+function loadLocalHostConfig() {
+  try {
+    const raw = fs.readFileSync(LOCAL_HOST_CONFIG_FILE, 'utf8');
+    return JSON.parse(raw);
+  } catch {
+    return {};
+  }
+}
+
+function saveLocalHostConfig(config) {
+  fs.mkdirSync(path.dirname(LOCAL_HOST_CONFIG_FILE), { recursive: true });
+  fs.writeFileSync(LOCAL_HOST_CONFIG_FILE, JSON.stringify(config, null, 2), 'utf8');
+}
+
 function createHostService({ hostRepository }) {
   function normalizeHostLinks(links) {
     if (!Array.isArray(links)) return [];
@@ -28,20 +46,21 @@ function createHostService({ hostRepository }) {
         url: normalizeHttpUrl(item.url),
         description: String(item.description || '').trim(),
       }))
-      .filter((item) => item.name && item.url);
+      .filter((link) => link.name && link.url);
   }
 
   function getLocalHost() {
+    const config = loadLocalHostConfig();
     return {
       id: LOCAL_HOST_ID,
       type: 'local',
-      name: '本机',
+      name: config.name || '本机',
       host: '127.0.0.1',
       port: null,
       username: process.env.USER || process.env.USERNAME || 'local',
       authType: 'local',
-      description: '部署当前项目的控制节点',
-      links: [],
+      description: config.description || '部署当前项目的控制节点',
+      links: config.links || [],
       createdAt: null,
       updatedAt: null,
     };
@@ -86,12 +105,6 @@ function createHostService({ hostRepository }) {
   }
 
   function buildStoredHost(payload, existing = null) {
-    if (isUsingFallbackSecret()) {
-      throw createValidationError(
-        '未配置 APP_SECRET，拒绝保存主机凭据。请先在 .env 中设置 APP_SECRET 强随机密钥。'
-      );
-    }
-
     const authType = payload.authType === 'privateKey' ? 'privateKey' : 'password';
     const timestamp = nowIso();
 
@@ -274,6 +287,7 @@ function createHostService({ hostRepository }) {
     findStoredHost,
     getLocalHost,
     listHosts,
+    saveLocalHostConfig,
     toPublicHost,
   };
 }

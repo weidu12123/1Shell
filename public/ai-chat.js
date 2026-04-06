@@ -128,12 +128,20 @@
       let fullReply = '';
 
       try {
+        const requestBody = {
+          messages: conversationHistory.map(({ role, content }) => ({ role, content })),
+        };
+
+        // 附加自定义 API 配置
+        const customConfig = window.__aiApiConfig || {};
+        if (customConfig.apiBase) requestBody.apiBase = customConfig.apiBase;
+        if (customConfig.apiKey) requestBody.apiKey = customConfig.apiKey;
+        if (customConfig.model) requestBody.model = customConfig.model;
+
         const response = await fetch('/api/chat', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            messages: conversationHistory.map(({ role, content }) => ({ role, content })),
-          }),
+          body: JSON.stringify(requestBody),
         });
 
         if (response.status === 401) {
@@ -197,9 +205,17 @@
       if (initialized) return;
       initialized = true;
 
+      loadSavedConfig();
+
       clearChatBtnEl.addEventListener('click', () => {
         resetChat();
       });
+
+      const apiConfigBtn = document.getElementById('ai-api-config-btn');
+      if (apiConfigBtn) {
+        apiConfigBtn.addEventListener('click', openApiConfigModal);
+      }
+
       sendBtnEl.addEventListener('click', () => {
         sendMessage().catch(showErrorMessage);
       });
@@ -209,6 +225,130 @@
           sendMessage().catch(showErrorMessage);
         }
       });
+    }
+
+    function loadSavedConfig() {
+      try {
+        const saved = localStorage.getItem('1shell-ai-config');
+        if (saved) {
+          const config = JSON.parse(saved);
+          if (config.apiBase || config.apiKey || config.model) {
+            window.__aiApiConfig = config;
+          }
+        }
+      } catch { /* ignore */ }
+    }
+
+    function openApiConfigModal() {
+      const modal = document.getElementById('ai-api-modal');
+      const apiBaseEl = document.getElementById('ai-api-base');
+      const apiKeyEl = document.getElementById('ai-api-key');
+      const modelEl = document.getElementById('ai-model');
+      const errorEl = document.getElementById('ai-api-error');
+      if (!modal) return;
+
+      const config = window.__aiApiConfig || {};
+      apiBaseEl.value = config.apiBase || '';
+      apiKeyEl.value = config.apiKey || '';
+      modelEl.value = config.model || '';
+      errorEl.textContent = '';
+      modal.classList.remove('hidden');
+
+      const form = document.getElementById('ai-api-form');
+      const closeBtn = document.getElementById('ai-api-modal-close');
+      const fetchBtn = document.getElementById('fetch-models-btn');
+
+      // 获取模型列表
+      const handleFetchModels = async () => {
+        const apiBase = apiBaseEl.value.trim().replace(/\/$/, '');
+        const apiKey = apiKeyEl.value.trim();
+
+        if (!apiBase || !apiKey) {
+          errorEl.textContent = '请先填写 API 地址和 Key';
+          return;
+        }
+
+        fetchBtn.textContent = '获取中…';
+        fetchBtn.disabled = true;
+        errorEl.textContent = '';
+
+        try {
+          // 尝试多种路径
+          const paths = ['/v1/models', '/models'];
+          let models = [];
+
+          for (const p of paths) {
+            try {
+              const url = apiBase + p;
+              const res = await fetch(url, {
+                headers: { 'Authorization': `Bearer ${apiKey}` },
+              });
+              if (res.ok) {
+                const data = await res.json();
+                if (data.data && Array.isArray(data.data)) {
+                  models = data.data.map((m) => m.id).filter(Boolean);
+                  break;
+                }
+              }
+            } catch { /* try next */ }
+          }
+
+          if (models.length === 0) {
+            errorEl.textContent = '未能获取到模型列表，请手动输入';
+            return;
+          }
+
+          // 填充 datalist
+          const datalist = document.getElementById('ai-model-list');
+          datalist.innerHTML = models.map((m) => `<option value="${m}">`).join('');
+
+          window.appShared?.showToast?.(`已获取 ${models.length} 个模型`, 'success', 2000);
+        } catch (e) {
+          errorEl.textContent = '获取模型失败: ' + e.message;
+        } finally {
+          fetchBtn.textContent = '获取模型';
+          fetchBtn.disabled = false;
+        }
+      };
+
+      const handleSubmit = (e) => {
+        e.preventDefault();
+        errorEl.textContent = '';
+
+        const apiBase = apiBaseEl.value.trim().replace(/\/$/, '');
+        const apiKey = apiKeyEl.value.trim();
+        const model = modelEl.value.trim();
+
+        if (!apiBase) {
+          errorEl.textContent = 'API 基础地址不能为空';
+          return;
+        }
+
+        try { new URL(apiBase); } catch {
+          errorEl.textContent = 'API 基础地址格式不正确';
+          return;
+        }
+
+        const newConfig = { apiBase, apiKey, model };
+        window.__aiApiConfig = newConfig;
+        localStorage.setItem('1shell-ai-config', JSON.stringify(newConfig));
+        modal.classList.add('hidden');
+        window.appShared?.showToast?.('AI API 配置已保存', 'success', 2000);
+        form.removeEventListener('submit', handleSubmit);
+        closeBtn.removeEventListener('click', handleClose);
+        fetchBtn.removeEventListener('click', handleFetchModels);
+      };
+
+      const handleClose = () => {
+        modal.classList.add('hidden');
+        form.removeEventListener('submit', handleSubmit);
+        closeBtn.removeEventListener('click', handleClose);
+        fetchBtn.removeEventListener('click', handleFetchModels);
+      };
+
+      form.addEventListener('submit', handleSubmit);
+      closeBtn.addEventListener('click', handleClose);
+      fetchBtn.addEventListener('click', handleFetchModels);
     }
 
     return {

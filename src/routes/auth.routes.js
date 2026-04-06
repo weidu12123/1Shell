@@ -15,9 +15,9 @@ function createAuthRouter(authService) {
   router.post('/login', (req, res, next) => {
     try {
       const ip = authService.getClientIp(req);
-      const result = authService.login(req.body?.password, ip);
+      const result = authService.login(req.body?.username, req.body?.password, ip);
       if (result.sessionId) {
-        authService.setAuthCookie(res, result.sessionId);
+        authService.setAuthCookie(res, result.sessionId, result.csrfToken, req);
       }
       res.json({
         ok: result.ok,
