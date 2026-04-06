@@ -263,7 +263,7 @@
       const closeBtn = document.getElementById('ai-api-modal-close');
       const fetchBtn = document.getElementById('fetch-models-btn');
 
-      // 获取模型列表
+      // 获取模型列表（走后端代理，避免 CORS）
       const handleFetchModels = async () => {
         const apiBase = apiBaseEl.value.trim().replace(/\/$/, '');
         const apiKey = apiKeyEl.value.trim();
@@ -278,25 +278,22 @@
         errorEl.textContent = '';
 
         try {
-          // 尝试多种路径
-          const paths = ['/v1/models', '/models'];
-          let models = [];
+          const res = await fetch('/api/ai/models', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'x-csrf-token': getCsrfToken(),
+            },
+            body: JSON.stringify({ apiBase, apiKey }),
+          });
 
-          for (const p of paths) {
-            try {
-              const url = apiBase + p;
-              const res = await fetch(url, {
-                headers: { 'Authorization': `Bearer ${apiKey}` },
-              });
-              if (res.ok) {
-                const data = await res.json();
-                if (data.data && Array.isArray(data.data)) {
-                  models = data.data.map((m) => m.id).filter(Boolean);
-                  break;
-                }
-              }
-            } catch { /* try next */ }
+          if (!res.ok) {
+            const data = await res.json().catch(() => ({}));
+            throw new Error(data.error || `请求失败 (${res.status})`);
           }
+
+          const data = await res.json();
+          const models = data.models || [];
 
           if (models.length === 0) {
             errorEl.textContent = '未能获取到模型列表，请手动输入';

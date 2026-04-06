@@ -351,8 +351,29 @@ function createAIService({ fetchImpl = fetch } = {}) {
     return `req_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
   }
 
+  async function fetchModelList(body = {}) {
+    const { base, key } = resolveConfig(body);
+    const paths = ['/models', '/models'];
+    for (const p of paths) {
+      try {
+        const res = await fetchImpl(`${base}${p}`, {
+          headers: { Authorization: `Bearer ${key}` },
+          timeout: 8000,
+        });
+        if (res.ok) {
+          const data = await res.json();
+          if (data.data && Array.isArray(data.data)) {
+            return data.data.map((m) => m.id).filter(Boolean);
+          }
+        }
+      } catch { /* try next */ }
+    }
+    return [];
+  }
+
   return {
     createChatUpstream,
+    fetchModelList,
     requestCompletion,
     requestTerminalInlineCompletion,
     analyzeSelection,
