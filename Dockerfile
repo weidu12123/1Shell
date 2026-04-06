@@ -13,6 +13,9 @@ RUN npm ci --omit=dev
 
 COPY . .
 
+# 安装 AI CLI 工具（Agent 面板需要在容器内找到这些命令）
+RUN npm install -g @anthropic-ai/claude-code
+
 # 数据目录（挂载卷持久化）
 RUN mkdir -p /app/data
 VOLUME ["/app/data"]
