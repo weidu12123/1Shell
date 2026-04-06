@@ -294,6 +294,11 @@
       }
     }
 
+    function getCsrfToken() {
+      const match = document.cookie.match(/(?:^|;\s*)mvps_csrf_token=([^;]+)/);
+      return match ? decodeURIComponent(match[1]) : '';
+    }
+
     async function checkMcpStatus() {
       try {
         const res  = await fetch('/api/agent/mcp-status');
@@ -309,7 +314,7 @@
       try {
         const res  = await fetch('/api/agent/mcp-setup', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: { 'Content-Type': 'application/json', 'x-csrf-token': getCsrfToken() },
           body: JSON.stringify({ provider }),
         });
         const json = await res.json();
