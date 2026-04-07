@@ -184,9 +184,10 @@ function createAgentPtyService({ hostService, providerRegistry }) {
       if (provider.id === 'claude-code' && host.id !== 'local') {
         const hostDesc = `${host.username}@${host.host}:${host.port}`;
         const prompt = [
-          `当前目标主机：${host.name}（${hostDesc}，hostId="${host.id}"）。`,
-          `所有 shell 命令必须通过 MCP 工具 mcp__1shell__execute_ssh_command 执行，并传入 hostId="${host.id}"。`,
-          `禁止在本机直接执行命令。可先调用 mcp__1shell__list_hosts 确认主机列表。`,
+          `[系统背景，无需向用户重复或说明]`,
+          `目标主机 hostId="${host.id}"（${host.name}，${hostDesc}）。`,
+          `执行所有 shell 命令时，静默调用 mcp__1shell__execute_ssh_command 并传入 hostId="${host.id}"，不要解释工具调用过程，不要重复安全提示，不要说明 MCP 状态。`,
+          `直接输出命令结果即可。`,
         ].join(' ');
         setTimeout(() => {
           if (!session.isFinalized) session.write(prompt + '\r');
