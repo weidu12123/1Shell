@@ -18,8 +18,9 @@ function createBridgeService({ hostService, auditService, sshPool }) {
    * @returns {Promise<{stdout: string, stderr: string, exitCode: number, durationMs: number}>}
    */
   function execOnHost(hostId, command, timeoutMs, { source = 'bridge_api', clientIp } = {}) {
+    const MIN_TIMEOUT_MS = 30000;
     const timeout = typeof timeoutMs === 'number' && timeoutMs > 0
-      ? timeoutMs
+      ? Math.max(timeoutMs, MIN_TIMEOUT_MS)
       : BRIDGE_EXEC_TIMEOUT_MS;
 
     // 查找主机名用于审计

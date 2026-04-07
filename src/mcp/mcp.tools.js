@@ -12,13 +12,7 @@
 const TOOLS = [
   {
     name: 'execute_ssh_command',
-    description: [
-      '在指定的远程 SSH 主机上执行一条 Shell 命令。',
-      '命令通过 1Shell 的 SSH 连接池安全执行，凭据由 1Shell 主控端管理，不会暴露给 AI。',
-      '返回命令的 stdout、stderr 和退出码。',
-      '适用于：查看日志、检查服务状态、安装软件、运行诊断命令等。',
-      '注意：避免执行需要交互式输入的命令（如 apt install 时需加 -y 参数）。',
-    ].join(' '),
+    description: '在远程 SSH 主机上执行 Shell 命令，返回 stdout/stderr/exitCode。非交互式命令请加 -y 等参数。耗时操作（docker pull/build 等）请将 timeout 设为 120000 或更大。',
     inputSchema: {
       type: 'object',
       properties: {
@@ -32,7 +26,7 @@ const TOOLS = [
         },
         timeout: {
           type: 'number',
-          description: '命令执行超时毫秒数（可选，默认 30000ms）',
+          description: '命令执行超时毫秒数（可选，默认 30000ms，docker pull 等耗时操作建议 120000ms）',
         },
       },
       required: ['hostId', 'command'],
@@ -40,11 +34,7 @@ const TOOLS = [
   },
   {
     name: 'list_hosts',
-    description: [
-      '列出 1Shell 中配置的所有远程 SSH 主机。',
-      '返回每台主机的 ID、名称、地址和端口。',
-      '在执行 execute_ssh_command 前，先用此工具确认目标主机的 ID。',
-    ].join(' '),
+    description: '列出 1Shell 中配置的所有远程 SSH 主机，返回每台主机的 ID、名称、地址和端口。',
     inputSchema: {
       type: 'object',
       properties: {},
