@@ -10,7 +10,8 @@
  * Shell 会话（session.service.js）始终独立连接，因为需要独占 PTY。
  */
 
-const IDLE_TIMEOUT_MS = 60000; // 空闲 60 秒后断开
+const IDLE_TIMEOUT_MS = 60000;    // 空闲 60 秒后断开
+const LIVENESS_TIMEOUT_MS = 5000; // 存活检测最多等 5 秒
 
 function createSshPool({ hostService }) {
   // Map<hostId, { client, proxyClient, timer, busy }>
@@ -46,9 +47,14 @@ function createSshPool({ hostService }) {
     // 有空闲连接且连接仍存活
     if (entry && !entry.busy) {
       try {
-        // 简单存活检测：exec 一个 no-op
+        // 存活检测：exec 一个 no-op，设置超时避免 half-open 连接无限挂起
         await new Promise((resolve, reject) => {
+          const livenessTimer = setTimeout(
+            () => reject(new Error('liveness check timeout')),
+            LIVENESS_TIMEOUT_MS,
+          );
           entry.client.exec(':', (err, stream) => {
+            clearTimeout(livenessTimer);
             if (err) return reject(err);
             stream.on('close', () => resolve());
             stream.on('error', reject);

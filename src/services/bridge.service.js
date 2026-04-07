@@ -35,10 +35,11 @@ function createBridgeService({ hostService, auditService, sshPool }) {
 
       const usePool = Boolean(sshPool);
 
+      // 每次命令结束后始终关闭连接，避免 SSH 连接复用导致的 half-open 挂起问题
       function cleanup() {
         if (timer) { clearTimeout(timer); timer = null; }
         if (usePool) {
-          sshPool.returnToPool(hostId);
+          sshPool.release(hostId);
         } else {
           try { targetClient?.end(); } catch { /* ignore */ }
           try { proxyClientRef?.end(); } catch { /* ignore */ }
