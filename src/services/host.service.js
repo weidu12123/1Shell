@@ -178,6 +178,8 @@ function createHostService({ hostRepository }) {
       port: normalizePort(host.port, 22),
       username: host.username,
       readyTimeout: 15000,
+      keepaliveInterval: 10000,   // 每 10 秒发送 SSH keepalive，防止服务端关闭空闲连接
+      keepaliveCountMax: 3,        // 最多 3 次无响应后视为断开，触发 error 事件
     };
 
     if (host.authType === 'privateKey') {

@@ -36,11 +36,13 @@ function createBridgeService({ hostService, auditService, sshPool }) {
 
       const usePool = Boolean(sshPool);
 
-      // 每次命令结束后始终关闭连接，避免 SSH 连接复用导致的 half-open 挂起问题
-      function cleanup() {
+      // 命令成功完成 → 连接是健康的，归还池复用
+      // 命令超时/出错 → 连接可能 half-open，销毁
+      function cleanup(healthy) {
         if (timer) { clearTimeout(timer); timer = null; }
         if (usePool) {
-          sshPool.release(hostId);
+          if (healthy) sshPool.returnToPool(hostId);
+          else sshPool.release(hostId);
         } else {
           try { targetClient?.end(); } catch { /* ignore */ }
           try { proxyClientRef?.end(); } catch { /* ignore */ }
@@ -50,7 +52,7 @@ function createBridgeService({ hostService, auditService, sshPool }) {
       function settle(result) {
         if (settled) return;
         settled = true;
-        cleanup();
+        cleanup(true);
         auditService?.log({
           action: 'bridge_exec',
           source,
@@ -67,7 +69,7 @@ function createBridgeService({ hostService, auditService, sshPool }) {
       function fail(err) {
         if (settled) return;
         settled = true;
-        cleanup();
+        cleanup(false);
         auditService?.log({
           action: 'bridge_exec',
           source,
