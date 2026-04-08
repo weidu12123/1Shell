@@ -26,7 +26,7 @@ const {
   parseProbeOutput,
 } = require('./probe/parsers');
 
-function createProbeService({ hostRepository, hostService }) {
+function createProbeService({ hostRepository, hostService, sshShellPool }) {
   let lastLocalCpuSample = null;
   let latestSnapshot = {
     generatedAt: null,
@@ -364,6 +364,82 @@ function createProbeService({ hostRepository, hostService }) {
   }
 
   function probeRemoteHost(host) {
+    // 优先使用持久 shell 池（复用长连接，避免频繁 TCP 连接触发云安全告警）
+    if (sshShellPool) {
+      return probeRemoteViaShellPool(host);
+    }
+    return probeRemoteViaConnect(host);
+  }
+
+  /**
+   * 通过持久 shell 池探测远程主机
+   */
+  async function probeRemoteViaShellPool(host) {
+    const startedAt = Date.now();
+    const timeout = getAdaptiveTimeout(host.id);
+
+    try {
+      const result = await sshShellPool.exec(host.id, REMOTE_PROBE_COMMAND, timeout);
+      const latencyMs = Date.now() - startedAt;
+      const stdout = result.stdout || '';
+
+      if (result.exitCode !== 0 && !stdout.trim()) {
+        return {
+          hostId: host.id,
+          name: host.name,
+          checkedAt: nowIso(),
+          online: false,
+          latencyMs,
+          error: result.stderr || `exit code ${result.exitCode}`,
+          errorCode: 'REMOTE_ERROR',
+        };
+      }
+
+      const parsed = parseProbeOutput(stdout);
+      const disk = parseDiskBytesText(stdout, 'DISK_READ_BYTES', 'DISK_WRITE_BYTES');
+      const load = splitLoad(parsed.LOAD);
+
+      recordLatency(host.id, latencyMs);
+
+      return {
+        hostId: host.id,
+        name: host.name,
+        checkedAt: nowIso(),
+        online: true,
+        latencyMs,
+        hostname: parsed.HOSTNAME || host.host,
+        cpuUsage: parseNumber(parsed.CPU),
+        memoryUsage: parseNumber(parsed.MEM),
+        diskUsage: parseNumber(parsed.DISK),
+        uptimeSec: parseInt(parsed.UPTIME, 10) || 0,
+        error: null,
+        errorCode: null,
+        processCount: parseInteger(parsed.PROC_COUNT),
+        keyProcesses: parseKeyProcesses(parsed.KEY_PROC),
+        _checkedAtMs: Date.now(),
+        _networkRxBytes: parseInteger(parsed.NET_RX),
+        _networkTxBytes: parseInteger(parsed.NET_TX),
+        _diskReadBytes: disk.diskReadBytes,
+        _diskWriteBytes: disk.diskWriteBytes,
+        ...load,
+      };
+    } catch (err) {
+      return {
+        hostId: host.id,
+        name: host.name,
+        checkedAt: nowIso(),
+        online: false,
+        latencyMs: Date.now() - startedAt,
+        error: err.message,
+        errorCode: classifyProbeError(err.message),
+      };
+    }
+  }
+
+  /**
+   * 通过独立 SSH 连接探测远程主机（后备方案）
+   */
+  function probeRemoteViaConnect(host) {
     return new Promise((resolve) => {
       const startedAt = Date.now();
       let settled = false;

@@ -5,28 +5,77 @@ const { BRIDGE_EXEC_TIMEOUT_MS } = require('../config/env');
 /**
  * Bridge Service
  *
- * 通过 ssh2 的 exec 模式（非 shell）在远端主机执行命令。
+ * 在远端主机执行命令，支持两种模式：
+ *   1. 持久 shell（sshShellPool）— MCP 调用优先使用，复用长驻 shell channel
+ *   2. exec 模式（sshPool）— 每次 exec 一条命令，作为后备
+ *
  * 级联（ProxyJump）逻辑由 hostService.connectToHost 统一处理，本层无感知。
  */
-function createBridgeService({ hostService, auditService, sshPool }) {
+function createBridgeService({ hostService, auditService, sshPool, sshShellPool }) {
+  const MIN_TIMEOUT_MS = 30000;
+
   /**
    * 在指定主机上执行单条命令。
    *
    * @param {string} hostId - 主机 ID
    * @param {string} command - Shell 命令
    * @param {number} [timeoutMs] - 超时毫秒数
+   * @param {object} [options]
+   * @param {string} [options.source] - 调用来源 ('mcp' | 'bridge_api')
    * @returns {Promise<{stdout: string, stderr: string, exitCode: number, durationMs: number}>}
    */
-  function execOnHost(hostId, command, timeoutMs, { source = 'bridge_api', clientIp } = {}) {
-    const MIN_TIMEOUT_MS = 30000;
+  async function execOnHost(hostId, command, timeoutMs, { source = 'bridge_api', clientIp } = {}) {
     const timeout = typeof timeoutMs === 'number' && timeoutMs > 0
       ? Math.max(timeoutMs, MIN_TIMEOUT_MS)
       : BRIDGE_EXEC_TIMEOUT_MS;
 
-    // 查找主机名用于审计
     const host = hostService.findHost(hostId);
     const hostName = host?.name || hostId;
 
+    // MCP 调用且有持久 shell 池 → 走持久 shell 模式
+    if (sshShellPool && source === 'mcp') {
+      return execViaShellPool(hostId, command, timeout, { source, hostName, clientIp });
+    }
+
+    // 其他调用 → 走 exec 模式（兼容原有逻辑）
+    return execViaExec(hostId, command, timeout, { source, hostName, clientIp });
+  }
+
+  // ─── 持久 shell 模式 ─────────────────────────────────────────────────────
+
+  async function execViaShellPool(hostId, command, timeout, { source, hostName, clientIp }) {
+    const startAt = Date.now();
+    try {
+      const result = await sshShellPool.exec(hostId, command, timeout);
+      auditService?.log({
+        action: 'bridge_exec',
+        source,
+        hostId,
+        hostName,
+        command: command.substring(0, 2000),
+        exitCode: result.exitCode,
+        durationMs: result.durationMs,
+        clientIp,
+      });
+      return result;
+    } catch (err) {
+      auditService?.log({
+        action: 'bridge_exec',
+        source,
+        hostId,
+        hostName,
+        command: command.substring(0, 2000),
+        error: err.message,
+        durationMs: Date.now() - startAt,
+        clientIp,
+      });
+      throw err;
+    }
+  }
+
+  // ─── exec 模式（原有逻辑）────────────────────────────────────────────────
+
+  function execViaExec(hostId, command, timeout, { source, hostName, clientIp }) {
     return new Promise((resolve, reject) => {
       const startAt = Date.now();
       let settled = false;
@@ -36,8 +85,6 @@ function createBridgeService({ hostService, auditService, sshPool }) {
 
       const usePool = Boolean(sshPool);
 
-      // 命令成功完成 → 连接是健康的，归还池复用
-      // 命令超时/出错 → 连接可能 half-open，销毁
       function cleanup(healthy) {
         if (timer) { clearTimeout(timer); timer = null; }
         if (usePool) {
@@ -102,7 +149,7 @@ function createBridgeService({ hostService, auditService, sshPool }) {
           }
 
           targetClient = client;
-          proxyClientRef = usePool ? null : proxyClient; // 池管理的连接不在这里 end
+          proxyClientRef = usePool ? null : proxyClient;
 
           client.exec(command, (err, stream) => {
             if (err) {
