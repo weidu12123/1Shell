@@ -109,6 +109,7 @@
   window.appShared = Object.freeze({
     createRequestJson,
     escapeHtml,
+    getCsrfToken,
     showErrorMessage,
     showToast,
   });

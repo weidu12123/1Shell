@@ -195,6 +195,7 @@ window.createFileBrowserModule = function ({ escapeHtml, getActiveHost, requestJ
             ${icon}
             <span class="text-slate-500 dark:text-slate-400 group-hover:text-blue-500 truncate">${escapeHtml(item.name)}</span>
             ${sizeText}
+            <button class="shrink-0 hidden group-hover:inline-flex items-center justify-center w-5 h-5 rounded text-[9px] border border-slate-200 dark:border-slate-600 text-slate-400 hover:text-blue-500 hover:border-blue-300 transition-colors" data-action="download" data-download-path="${escapeHtml(safePath)}" title="下载">⬇</button>
           </div>
         </li>`;
       }
@@ -237,6 +238,78 @@ window.createFileBrowserModule = function ({ escapeHtml, getActiveHost, requestJ
   }
 
   /**
+   * 下载文件
+   */
+  function downloadFile(filePath) {
+    const host = getActiveHost();
+    if (!host) return;
+    const hostId = host.id || 'local';
+    const params = new URLSearchParams({ hostId, path: filePath });
+    // 触发浏览器下载
+    const a = document.createElement('a');
+    a.href = `/api/files/download?${params}`;
+    a.download = '';
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+  }
+
+  /**
+   * 上传文件弹窗
+   */
+  function showUploadDialog() {
+    const host = getActiveHost();
+    if (!host) return;
+    if (!lastData || !lastData.path || lastData.path === '此电脑') {
+      window.appShared?.showToast?.('请先进入一个目录', 'warn', 2000);
+      return;
+    }
+
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.multiple = true;
+    input.addEventListener('change', async () => {
+      if (!input.files || input.files.length === 0) return;
+      const hostId = host.id || 'local';
+      const dirPath = lastData.path;
+
+      for (const file of input.files) {
+        try {
+          const formData = new FormData();
+          formData.append('hostId', hostId);
+          formData.append('dirPath', dirPath);
+          formData.append('file', file);
+
+          const csrfToken = window.appShared?.getCsrfToken?.() || '';
+          const resp = await fetch('/api/files/upload', {
+            method: 'POST',
+            headers: csrfToken ? { 'x-csrf-token': csrfToken } : {},
+            body: formData,
+          });
+          if (!resp.ok) {
+            const err = await resp.json().catch(() => ({}));
+            throw new Error(err.error || `上传失败 (${resp.status})`);
+          }
+          window.appShared?.showToast?.(`${file.name} 上传成功`, 'success', 2000);
+        } catch (err) {
+          window.appShared?.showToast?.(`${file.name} 上传失败: ${err.message}`, 'error', 3000);
+        }
+      }
+      // 刷新目录
+      loadDir(dirPath);
+    });
+    input.click();
+  }
+
+  /**
+   * 判断文件是否为图片
+   */
+  function isImageFile(name) {
+    const ext = name.split('.').pop().toLowerCase();
+    return ['png', 'jpg', 'jpeg', 'gif', 'svg', 'webp', 'ico', 'bmp'].includes(ext);
+  }
+
+  /**
    * 文件预览弹窗
    */
   async function previewFile(filePath) {
@@ -257,6 +330,8 @@ window.createFileBrowserModule = function ({ escapeHtml, getActiveHost, requestJ
           </div>
           <div class="flex items-center gap-1.5 shrink-0">
             <button class="file-preview-action h-6 px-2 rounded text-[10px] border border-slate-200 dark:border-slate-600 text-slate-400 hover:text-blue-500 hover:border-blue-300 transition-colors" data-action="copy-path" title="复制路径">路径</button>
+            <button class="file-preview-action h-6 px-2 rounded text-[10px] border border-slate-200 dark:border-slate-600 text-slate-400 hover:text-blue-500 hover:border-blue-300 transition-colors" data-action="download-preview" title="下载文件">下载</button>
+            <button class="file-preview-action h-6 px-2 rounded text-[10px] border border-slate-200 dark:border-slate-600 text-slate-400 hover:text-green-500 hover:border-green-300 transition-colors" data-action="edit-file" title="编辑文件">编辑</button>
             <button id="file-preview-close" class="w-7 h-7 flex items-center justify-center rounded-lg hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-400 hover:text-red-500 transition-colors text-sm">×</button>
           </div>
         </div>
@@ -280,10 +355,100 @@ window.createFileBrowserModule = function ({ escapeHtml, getActiveHost, requestJ
       });
     });
 
+    filePreviewEl.querySelector('[data-action="download-preview"]')?.addEventListener('click', () => {
+      downloadFile(filePath);
+    });
+
+    // 编辑按钮（图片文件不支持编辑）
+    const editBtn = filePreviewEl.querySelector('[data-action="edit-file"]');
+    let fileContent = null; // 缓存文件内容
+
+    if (editBtn) {
+      if (isImageFile(fileName)) {
+        editBtn.style.display = 'none';
+      } else {
+        editBtn.addEventListener('click', () => {
+          if (fileContent === null) return; // 内容未加载完成
+          const contentEl2 = filePreviewEl.querySelector('#file-preview-content');
+          if (!contentEl2) return;
+
+          // 检查是否已在编辑模式
+          const existingEditor = contentEl2.querySelector('#file-edit-textarea');
+          if (existingEditor) return;
+
+          contentEl2.innerHTML = `
+            <textarea id="file-edit-textarea" class="w-full h-full min-h-[300px] text-xs font-mono leading-relaxed p-2 rounded-lg border border-slate-200 dark:border-slate-600 bg-white dark:bg-[#0b1324] text-slate-700 dark:text-slate-200 outline-none resize-none" spellcheck="false">${escapeHtml(fileContent)}</textarea>
+            <div class="flex items-center justify-between mt-2 pt-2 border-t border-slate-100 dark:border-slate-700">
+              <span class="text-[10px] text-slate-400" id="file-edit-status"></span>
+              <div class="flex gap-1.5">
+                <button id="file-edit-cancel" class="h-6 px-2.5 rounded text-[10px] border border-slate-200 dark:border-slate-600 text-slate-500 hover:text-slate-700 transition-colors">取消</button>
+                <button id="file-edit-save" class="h-6 px-2.5 rounded text-[10px] bg-blue-500 text-white hover:bg-blue-600 transition-colors font-semibold">保存</button>
+              </div>
+            </div>`;
+
+          editBtn.textContent = '编辑中';
+          editBtn.classList.add('text-green-500', 'border-green-300');
+
+          contentEl2.querySelector('#file-edit-cancel')?.addEventListener('click', () => {
+            // 恢复预览模式
+            contentEl2.innerHTML = `<pre class="text-xs text-slate-600 dark:text-slate-300 whitespace-pre-wrap break-all font-mono leading-relaxed">${escapeHtml(fileContent)}</pre>`;
+            editBtn.textContent = '编辑';
+            editBtn.classList.remove('text-green-500', 'border-green-300');
+          });
+
+          contentEl2.querySelector('#file-edit-save')?.addEventListener('click', async () => {
+            const textarea = contentEl2.querySelector('#file-edit-textarea');
+            const statusEl = contentEl2.querySelector('#file-edit-status');
+            const saveBtn = contentEl2.querySelector('#file-edit-save');
+            if (!textarea || !saveBtn) return;
+
+            saveBtn.disabled = true;
+            saveBtn.textContent = '保存中…';
+            if (statusEl) statusEl.textContent = '';
+
+            try {
+              await requestJson('/api/files/write', {
+                method: 'POST',
+                body: JSON.stringify({ hostId, path: filePath, content: textarea.value }),
+              });
+              fileContent = textarea.value;
+              window.appShared?.showToast?.('保存成功', 'success', 2000);
+              // 恢复预览模式
+              contentEl2.innerHTML = `<pre class="text-xs text-slate-600 dark:text-slate-300 whitespace-pre-wrap break-all font-mono leading-relaxed">${escapeHtml(fileContent)}</pre>`;
+              editBtn.textContent = '编辑';
+              editBtn.classList.remove('text-green-500', 'border-green-300');
+            } catch (err) {
+              saveBtn.disabled = false;
+              saveBtn.textContent = '保存';
+              if (statusEl) statusEl.textContent = `保存失败: ${err.message}`;
+            }
+          });
+        });
+      }
+    }
+
     const contentEl = filePreviewEl.querySelector('#file-preview-content');
+
+    // 图片文件：通过下载接口加载为 blob 显示
+    if (isImageFile(fileName)) {
+      try {
+        const params = new URLSearchParams({ hostId, path: filePath });
+        const resp = await fetch(`/api/files/download?${params}`);
+        if (!resp.ok) throw new Error('加载失败');
+        const blob = await resp.blob();
+        const url = URL.createObjectURL(blob);
+        contentEl.innerHTML = `<div class="flex items-center justify-center"><img src="${url}" alt="${escapeHtml(fileName)}" class="max-w-full max-h-[60vh] rounded-lg shadow-sm" onload="this.parentElement.classList.add('loaded')" /></div>`;
+      } catch (err) {
+        contentEl.innerHTML = `<div class="text-center py-8 text-red-400 text-xs">${escapeHtml(err.message || '图片加载失败')}</div>`;
+      }
+      return;
+    }
+
+    // 文本文件预览
     try {
       const params = new URLSearchParams({ hostId, path: filePath });
       const data = await requestJson(`/api/files/read?${params}`);
+      fileContent = data.content;
       contentEl.innerHTML = `<pre class="text-xs text-slate-600 dark:text-slate-300 whitespace-pre-wrap break-all font-mono leading-relaxed">${escapeHtml(data.content)}</pre>
         <div class="mt-2 pt-2 border-t border-slate-100 dark:border-slate-700 text-[10px] text-slate-400">${formatSize(data.size)}</div>`;
     } catch (err) {
@@ -323,6 +488,14 @@ window.createFileBrowserModule = function ({ escapeHtml, getActiveHost, requestJ
       return;
     }
 
+    // 下载文件
+    const downloadEl = e.target.closest('[data-action="download"]');
+    if (downloadEl) {
+      e.stopPropagation();
+      downloadFile(downloadEl.getAttribute('data-download-path'));
+      return;
+    }
+
     const previewEl = e.target.closest('[data-action="preview"]');
     if (previewEl) {
       previewFile(previewEl.getAttribute('data-file-path'));
@@ -341,6 +514,12 @@ window.createFileBrowserModule = function ({ escapeHtml, getActiveHost, requestJ
   function initialize() {
     if (fileTreeEl) {
       fileTreeEl.addEventListener('click', handleTreeClick);
+    }
+
+    // 上传按钮
+    const uploadBtn = document.getElementById('file-upload-btn');
+    if (uploadBtn) {
+      uploadBtn.addEventListener('click', showUploadDialog);
     }
 
     const appShell = document.getElementById('app-shell');

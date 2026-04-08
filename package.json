@@ -1,6 +1,6 @@
 {
   "name": "1shell",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "1Shell - One Shell to rule them all. 零侵入式多机管理中枢 + AI 云端总司令",
   "main": "server.js",
   "scripts": {
@@ -27,6 +27,7 @@
     "dotenv": "^16.4.5",
     "express": "^4.19.2",
     "helmet": "^8.1.0",
+    "multer": "^2.1.1",
     "node-fetch": "^2.7.0",
     "node-pty": "^1.1.0",
     "socket.io": "^4.7.5",

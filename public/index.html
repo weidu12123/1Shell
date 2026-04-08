@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>1Shell</title>
+  <title>1Shell 1.1.0 正式版</title>
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/xterm@5.3.0/css/xterm.min.css" />
   <link rel="stylesheet" href="style.css" />
   <script src="https://cdn.tailwindcss.com"></script>
@@ -116,7 +116,7 @@
        ════════════════════════════════════════════════════════ -->
   <div class="login-screen fixed inset-0 z-[9000] flex items-center justify-center bg-slate-100/40 backdrop-blur-md p-6" id="login-screen">
     <div class="w-full max-w-sm p-8 bg-white/80 backdrop-blur-2xl rounded-3xl shadow-2xl border border-white/60 dark:border-[#1e293b]/60">
-      <div class="text-3xl font-extrabold bg-gradient-to-r from-blue-500 to-purple-500 bg-clip-text text-transparent">1Shell</div>
+      <div class="text-3xl font-extrabold bg-gradient-to-r from-blue-500 to-purple-500 bg-clip-text text-transparent">1Shell 1.1.0 正式版</div>
       <div class="mt-0.5 text-[11px] text-slate-400 italic font-medium tracking-wide">One Shell to rule them all.</div>
       <div class="mt-1 text-slate-500 text-sm">请输入账号和密码后进入多 VPS 控制台</div>
       <form id="login-form" class="mt-6 flex flex-col gap-4" autocomplete="off">
@@ -152,7 +152,7 @@
       <!-- 左：Logo + 侧栏操作 -->
       <div class="flex items-center gap-3 shrink-0">
         <button class="mobile-menu-btn md:hidden h-8 w-8 flex items-center justify-center rounded-lg border border-slate-200 dark:border-[#1e293b] text-lg" id="mobile-menu-btn" type="button">☰</button>
-        <div class="text-xl font-extrabold bg-gradient-to-r from-blue-500 to-purple-500 bg-clip-text text-transparent select-none">1Shell</div>
+        <div class="text-xl font-extrabold bg-gradient-to-r from-blue-500 to-purple-500 bg-clip-text text-transparent select-none">1Shell 1.1.0 正式版</div>
         <span class="text-[11px] text-slate-400 hidden lg:inline italic">One Shell to rule them all.</span>
         <button class="h-8 px-3 rounded-lg border border-slate-200 bg-white text-xs font-semibold text-slate-600 hover:border-blue-300 hover:text-blue-500 transition-all" id="add-host-btn" type="button">+ 添加主机</button>
         <button class="h-8 px-3 rounded-lg border border-slate-200 bg-white text-xs font-semibold text-slate-600 hover:border-blue-300 hover:text-blue-500 transition-all" id="sidebar-toggle-btn" type="button" title="折叠/展开左侧栏">侧栏折叠</button>
@@ -215,6 +215,7 @@
           <div class="px-3 py-2 text-[11px] font-semibold text-slate-400 uppercase tracking-wide border-b border-slate-100 flex items-center justify-between">
             <span>文件浏览</span>
             <div class="flex items-center gap-1.5">
+              <button id="file-upload-btn" class="shrink-0 h-5 px-1.5 flex items-center justify-center rounded border border-slate-200 text-slate-400 hover:text-blue-500 hover:border-blue-300 text-[10px] transition-all" title="上传文件">↑ 上传</button>
               <button id="lp-file-toggle" class="shrink-0 h-5 w-5 flex items-center justify-center rounded border border-slate-200 text-slate-400 hover:text-blue-500 hover:border-blue-300 text-[10px] transition-all" title="最小化/最大化">⇕</button>
             </div>
           </div>
@@ -224,7 +225,7 @@
         </div>
       </aside>
 
-      <!-- ── 中间终端区 ──────────────────────────────────── -->
+      <!-- ── 中间终端区 ─────��────────────���───────────────── -->
       <main class="terminal-area flex-1 flex flex-col min-w-0 bg-shell-panel rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
 
         <!-- 终端标签页 -->

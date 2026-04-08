@@ -117,62 +117,124 @@ function createFileService({ hostService }) {
     };
   }
 
+  // ─── SFTP 连接池：复用 SSH 连接，避免每次操作都握手 ──────────────────────
+
+  const SFTP_IDLE_TIMEOUT_MS = 120000; // 空闲 2 分钟后断开
+  // Map<hostId, { client, proxyClient, sftp, timer, busy }>
+  const sftpPool = new Map();
+
+  function releaseSftp(hostId) {
+    const entry = sftpPool.get(hostId);
+    if (!entry) return;
+    sftpPool.delete(hostId);
+    if (entry.timer) clearTimeout(entry.timer);
+    try { entry.sftp?.end(); } catch { /* ignore */ }
+    try { entry.client?.end(); } catch { /* ignore */ }
+    try { entry.proxyClient?.end(); } catch { /* ignore */ }
+  }
+
+  function resetSftpTimer(hostId) {
+    const entry = sftpPool.get(hostId);
+    if (!entry) return;
+    if (entry.timer) clearTimeout(entry.timer);
+    entry.timer = setTimeout(() => releaseSftp(hostId), SFTP_IDLE_TIMEOUT_MS);
+  }
+
   /**
-   * 建立独立 SSH 连接用于 SFTP 操作
+   * 获取可复用的 SFTP 会话
    */
-  function connectForSftp(hostId) {
-    return hostService.connectToHost(hostId, { readyTimeout: 15000 });
+  async function acquireSftp(hostId) {
+    const entry = sftpPool.get(hostId);
+    if (entry && !entry.busy) {
+      // 快速健康检测：尝试 realpath
+      try {
+        await new Promise((resolve, reject) => {
+          const t = setTimeout(() => reject(new Error('sftp liveness timeout')), 3000);
+          entry.sftp.realpath('.', (err) => {
+            clearTimeout(t);
+            if (err) reject(err); else resolve();
+          });
+        });
+        entry.busy = true;
+        resetSftpTimer(hostId);
+        return entry;
+      } catch {
+        releaseSftp(hostId);
+      }
+    }
+
+    // 新建连接
+    const { client, proxyClient } = await hostService.connectToHost(hostId, { readyTimeout: 15000 });
+
+    const sftp = await new Promise((resolve, reject) => {
+      client.sftp((err, s) => {
+        if (err) {
+          client.end(); proxyClient?.end();
+          return reject(new Error(`SFTP 会话创建失败: ${err.message}`));
+        }
+        resolve(s);
+      });
+    });
+
+    client.on('error', () => releaseSftp(hostId));
+    client.on('close', () => { sftpPool.delete(hostId); });
+
+    const newEntry = { client, proxyClient, sftp, timer: null, busy: true };
+    sftpPool.set(hostId, newEntry);
+    resetSftpTimer(hostId);
+    return newEntry;
+  }
+
+  function returnSftp(hostId) {
+    const entry = sftpPool.get(hostId);
+    if (!entry) return;
+    entry.busy = false;
+    resetSftpTimer(hostId);
   }
 
   /**
    * 通过 SFTP 列出远程目录内容
    */
   async function listRemote(hostId, dirPath) {
-    const { client, proxyClient } = await connectForSftp(hostId);
+    const entry = await acquireSftp(hostId);
+    const { sftp } = entry;
 
     try {
       return await new Promise((resolve, reject) => {
-        client.sftp((err, sftp) => {
-          if (err) return reject(new Error(`SFTP 会话创建失败: ${err.message}`));
+        const targetPath = dirPath || '.';
 
-          const targetPath = dirPath || '.';
+        sftp.realpath(targetPath, (rpErr, absPath) => {
+          const resolvedPath = rpErr ? targetPath : absPath;
 
-          sftp.realpath(targetPath, (rpErr, absPath) => {
-            const resolvedPath = rpErr ? targetPath : absPath;
+          sftp.readdir(resolvedPath, (rdErr, list) => {
+            if (rdErr) return reject(new Error(`读取目录失败: ${rdErr.message}`));
 
-            sftp.readdir(resolvedPath, (rdErr, list) => {
-              if (rdErr) {
-                sftp.end();
-                return reject(new Error(`读取目录失败: ${rdErr.message}`));
-              }
-
-              const items = list.map((entry) => {
-                const isDir = entry.attrs.isDirectory();
-                return {
-                  name: entry.filename,
-                  path: resolvedPath + '/' + entry.filename,
-                  isDir,
-                  size: entry.attrs.size || 0,
-                  mtime: (entry.attrs.mtime || 0) * 1000,
-                };
-              });
-
-              items.sort((a, b) => {
-                if (a.isDir !== b.isDir) return a.isDir ? -1 : 1;
-                return a.name.localeCompare(b.name);
-              });
-
-              const parent = resolvedPath === '/' ? '/' : resolvedPath.replace(/\/[^/]+\/?$/, '') || '/';
-
-              sftp.end();
-              resolve({ path: resolvedPath, parent, items });
+            const items = list.map((e) => {
+              const isDir = e.attrs.isDirectory();
+              return {
+                name: e.filename,
+                path: resolvedPath + '/' + e.filename,
+                isDir,
+                size: e.attrs.size || 0,
+                mtime: (e.attrs.mtime || 0) * 1000,
+              };
             });
+
+            items.sort((a, b) => {
+              if (a.isDir !== b.isDir) return a.isDir ? -1 : 1;
+              return a.name.localeCompare(b.name);
+            });
+
+            const parent = resolvedPath === '/' ? '/' : resolvedPath.replace(/\/[^/]+\/?$/, '') || '/';
+            resolve({ path: resolvedPath, parent, items });
           });
         });
       });
+    } catch (err) {
+      releaseSftp(hostId); // 出错时销毁连接
+      throw err;
     } finally {
-      try { client.end(); } catch { /* ignore */ }
-      try { proxyClient?.end(); } catch { /* ignore */ }
+      returnSftp(hostId);
     }
   }
 
@@ -180,46 +242,39 @@ function createFileService({ hostService }) {
    * 读取远程文件内容（文本预览，限制大小）
    */
   async function readRemoteFile(hostId, filePath, maxBytes = 512 * 1024) {
-    const { client, proxyClient } = await connectForSftp(hostId);
+    const entry = await acquireSftp(hostId);
+    const { sftp } = entry;
 
     try {
       return await new Promise((resolve, reject) => {
-        client.sftp((err, sftp) => {
-          if (err) return reject(new Error(`SFTP 会话创建失败: ${err.message}`));
+        sftp.stat(filePath, (statErr, stats) => {
+          if (statErr) return reject(new Error(`文件不存在: ${statErr.message}`));
 
-          sftp.stat(filePath, (statErr, stats) => {
-            if (statErr) {
-              sftp.end();
-              return reject(new Error(`文件不存在: ${statErr.message}`));
-            }
+          if (stats.size > maxBytes) {
+            return reject(new Error(`文件过大 (${(stats.size / 1024 / 1024).toFixed(1)}MB)，最大支持 ${(maxBytes / 1024 / 1024).toFixed(1)}MB 预览`));
+          }
 
-            if (stats.size > maxBytes) {
-              sftp.end();
-              return reject(new Error(`文件过大 (${(stats.size / 1024 / 1024).toFixed(1)}MB)，最大支持 ${(maxBytes / 1024 / 1024).toFixed(1)}MB 预览`));
-            }
+          const chunks = [];
+          const stream = sftp.createReadStream(filePath, { end: maxBytes });
 
-            const chunks = [];
-            const stream = sftp.createReadStream(filePath, { end: maxBytes });
-
-            stream.on('data', (chunk) => chunks.push(chunk));
-            stream.on('end', () => {
-              sftp.end();
-              resolve({
-                content: Buffer.concat(chunks).toString('utf8'),
-                size: stats.size,
-                path: filePath,
-              });
+          stream.on('data', (chunk) => chunks.push(chunk));
+          stream.on('end', () => {
+            resolve({
+              content: Buffer.concat(chunks).toString('utf8'),
+              size: stats.size,
+              path: filePath,
             });
-            stream.on('error', (readErr) => {
-              sftp.end();
-              reject(new Error(`读取文件失败: ${readErr.message}`));
-            });
+          });
+          stream.on('error', (readErr) => {
+            reject(new Error(`读取文件失败: ${readErr.message}`));
           });
         });
       });
+    } catch (err) {
+      releaseSftp(hostId);
+      throw err;
     } finally {
-      try { client.end(); } catch { /* ignore */ }
-      try { proxyClient?.end(); } catch { /* ignore */ }
+      returnSftp(hostId);
     }
   }
 
@@ -275,9 +330,187 @@ function createFileService({ hostService }) {
     return readRemoteFile(hostId, filePath);
   }
 
+  // ─── 文件下载（流式） ────────────────────────────────────────────────────
+
+  /**
+   * 下载本机文件，返回可读流和元信息
+   */
+  async function downloadLocal(filePath) {
+    const resolved = path.resolve(filePath);
+    if (isSensitivePath(resolved)) throw new Error('访问被拒绝');
+    const stat = await fs.promises.stat(resolved);
+    if (stat.isDirectory()) throw new Error('不能下载目录');
+    return {
+      stream: fs.createReadStream(resolved),
+      size: stat.size,
+      filename: path.basename(resolved),
+    };
+  }
+
+  /**
+   * 下载远程文件，返回可读流和元信息
+   * 注意：下载使用独立连接，因为流生命周期不可控
+   */
+  async function downloadRemote(hostId, filePath) {
+    const { client, proxyClient } = await hostService.connectToHost(hostId, { readyTimeout: 15000 });
+
+    return new Promise((resolve, reject) => {
+      client.sftp((err, sftp) => {
+        if (err) {
+          client.end(); proxyClient?.end();
+          return reject(new Error(`SFTP 会话创建失败: ${err.message}`));
+        }
+
+        sftp.stat(filePath, (statErr, stats) => {
+          if (statErr) {
+            sftp.end(); client.end(); proxyClient?.end();
+            return reject(new Error(`文件不存在: ${statErr.message}`));
+          }
+          if (stats.isDirectory()) {
+            sftp.end(); client.end(); proxyClient?.end();
+            return reject(new Error('不能下载目录'));
+          }
+
+          const stream = sftp.createReadStream(filePath);
+          const filename = filePath.split('/').pop() || 'download';
+
+          stream.on('close', () => {
+            sftp.end(); client.end(); proxyClient?.end();
+          });
+          stream.on('error', () => {
+            sftp.end(); client.end(); proxyClient?.end();
+          });
+
+          resolve({ stream, size: stats.size, filename });
+        });
+      });
+    });
+  }
+
+  /**
+   * 统一入口：下载文件
+   */
+  async function downloadFile(hostId, filePath) {
+    const host = hostService.findHost(hostId);
+    if (!host) throw new Error('主机不存在');
+    if (host.type === 'local' || host.id === 'local') {
+      return downloadLocal(filePath);
+    }
+    return downloadRemote(hostId, filePath);
+  }
+
+  // ─── 文件上传 ─────────────────────────────────────────────────────────────
+
+  /**
+   * 上传文件到本机
+   */
+  async function uploadLocal(dirPath, filename, buffer) {
+    const resolved = path.resolve(dirPath, filename);
+    if (isSensitivePath(resolved)) throw new Error('访问被拒绝');
+    await fs.promises.writeFile(resolved, buffer);
+    return { path: resolved, size: buffer.length };
+  }
+
+  /**
+   * 上传文件到远程主机
+   */
+  async function uploadRemote(hostId, dirPath, filename, buffer) {
+    const entry = await acquireSftp(hostId);
+    const { sftp } = entry;
+
+    try {
+      return await new Promise((resolve, reject) => {
+        const remotePath = dirPath.endsWith('/') ? dirPath + filename : dirPath + '/' + filename;
+        const writeStream = sftp.createWriteStream(remotePath);
+
+        writeStream.on('close', () => {
+          resolve({ path: remotePath, size: buffer.length });
+        });
+        writeStream.on('error', (writeErr) => {
+          reject(new Error(`写入文件失败: ${writeErr.message}`));
+        });
+
+        writeStream.end(buffer);
+      });
+    } catch (err) {
+      releaseSftp(hostId);
+      throw err;
+    } finally {
+      returnSftp(hostId);
+    }
+  }
+
+  /**
+   * 统一入口：上传文件
+   */
+  async function uploadFile(hostId, dirPath, filename, buffer) {
+    const host = hostService.findHost(hostId);
+    if (!host) throw new Error('主机不存在');
+    if (host.type === 'local' || host.id === 'local') {
+      return uploadLocal(dirPath, filename, buffer);
+    }
+    return uploadRemote(hostId, dirPath, filename, buffer);
+  }
+
+  // ─── 文件写入（编辑保存） ──────────────────────────────────────────────
+
+  /**
+   * 写入本机文件
+   */
+  async function writeLocal(filePath, content) {
+    const resolved = path.resolve(filePath);
+    if (isSensitivePath(resolved)) throw new Error('访问被拒绝');
+    await fs.promises.writeFile(resolved, content, 'utf8');
+    const stat = await fs.promises.stat(resolved);
+    return { path: resolved, size: stat.size };
+  }
+
+  /**
+   * 写入远程文件
+   */
+  async function writeRemote(hostId, filePath, content) {
+    const entry = await acquireSftp(hostId);
+    const { sftp } = entry;
+
+    try {
+      return await new Promise((resolve, reject) => {
+        const writeStream = sftp.createWriteStream(filePath);
+        writeStream.on('close', () => {
+          sftp.stat(filePath, (statErr, stats) => {
+            resolve({ path: filePath, size: statErr ? content.length : stats.size });
+          });
+        });
+        writeStream.on('error', (writeErr) => {
+          reject(new Error(`写入文件失败: ${writeErr.message}`));
+        });
+        writeStream.end(Buffer.from(content, 'utf8'));
+      });
+    } catch (err) {
+      releaseSftp(hostId);
+      throw err;
+    } finally {
+      returnSftp(hostId);
+    }
+  }
+
+  /**
+   * 统一入口：写入文件
+   */
+  async function writeFile(hostId, filePath, content) {
+    const host = hostService.findHost(hostId);
+    if (!host) throw new Error('主机不存在');
+    if (host.type === 'local' || host.id === 'local') {
+      return writeLocal(filePath, content);
+    }
+    return writeRemote(hostId, filePath, content);
+  }
+
   return {
     listDir,
     readFile,
+    downloadFile,
+    uploadFile,
+    writeFile,
   };
 }
 
