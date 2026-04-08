@@ -321,30 +321,56 @@
     setTimeout(() => document.addEventListener('click', onPickerOutsideClick, true), 0);
   }
 
-  // ── 顶栏本机探针：轮询 /api/health/stats ────────────────────────────────
+  // ── 顶栏探针信息：显示当前活跃主机的数据 ──────────────────────────────────
   const probeInfoEl = document.getElementById('topbar-probe-info');
+  let latestProbes = [];    // 最新一轮所有主机的探针数据
+  let activeProbeHostId = 'local';
 
-  function renderProbeInfo(data) {
+  function renderProbeInfo(data, hostName) {
     if (!probeInfoEl) return;
     const fmt = (v) => v != null ? v + '%' : '--';
+    const nameLabel = hostName ? `<span class="font-semibold text-slate-600 dark:text-slate-300 truncate max-w-[120px]">${hostName}</span><span class="w-px h-3 bg-slate-300 dark:bg-slate-600"></span>` : '';
     probeInfoEl.innerHTML =
-      `<span class="topbar-slogan" style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Inter,sans-serif;font-style:italic;font-size:10px;letter-spacing:0.05em;color:#94a3b8">One Shell to rule them all.</span>` +
-      `<span class="w-px h-3 bg-slate-300"></span>` +
-      `<span>CPU <b class="text-slate-700">${fmt(data.cpu)}</b></span>` +
-      `<span class="w-px h-3 bg-slate-300"></span>` +
-      `<span>内存 <b class="text-slate-700">${fmt(data.memory)}</b></span>` +
-      `<span class="w-px h-3 bg-slate-300"></span>` +
-      `<span>负载 <b class="text-slate-700">${fmt(data.load)}</b></span>` +
-      `<span class="w-px h-3 bg-slate-300"></span>` +
-      `<span>硬盘 <b class="text-slate-700">${fmt(data.disk)}</b></span>`;
+      `<span class="topbar-slogan" style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Inter,sans-serif;font-style:italic;font-size:10px;letter-spacing:0.05em">One Shell to rule them all.</span>` +
+      `<span class="w-px h-3 bg-slate-300 dark:bg-slate-600"></span>` +
+      nameLabel +
+      `<span>CPU <b class="text-slate-700 dark:text-slate-200">${fmt(data.cpu)}</b></span>` +
+      `<span class="w-px h-3 bg-slate-300 dark:bg-slate-600"></span>` +
+      `<span>内存 <b class="text-slate-700 dark:text-slate-200">${fmt(data.memory)}</b></span>` +
+      `<span class="w-px h-3 bg-slate-300 dark:bg-slate-600"></span>` +
+      `<span>负载 <b class="text-slate-700 dark:text-slate-200">${fmt(data.load)}</b></span>` +
+      `<span class="w-px h-3 bg-slate-300 dark:bg-slate-600"></span>` +
+      `<span>硬盘 <b class="text-slate-700 dark:text-slate-200">${fmt(data.disk)}</b></span>`;
   }
 
+  function findProbeForHost(hostId) {
+    const id = hostId || 'local';
+    return latestProbes.find((p) => p.hostId === id) || null;
+  }
+
+  function refreshTopbarProbe() {
+    const probe = findProbeForHost(activeProbeHostId);
+    if (probe) {
+      renderProbeInfo({
+        cpu: probe.cpuUsage,
+        memory: probe.memoryUsage,
+        disk: probe.diskUsage,
+        load: probe.load1 != null ? probe.load1 : null,
+      }, probe.name || probe.hostname);
+    }
+  }
+
+  // 从 /api/health/stats 获取本地数据（初始 fallback）
   async function pollLocalStats() {
     try {
       const resp = await fetch('/api/health/stats');
       if (!resp.ok) return;
-      renderProbeInfo(await resp.json());
-    } catch { /* 静默，下次重试 */ }
+      const data = await resp.json();
+      // 如果还没有 probe:update 数据或当前是本机，用 /health/stats
+      if (latestProbes.length === 0 || activeProbeHostId === 'local') {
+        renderProbeInfo(data, '本机');
+      }
+    } catch { /* 静默 */ }
   }
 
   // 初始显示 Mock，登录成功后开始轮询
@@ -365,10 +391,44 @@
       }
     });
     shellObserver.observe(appShell, { attributes: true, attributeFilter: ['class'] });
-    // 如果已经可见（页面刷新时已登录）
     if (!appShell.classList.contains('hidden')) {
       startProbePolling();
     }
+  }
+
+  // 主动获取一次探针快照（用于首次加载和主机切换时立即显示）
+  async function fetchProbeSnapshot() {
+    try {
+      const resp = await fetch('/api/probes');
+      if (!resp.ok) return;
+      const snapshot = await resp.json();
+      latestProbes = (snapshot && snapshot.probes) || [];
+      refreshTopbarProbe();
+    } catch { /* 静默 */ }
+  }
+
+  // 监听 Socket.IO probe:update（由 initTopbarProbe 注入 socket）
+  window.initTopbarProbe = function (socket) {
+    if (!socket) return;
+    socket.on('probe:update', (snapshot) => {
+      latestProbes = (snapshot && snapshot.probes) || [];
+      refreshTopbarProbe();
+    });
+    // socket 就绪后立即拉一次
+    fetchProbeSnapshot();
+  };
+
+  // 监听主机切换事件
+  if (window.appBus) {
+    window.appBus.on('host:changed', (host) => {
+      activeProbeHostId = host?.id || 'local';
+      // 已有数据则立即渲染，没有则主动拉取
+      if (findProbeForHost(activeProbeHostId)) {
+        refreshTopbarProbe();
+      } else {
+        fetchProbeSnapshot();
+      }
+    });
   }
 
   // ── Agent 面板：2:4:4 布局切换 ──────────────────────────────────────────
@@ -423,6 +483,116 @@
       const isDark = htmlEl.classList.toggle('dark');
       themeBtn.textContent = isDark ? '☀' : '🌙';
       localStorage.setItem('1shell-theme', isDark ? 'dark' : 'light');
+    });
+  }
+
+  // ── 终端全屏 ──────────────────────────────────────────────────────────────
+  const fullscreenBtn = document.getElementById('fullscreen-btn');
+  const terminalAreaEl2 = document.querySelector('.terminal-area');
+
+  if (fullscreenBtn && terminalAreaEl2) {
+    let isFullscreen = false;
+
+    function enterFullscreen() {
+      isFullscreen = true;
+      // 隐藏顶栏、侧栏、AI面板，终端占满
+      const topbar = document.querySelector('.topbar');
+      const sidebar = document.querySelector('.sidebar.left-panel');
+      const aiPanel2 = document.querySelector('.ai-panel');
+      const agentPanel = document.getElementById('agent-panel');
+      const mainContent = document.querySelector('.main-content');
+      const appShell2 = document.getElementById('app-shell');
+
+      if (topbar) topbar.style.display = 'none';
+      if (sidebar) sidebar.style.display = 'none';
+      if (aiPanel2) aiPanel2.style.display = 'none';
+      if (agentPanel) agentPanel.style.display = 'none';
+      if (appShell2) { appShell2.style.padding = '0'; appShell2.style.gap = '0'; }
+      if (mainContent) { mainContent.style.gap = '0'; }
+      terminalAreaEl2.style.borderRadius = '0';
+      fullscreenBtn.textContent = '退出';
+      fullscreenBtn.title = '退出全屏';
+
+      setTimeout(() => window.dispatchEvent(new Event('resize')), 60);
+    }
+
+    function exitFullscreen() {
+      isFullscreen = false;
+      const topbar = document.querySelector('.topbar');
+      const sidebar = document.querySelector('.sidebar.left-panel');
+      const aiPanel2 = document.querySelector('.ai-panel');
+      const agentPanel = document.getElementById('agent-panel');
+      const mainContent = document.querySelector('.main-content');
+      const appShell2 = document.getElementById('app-shell');
+
+      if (topbar) topbar.style.display = '';
+      // 恢复侧栏：如果之前是折叠状态则保持折叠
+      if (sidebar && sidebar.getAttribute('data-collapsed') !== 'true') {
+        sidebar.style.display = '';
+      }
+      // 恢复 AI 面板：如果之前是折叠状态则保持折叠
+      if (aiPanel2 && aiPanel2.getAttribute('data-collapsed') !== 'true') {
+        aiPanel2.style.display = '';
+      }
+      if (agentPanel && !agentPanel.classList.contains('hidden')) {
+        agentPanel.style.display = '';
+      }
+      if (appShell2) { appShell2.style.padding = ''; appShell2.style.gap = ''; }
+      if (mainContent) { mainContent.style.gap = ''; }
+      terminalAreaEl2.style.borderRadius = '';
+      fullscreenBtn.textContent = '全屏';
+      fullscreenBtn.title = '全屏终端';
+
+      setTimeout(() => window.dispatchEvent(new Event('resize')), 60);
+    }
+
+    fullscreenBtn.addEventListener('click', () => {
+      if (isFullscreen) exitFullscreen();
+      else enterFullscreen();
+    });
+
+    // Esc 退出全屏
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape' && isFullscreen) {
+        exitFullscreen();
+      }
+    });
+  }
+
+  // ── 补全建议关闭按钮 ─────────────────────────────────────────────────────
+  const suggestionCloseBtn = document.getElementById('suggestion-close-btn');
+  const suggestionBox = document.getElementById('terminal-inline-suggestion-box');
+
+  if (suggestionCloseBtn && suggestionBox) {
+    suggestionCloseBtn.addEventListener('click', () => {
+      suggestionBox.style.display = 'none';
+      setTimeout(() => window.dispatchEvent(new Event('resize')), 60);
+    });
+  }
+
+  // ── 左侧栏折叠/展开 ─────────────────────────────────────────────────────
+  const sidebarToggleBtn = document.getElementById('sidebar-toggle-btn');
+  const sidebarPanel = document.querySelector('.sidebar.left-panel');
+
+  if (sidebarToggleBtn && sidebarPanel) {
+    sidebarToggleBtn.addEventListener('click', () => {
+      const collapsed = sidebarPanel.getAttribute('data-collapsed') === 'true';
+
+      if (collapsed) {
+        sidebarPanel.style.width = '';
+        sidebarPanel.style.minWidth = '';
+        sidebarPanel.style.display = '';
+        sidebarPanel.setAttribute('data-collapsed', 'false');
+        sidebarToggleBtn.textContent = '侧栏折叠';
+      } else {
+        sidebarPanel.style.width = '0px';
+        sidebarPanel.style.minWidth = '0px';
+        sidebarPanel.style.display = 'none';
+        sidebarPanel.setAttribute('data-collapsed', 'true');
+        sidebarToggleBtn.textContent = '侧栏展开';
+      }
+
+      setTimeout(() => window.dispatchEvent(new Event('resize')), 320);
     });
   }
 })();

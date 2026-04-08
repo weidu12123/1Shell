@@ -171,6 +171,15 @@
   terminalAnalyzeModule.initialize();
   fileBrowserModule.initialize();
 
+  // 顶栏探针：延迟注入 socket（socket 在首次 connectToHost 时才创建）
+  const _topbarProbeCheck = setInterval(() => {
+    const s = sessionTerminalModule.getSocket();
+    if (s) {
+      clearInterval(_topbarProbeCheck);
+      window.initTopbarProbe?.(s);
+    }
+  }, 1000);
+
   document.getElementById('clear-term-btn').addEventListener('click', () => {
     sessionTerminalModule.clearTerminal();
   });
