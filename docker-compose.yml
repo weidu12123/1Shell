@@ -1,6 +1,8 @@
 services:
   1shell:
-    build: .
+    build:
+      context: .
+      network: host
     container_name: 1shell
     restart: unless-stopped
     ports:
