@@ -3,7 +3,7 @@ set -euo pipefail
 
 # ============================================================================
 #  1Shell 一键安装脚本
-#  用法: curl -fsSL https://raw.githubusercontent.com/YOUR_USER/1shell/main/install.sh | bash
+#  用法: curl -fsSL https://raw.githubusercontent.com/weidu12123/1Shell/main/install.sh | bash
 #  或:   bash install.sh [选项]
 #
 #  选项:
@@ -17,7 +17,7 @@ INSTALL_DIR="/opt/1shell"
 PORT="3301"
 PASSWORD=""
 USE_DOCKER=false
-REPO_URL="https://github.com/AiMiMi-Lls/1shell.git"
+REPO_URL="https://github.com/weidu12123/1Shell.git"
 BRANCH="main"
 
 # 颜色
@@ -53,7 +53,7 @@ BRIDGE_TOKEN=$(head -c 32 /dev/urandom | base64 | tr -dc 'a-zA-Z0-9' | head -c 3
 
 echo ""
 echo -e "${BLUE}╔════════════════════════════════════════════════╗${NC}"
-echo -e "${BLUE}║         1Shell 一键安装脚本 v1.0.0            ║${NC}"
+echo -e "${BLUE}║         1Shell 一键安装脚本 v1.1.0            ║${NC}"
 echo -e "${BLUE}║     One Shell to rule them all.                ║${NC}"
 echo -e "${BLUE}╚════════════════════════════════════════════════╝${NC}"
 echo ""
