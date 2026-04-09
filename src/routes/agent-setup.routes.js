@@ -70,40 +70,6 @@ function createAgentSetupRouter() {
       },
     },
     {
-      id: 'cursor',
-      name: 'Cursor',
-      icon: '⌬',
-      gradient: 'from-violet-500 to-fuchsia-500',
-      repo: 'cursor-ai/cursor',
-      description: 'AI 代码编辑器，支持通过 MCP 调用远程工具。',
-      binary: isWindows ? 'cursor.cmd' : 'cursor',
-      configPath: path.join(home, '.cursor', 'mcp.json'),
-      protocol: 'mcp',
-      setup(serverUrl) {
-        let config = safeReadJSON(this.configPath) || {};
-        if (!config.mcpServers || typeof config.mcpServers !== 'object') config.mcpServers = {};
-        config.mcpServers['1shell'] = buildMcpEntry(serverUrl);
-        safeWriteJSON(this.configPath, config);
-        return { configFile: this.configPath, detail: 'mcpServers["1shell"] 已写入' };
-      },
-      check() {
-        const config = safeReadJSON(this.configPath);
-        const entry = config?.mcpServers?.['1shell'];
-        return entry
-          ? { configured: true, configFile: this.configPath, detail: `MCP URL: ${entry.url}` }
-          : { configured: false, configFile: this.configPath };
-      },
-      remove() {
-        const config = safeReadJSON(this.configPath);
-        if (config?.mcpServers?.['1shell']) {
-          delete config.mcpServers['1shell'];
-          safeWriteJSON(this.configPath, config);
-          return { removed: true, configFile: this.configPath };
-        }
-        return { removed: false, configFile: this.configPath };
-      },
-    },
-    {
       id: 'codex',
       name: 'OpenAI Codex CLI',
       icon: '◎',
@@ -172,14 +138,14 @@ function createAgentSetupRouter() {
       },
     },
     {
-      id: 'cline',
-      name: 'Cline',
-      icon: '⬢',
-      gradient: 'from-amber-400 to-orange-500',
-      repo: 'cline/cline',
-      description: 'VSCode AI Agent 插件，通过 MCP 协议与 1Shell 协作。',
-      binary: null, // VSCode 插件，没有独立二进制
-      configPath: path.join(home, '.vscode', 'cline_mcp_settings.json'),
+      id: 'opencode',
+      name: 'OpenCode',
+      icon: '▣',
+      gradient: 'from-emerald-400 to-teal-500',
+      repo: 'opencode-ai/opencode',
+      description: '开源终端 AI 编程工具，原生支持 MCP 协议，可直接接入 1Shell。',
+      binary: 'opencode',
+      configPath: path.join(home, '.opencode', 'mcp.json'),
       protocol: 'mcp',
       setup(serverUrl) {
         let config = safeReadJSON(this.configPath) || {};
@@ -204,20 +170,6 @@ function createAgentSetupRouter() {
         }
         return { removed: false, configFile: this.configPath };
       },
-    },
-    {
-      id: 'aider',
-      name: 'Aider',
-      icon: '⬡',
-      gradient: 'from-green-400 to-emerald-500',
-      repo: 'paul-gauthier/aider',
-      description: '开源 AI pair programmer，暂不支持 MCP，可通过 1Shell Bridge API 手动集成。',
-      binary: 'aider',
-      configPath: null,
-      protocol: 'none',
-      setup() { return { configFile: null, detail: 'Aider 暂不支持 MCP 协议，请使用 Bridge API 手动集成' }; },
-      check() { return { configured: false, configFile: null, detail: '暂不支持自动配置' }; },
-      remove() { return { removed: false, configFile: null }; },
     },
   ];
 
