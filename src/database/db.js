@@ -9,6 +9,8 @@ const path = require('path');
  * 表结构：
  *   - hosts: 主机信息（含加密凭据）
  *   - audit_logs: 操作审计日志
+ *   - scripts: 脚本库（2.0 新增）
+ *   - script_runs: 脚本执行历史（2.0 新增）
  */
 
 let Database;
@@ -65,6 +67,46 @@ function createDatabase(dbPath) {
     CREATE INDEX IF NOT EXISTS idx_audit_timestamp ON audit_logs(timestamp);
     CREATE INDEX IF NOT EXISTS idx_audit_host_id ON audit_logs(host_id);
     CREATE INDEX IF NOT EXISTS idx_audit_action ON audit_logs(action);
+
+    CREATE TABLE IF NOT EXISTS scripts (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      icon TEXT,
+      category TEXT,
+      tags TEXT,
+      risk_level TEXT NOT NULL DEFAULT 'safe',
+      description TEXT,
+      content TEXT NOT NULL,
+      parameters TEXT,
+      run_count INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_scripts_category ON scripts(category);
+    CREATE INDEX IF NOT EXISTS idx_scripts_updated_at ON scripts(updated_at);
+
+    CREATE TABLE IF NOT EXISTS script_runs (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      script_id TEXT NOT NULL,
+      script_name TEXT,
+      host_id TEXT,
+      host_name TEXT,
+      params TEXT,
+      rendered_command TEXT,
+      status TEXT NOT NULL DEFAULT 'running',
+      exit_code INTEGER,
+      duration_ms INTEGER,
+      stdout TEXT,
+      stderr TEXT,
+      error TEXT,
+      started_at TEXT NOT NULL DEFAULT (datetime('now')),
+      finished_at TEXT
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_runs_script_id ON script_runs(script_id);
+    CREATE INDEX IF NOT EXISTS idx_runs_started_at ON script_runs(started_at);
+    CREATE INDEX IF NOT EXISTS idx_runs_status ON script_runs(status);
   `);
 
   return db;

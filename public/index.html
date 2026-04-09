@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>1Shell 1.1.0 正式版</title>
+  <title>1Shell 2.0.0-dev</title>
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/xterm@5.3.0/css/xterm.min.css" />
   <link rel="stylesheet" href="style.css" />
   <script src="https://cdn.tailwindcss.com"></script>
@@ -107,6 +107,35 @@
     .dark .agent-side-panel select { @apply bg-[#0b1324] border-[#1e293b] text-slate-200; }
     .dark .agent-side-panel .icon-btn { @apply border-[#1e293b] text-slate-400; }
     .dark .agent-side-panel .btn-secondary { @apply bg-[#1a2332] border-[#1e293b] text-slate-300; }
+
+    /* ── 全局左侧活动栏（类 1Panel） ─────────────────────── */
+    .app-sidebar {
+      background: linear-gradient(180deg, #1e293b 0%, #0f172a 100%);
+      box-shadow: 2px 0 12px rgba(0,0,0,0.15);
+    }
+    .dark .app-sidebar {
+      background: linear-gradient(180deg, #0b0e18 0%, #050810 100%);
+    }
+    .side-nav-item {
+      position: relative;
+      transition: all 0.2s cubic-bezier(0.4,0,0.2,1);
+    }
+    .side-nav-item:hover {
+      background: rgba(255,255,255,0.06);
+      color: #e2e8f0;
+    }
+    .side-nav-item.active {
+      background: linear-gradient(135deg, rgba(59,130,246,0.22), rgba(139,92,246,0.22));
+      color: #93c5fd;
+    }
+    .side-nav-item.active::before {
+      content: '';
+      position: absolute;
+      left: 0; top: 10px; bottom: 10px; width: 3px;
+      background: linear-gradient(180deg, #3b82f6, #8b5cf6);
+      border-radius: 0 3px 3px 0;
+      box-shadow: 0 0 8px rgba(139,92,246,0.5);
+    }
   </style>
 </head>
 <body class="bg-slate-700 dark:bg-[#0b0e18] w-screen h-screen overflow-hidden text-sm text-slate-700 dark:text-slate-200">
@@ -116,7 +145,7 @@
        ════════════════════════════════════════════════════════ -->
   <div class="login-screen fixed inset-0 z-[9000] flex items-center justify-center bg-slate-100/40 backdrop-blur-md p-6" id="login-screen">
     <div class="w-full max-w-sm p-8 bg-white/80 backdrop-blur-2xl rounded-3xl shadow-2xl border border-white/60 dark:border-[#1e293b]/60">
-      <div class="text-3xl font-extrabold bg-gradient-to-r from-blue-500 to-purple-500 bg-clip-text text-transparent">1Shell 1.1.0 正式版</div>
+      <div class="text-3xl font-extrabold bg-gradient-to-r from-blue-500 to-purple-500 bg-clip-text text-transparent">1Shell 2.0.0-dev</div>
       <div class="mt-0.5 text-[11px] text-slate-400 italic font-medium tracking-wide">One Shell to rule them all.</div>
       <div class="mt-1 text-slate-500 text-sm">请输入账号和密码后进入多 VPS 控制台</div>
       <form id="login-form" class="mt-6 flex flex-col gap-4" autocomplete="off">
@@ -145,16 +174,67 @@
   <!-- ════════════════════════════════════════════════════════
        应用主壳
        ════════════════════════════════════════════════════════ -->
-  <div class="app-shell hidden flex flex-col w-full h-full p-2 gap-2" id="app-shell">
+  <div class="app-shell hidden flex w-full h-full" id="app-shell">
+
+    <!-- ════════════════════════════════════════════════════
+         全局左侧活动栏（类 1Panel）
+         ════════════════════════════════════════════════════ -->
+    <aside class="app-sidebar shrink-0 w-16 flex flex-col items-stretch py-3">
+      <!-- Logo -->
+      <a href="index.html" class="shrink-0 mx-auto mb-3 w-10 h-10 rounded-xl bg-gradient-to-br from-blue-500 to-purple-500 flex items-center justify-center text-white font-extrabold text-sm shadow-lg hover:shadow-blue-500/40 transition-all" title="1Shell 2.0">1S</a>
+
+      <div class="mx-3 h-px bg-slate-700/60 mb-2"></div>
+
+      <!-- 主导航 -->
+      <nav class="flex flex-col flex-1 gap-1 px-1">
+        <a href="index.html" class="side-nav-item active flex flex-col items-center gap-0.5 py-2.5 rounded-lg text-slate-400 text-[10px] font-medium" title="主控台">
+          <span class="text-lg">🖥</span>
+          <span>主控</span>
+        </a>
+        <a href="scripts.html" class="side-nav-item flex flex-col items-center gap-0.5 py-2.5 rounded-lg text-slate-400 text-[10px] font-medium" title="脚本库">
+          <span class="text-lg">📜</span>
+          <span>脚本</span>
+        </a>
+        <a href="cli-setup.html" class="side-nav-item flex flex-col items-center gap-0.5 py-2.5 rounded-lg text-slate-400 text-[10px] font-medium" title="AI CLI 接入">
+          <span class="text-lg">⚡</span>
+          <span>接入</span>
+        </a>
+        <a href="#" class="side-nav-item flex flex-col items-center gap-0.5 py-2.5 rounded-lg text-slate-400 text-[10px] font-medium opacity-50" title="探针（P1）">
+          <span class="text-lg">📡</span>
+          <span>探针</span>
+        </a>
+        <a href="#" class="side-nav-item flex flex-col items-center gap-0.5 py-2.5 rounded-lg text-slate-400 text-[10px] font-medium opacity-50" title="审计日志（P1）">
+          <span class="text-lg">📋</span>
+          <span>审计</span>
+        </a>
+      </nav>
+
+      <!-- 底部：设置 / 主题 -->
+      <div class="shrink-0 flex flex-col gap-1 px-1">
+        <div class="mx-3 h-px bg-slate-700/60 mb-1"></div>
+        <button class="side-nav-item flex flex-col items-center gap-0.5 py-2.5 rounded-lg text-slate-400 text-[10px] font-medium" title="退出登录" id="logout-btn-side">
+          <span class="text-base">⎋</span>
+          <span>退出</span>
+        </button>
+      </div>
+    </aside>
+
+    <!-- ════════════════════════════════════════════════════
+         右侧主区域（顶栏 + 内容）
+         ════════════════════════════════════════════════════ -->
+    <div class="flex flex-col flex-1 min-w-0 p-2 gap-2">
 
     <!-- ── 顶栏 ─────────────────────────────────────────── -->
     <header class="topbar shrink-0 h-14 flex items-center px-5 bg-shell-panel rounded-2xl border border-slate-200 shadow-sm">
-      <!-- 左：Logo + 侧栏操作 -->
+      <!-- 左：侧栏操作 + 页面标题 -->
       <div class="flex items-center gap-3 shrink-0">
         <button class="mobile-menu-btn md:hidden h-8 w-8 flex items-center justify-center rounded-lg border border-slate-200 dark:border-[#1e293b] text-lg" id="mobile-menu-btn" type="button">☰</button>
-        <div class="text-xl font-extrabold bg-gradient-to-r from-blue-500 to-purple-500 bg-clip-text text-transparent select-none">1Shell 1.1.0 正式版</div>
-        <span class="text-[11px] text-slate-400 hidden lg:inline italic">One Shell to rule them all.</span>
-        <button class="h-8 px-3 rounded-lg border border-slate-200 bg-white text-xs font-semibold text-slate-600 hover:border-blue-300 hover:text-blue-500 transition-all" id="add-host-btn" type="button">+ 添加主机</button>
+        <span class="text-2xl">🖥</span>
+        <div>
+          <div class="text-base font-bold text-slate-700 dark:text-slate-200">主控台</div>
+          <div class="text-[11px] text-slate-400 italic">One Shell to rule them all.</div>
+        </div>
+        <button class="h-8 px-3 rounded-lg border border-slate-200 bg-white text-xs font-semibold text-slate-600 hover:border-blue-300 hover:text-blue-500 transition-all ml-2" id="add-host-btn" type="button">+ 添加主机</button>
         <button class="h-8 px-3 rounded-lg border border-slate-200 bg-white text-xs font-semibold text-slate-600 hover:border-blue-300 hover:text-blue-500 transition-all" id="sidebar-toggle-btn" type="button" title="折叠/展开左侧栏">侧栏折叠</button>
       </div>
 
@@ -361,6 +441,7 @@
     </div>
     <div class="mobile-overlay fixed inset-0 bg-black/40 z-[500] hidden" id="mobile-overlay"></div>
     <div class="mobile-ai-backdrop" id="mobile-ai-backdrop"></div>
+    </div>
   </div>
 
   <!-- ════════════════════════════════════════════════════════
@@ -690,6 +771,16 @@
       if (loginEl) loginEl.classList.remove('hidden');
       if (errEl && !errEl.textContent) {
         errEl.textContent = '前端资源加载异常: ' + (e.message || '未知错误') + ' — 请检查网络或浏览器控制台';
+      }
+    });
+    // 左侧活动栏「退出」代理到顶栏 logout-btn
+    document.addEventListener('DOMContentLoaded', function() {
+      var sideLogout = document.getElementById('logout-btn-side');
+      if (sideLogout) {
+        sideLogout.addEventListener('click', function() {
+          var realBtn = document.getElementById('logout-btn');
+          if (realBtn) realBtn.click();
+        });
       }
     });
   </script>

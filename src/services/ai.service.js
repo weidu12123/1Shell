@@ -13,6 +13,27 @@ const COMPLETION_PROMPTS = Object.freeze({
   chat: '你是智能输入补全引擎。根据前缀预测并补全内容。只返回补全部分，不重复前缀，不加解释，不超过两句话。',
   command: '你是 Linux Shell 专家。根据自然语言描述返回完整可执行命令，只返回命令本身，无解释，无 markdown。危险命令前加 # DANGER: 注释。',
   terminalInline: '你是终端命令行内联补全引擎。用户正在 shell 中输入命令或参数。只返回当前光标后需要追加的补全文本（不含已有输入），不加解释，不换行，不加 markdown，不返回多条候选。补全应优先考虑常见 CLI 命令名（如 curl、grep、docker 等）或合法参数，而不是普通英文单词。若输入已是完整命令或不适合补全则返回空字符串。',
+  generateScript: `你是 Linux 运维脚本专家。用户描述一个运维目标，你生成一个可复用的参数化 Bash 脚本。
+返回纯 JSON（不加 markdown 包裹），格式如下：
+{
+  "name": "脚本名称（中文，简短）",
+  "icon": "一个 emoji 图标",
+  "category": "system|docker|network|backup|security|other",
+  "tags": ["标签1", "标签2"],
+  "riskLevel": "safe|confirm|danger",
+  "description": "一段描述，说明脚本的用途（30 字以内）",
+  "content": "#!/bin/bash\\nset -e\\n# 脚本内容，使用 {{变量名}} 作为参数占位符",
+  "parameters": [
+    {"name": "变量名", "type": "string|number|boolean|select", "label": "参数显示名", "required": true, "default": "默认值"}
+  ]
+}
+规则：
+- content 中的参数一律用 {{name}} 形式引用，不要用 $1 或 $VAR 形式。
+- content 中不要出现 \`\`\` 代码块标记。
+- 脚本开头加 set -e，写好注释。
+- 若涉及 rm -rf / shutdown / reboot 等操作，riskLevel 设为 danger。
+- 若涉及 restart / stop 等操作，riskLevel 设为 confirm。
+- 只输出纯 JSON，不加任何注释、markdown 或额外文字。`,
   analyzeSelection: `你是终端输出诊断专家。用户在终端中选中了一段文本，请分析并返回如下 JSON（无任何额外字段，无 markdown 包裹）：
 {
   "summary": "一句话摘要，说明选中内容是什么（命令输出/错误/普通文本）",
@@ -371,9 +392,64 @@ function createAIService({ fetchImpl = fetch } = {}) {
     return [];
   }
 
+  async function generateScript(body = {}) {
+    const prompt = String(body.prompt || '').trim();
+    if (!prompt) {
+      return { error: '请描述你想要的脚本' };
+    }
+
+    const { base, key, model } = resolveConfig(body);
+
+    const raw = await requestChatCompletionText({
+      base,
+      key,
+      model,
+      messages: [
+        { role: 'system', content: COMPLETION_PROMPTS.generateScript },
+        { role: 'user', content: prompt },
+      ],
+      maxTokens: 2000,
+      temperature: 0.3,
+      retryCount: 2,
+    });
+
+    if (!raw) {
+      return { error: 'AI 未返回有效内容，请检查 API 配置或重试' };
+    }
+
+    try {
+      const jsonText = raw
+        .replace(/^```(?:json)?\s*/u, '')
+        .replace(/\s*```$/u, '')
+        .trim();
+      const parsed = JSON.parse(jsonText);
+
+      // 基本校验
+      if (!parsed.name || !parsed.content) {
+        return { error: 'AI 返回的脚本结构不完整，请重试' };
+      }
+
+      return {
+        script: {
+          name: String(parsed.name).slice(0, 120),
+          icon: String(parsed.icon || '📜').slice(0, 4),
+          category: ['system', 'docker', 'network', 'backup', 'security', 'other'].includes(parsed.category) ? parsed.category : 'other',
+          tags: Array.isArray(parsed.tags) ? parsed.tags.map(String).slice(0, 10) : [],
+          riskLevel: ['safe', 'confirm', 'danger'].includes(parsed.riskLevel) ? parsed.riskLevel : 'safe',
+          description: String(parsed.description || '').slice(0, 2000),
+          content: String(parsed.content),
+          parameters: Array.isArray(parsed.parameters) ? parsed.parameters : [],
+        },
+      };
+    } catch {
+      return { error: 'AI 返回的 JSON 格式异常，请重试' };
+    }
+  }
+
   return {
     createChatUpstream,
     fetchModelList,
+    generateScript,
     requestCompletion,
     requestTerminalInlineCompletion,
     analyzeSelection,

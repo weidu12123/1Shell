@@ -1,0 +1,529 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>1Shell 脚本库 · 2.0.0-dev</title>
+  <link rel="stylesheet" href="style.css" />
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          colors: {
+            shell: {
+              outer: '#334155',
+              'outer-dark': '#0b0e18',
+              panel: '#f8fafc',
+              'panel-dark': '#111827',
+              accent: '#4f8cff',
+              purple: '#7c3aed',
+              success: '#059669',
+              warn: '#d97706',
+              danger: '#dc2626',
+            },
+          },
+          fontFamily: {
+            mono: ['"Cascadia Code"', '"JetBrains Mono"', '"Fira Code"', 'Consolas', 'monospace'],
+          },
+        },
+      },
+    }
+  </script>
+  <style type="text/tailwindcss">
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, sans-serif; }
+    .hidden { display: none !important; }
+    ::-webkit-scrollbar { width: 6px; height: 6px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: rgba(0,0,0,0.15); border-radius: 3px; }
+    .dark ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.12); }
+
+    /* ── 脚本卡片 hover ──────────────────────────────────── */
+    .script-card {
+      transition: all 0.22s cubic-bezier(0.4,0,0.2,1);
+      border-left: 3px solid transparent;
+    }
+    .script-card:hover {
+      transform: translateY(-2px);
+      border-left-color: rgba(139,92,246,0.6);
+      box-shadow: 0 8px 24px rgba(139,92,246,0.12);
+    }
+    .script-card.active {
+      border-left-color: #7c3aed;
+      box-shadow: 0 0 0 1px rgba(139,92,246,0.30), 0 6px 18px rgba(139,92,246,0.15);
+    }
+
+    /* ── 顶部导航 active 样式 ─────────────────────────────── */
+    .nav-link.active {
+      background: linear-gradient(135deg, rgba(139,92,246,0.15), rgba(59,130,246,0.15));
+      color: #7c3aed;
+      border-color: rgba(139,92,246,0.35);
+    }
+
+    /* ── 全局左侧活动栏（类 1Panel） ─────────────────────── */
+    .app-sidebar {
+      background: linear-gradient(180deg, #1e293b 0%, #0f172a 100%);
+      box-shadow: 2px 0 12px rgba(0,0,0,0.15);
+    }
+    .dark .app-sidebar {
+      background: linear-gradient(180deg, #0b0e18 0%, #050810 100%);
+    }
+    .side-nav-item {
+      position: relative;
+      transition: all 0.2s cubic-bezier(0.4,0,0.2,1);
+    }
+    .side-nav-item:hover {
+      background: rgba(255,255,255,0.06);
+      color: #e2e8f0;
+    }
+    .side-nav-item.active {
+      background: linear-gradient(135deg, rgba(59,130,246,0.22), rgba(139,92,246,0.22));
+      color: #93c5fd;
+    }
+    .side-nav-item.active::before {
+      content: '';
+      position: absolute;
+      left: 0; top: 10px; bottom: 10px; width: 3px;
+      background: linear-gradient(180deg, #3b82f6, #8b5cf6);
+      border-radius: 0 3px 3px 0;
+      box-shadow: 0 0 8px rgba(139,92,246,0.5);
+    }
+
+    /* ── 暗色主题 ────────────────────────────────────────── */
+    .dark body { color: #e2e8f0; }
+    .dark .topbar { @apply bg-[#111827] border-[#1e293b]; }
+    .dark .main-panel { @apply bg-[#111827] border-[#1e293b]; }
+    .dark .sub-panel { @apply bg-[#0b1324] border-[#1e293b]; }
+    .dark input, .dark textarea, .dark select { @apply bg-[#0b1324] border-[#1e293b] text-slate-200; }
+    .dark .script-card { @apply bg-[#0b1324] border-[#1e293b]; }
+    .dark .script-card:hover { @apply bg-[#111a2e]; }
+    .dark .script-card.active { background: rgba(139,92,246,0.10) !important; border-color: rgba(139,92,246,0.45) !important; }
+    .dark .nav-link.active { background: linear-gradient(135deg, rgba(139,92,246,0.25), rgba(59,130,246,0.20)); color: #a78bfa; border-color: rgba(139,92,246,0.45); }
+  </style>
+</head>
+<body class="bg-slate-700 dark:bg-[#0b0e18] w-screen h-screen overflow-hidden text-sm text-slate-700 dark:text-slate-200">
+
+  <div class="flex w-full h-full">
+
+    <!-- ════════════════════════════════════════════════════
+         全局左侧活动栏（类 1Panel）
+         ════════════════════════════════════════════════════ -->
+    <aside class="app-sidebar shrink-0 w-16 flex flex-col items-stretch py-3">
+      <!-- Logo -->
+      <a href="index.html" class="shrink-0 mx-auto mb-3 w-10 h-10 rounded-xl bg-gradient-to-br from-blue-500 to-purple-500 flex items-center justify-center text-white font-extrabold text-sm shadow-lg hover:shadow-blue-500/40 transition-all" title="1Shell 2.0">1S</a>
+
+      <div class="mx-3 h-px bg-slate-700/60 mb-2"></div>
+
+      <!-- 主导航 -->
+      <nav class="flex flex-col flex-1 gap-1 px-1">
+        <a href="index.html" class="side-nav-item flex flex-col items-center gap-0.5 py-2.5 rounded-lg text-slate-400 text-[10px] font-medium" title="主控台">
+          <span class="text-lg">🖥</span>
+          <span>主控</span>
+        </a>
+        <a href="scripts.html" class="side-nav-item active flex flex-col items-center gap-0.5 py-2.5 rounded-lg text-slate-400 text-[10px] font-medium" title="脚本库">
+          <span class="text-lg">📜</span>
+          <span>脚本</span>
+        </a>
+        <a href="cli-setup.html" class="side-nav-item flex flex-col items-center gap-0.5 py-2.5 rounded-lg text-slate-400 text-[10px] font-medium" title="AI CLI 接入">
+          <span class="text-lg">⚡</span>
+          <span>接入</span>
+        </a>
+        <a href="#" class="side-nav-item flex flex-col items-center gap-0.5 py-2.5 rounded-lg text-slate-400 text-[10px] font-medium opacity-50" title="探针（P1）">
+          <span class="text-lg">📡</span>
+          <span>探针</span>
+        </a>
+        <a href="#" class="side-nav-item flex flex-col items-center gap-0.5 py-2.5 rounded-lg text-slate-400 text-[10px] font-medium opacity-50" title="审计日志（P1）">
+          <span class="text-lg">📋</span>
+          <span>审计</span>
+        </a>
+      </nav>
+
+      <!-- 底部：设置 / 主题 -->
+      <div class="shrink-0 flex flex-col gap-1 px-1">
+        <div class="mx-3 h-px bg-slate-700/60 mb-1"></div>
+        <button class="side-nav-item flex flex-col items-center gap-0.5 py-2.5 rounded-lg text-slate-400 text-[10px] font-medium" title="主题切换" id="theme-toggle-btn">
+          <span class="text-base" id="theme-icon">☀</span>
+          <span>主题</span>
+        </button>
+        <button class="side-nav-item flex flex-col items-center gap-0.5 py-2.5 rounded-lg text-slate-400 text-[10px] font-medium" title="设置">
+          <span class="text-base">⚙</span>
+          <span>设置</span>
+        </button>
+      </div>
+    </aside>
+
+    <!-- ════════════════════════════════════════════════════
+         右侧主区域
+         ════════════════════════════════════════════════════ -->
+    <div class="flex flex-col flex-1 min-w-0 p-2 gap-2">
+
+    <!-- ════════════════════════════════════════════════════
+         顶栏
+         ════════════════════════════════════════════════════ -->
+    <header class="topbar shrink-0 h-14 flex items-center px-5 bg-shell-panel rounded-2xl border border-slate-200 shadow-sm">
+      <!-- 左：页面标题 -->
+      <div class="flex items-center gap-3 shrink-0">
+        <span class="text-2xl">📜</span>
+        <div>
+          <div class="text-base font-bold text-slate-700 dark:text-slate-200 flex items-center gap-1.5">
+            脚本库
+            <span class="text-[9px] px-1.5 py-0.5 rounded bg-purple-100 text-purple-600 dark:bg-purple-500/20 dark:text-purple-300 font-semibold">BETA</span>
+          </div>
+          <div class="text-[11px] text-slate-400">沉淀、复用、审计地操作主机</div>
+        </div>
+      </div>
+
+      <!-- 中：占位 -->
+      <div class="flex-1"></div>
+
+      <!-- 右：操作按钮 -->
+      <div class="topbar-actions flex items-center gap-2 shrink-0">
+        <button class="h-8 px-3 rounded-lg border border-purple-200 bg-purple-50 text-xs font-semibold text-purple-600 hover:border-purple-400 hover:bg-purple-100 transition-all" id="script-ai-gen-btn" type="button">✦ AI 生成</button>
+        <button class="h-8 px-3 rounded-lg bg-gradient-to-r from-purple-500 to-purple-600 text-white text-xs font-semibold shadow-md hover:shadow-lg transition-all" id="script-new-btn" type="button">+ 新建脚本</button>
+      </div>
+    </header>
+
+    <!-- ════════════════════════════════════════════════════
+         主内容区（三栏：分类 / 列表 / 详情）
+         ════════════════════════════════════════════════════ -->
+    <div class="main-content flex flex-1 gap-2 min-h-0">
+
+      <!-- ─── 左栏：分类 ─────────────────────────────────── -->
+      <aside class="main-panel w-48 shrink-0 flex flex-col bg-shell-panel rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+        <div class="px-4 py-3 border-b border-slate-100 flex items-center justify-between">
+          <span class="text-[10px] font-semibold text-slate-400 uppercase tracking-wide">标签分类</span>
+          <button class="text-[10px] text-purple-500 hover:underline" title="管理标签">+ 新标签</button>
+        </div>
+        <div class="flex-1 overflow-y-auto p-2 flex flex-col gap-1">
+          <button class="script-cat active flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-medium text-purple-600 bg-purple-50 border border-purple-200" data-cat="all">
+            <span>📚</span><span>全部</span>
+            <span class="cat-count ml-auto text-[10px] text-slate-400" data-count-cat="all">0</span>
+          </button>
+          <button class="script-cat flex items-center gap-2 px-3 py-2 rounded-lg text-xs text-slate-500 hover:bg-slate-50 border border-transparent" data-cat="system">
+            <span>📊</span><span>系统</span>
+            <span class="cat-count ml-auto text-[10px] text-slate-400" data-count-cat="system">0</span>
+          </button>
+          <button class="script-cat flex items-center gap-2 px-3 py-2 rounded-lg text-xs text-slate-500 hover:bg-slate-50 border border-transparent" data-cat="docker">
+            <span>🐳</span><span>Docker</span>
+            <span class="cat-count ml-auto text-[10px] text-slate-400" data-count-cat="docker">0</span>
+          </button>
+          <button class="script-cat flex items-center gap-2 px-3 py-2 rounded-lg text-xs text-slate-500 hover:bg-slate-50 border border-transparent" data-cat="network">
+            <span>🌐</span><span>网络</span>
+            <span class="cat-count ml-auto text-[10px] text-slate-400" data-count-cat="network">0</span>
+          </button>
+          <button class="script-cat flex items-center gap-2 px-3 py-2 rounded-lg text-xs text-slate-500 hover:bg-slate-50 border border-transparent" data-cat="backup">
+            <span>💾</span><span>备份</span>
+            <span class="cat-count ml-auto text-[10px] text-slate-400" data-count-cat="backup">0</span>
+          </button>
+          <button class="script-cat flex items-center gap-2 px-3 py-2 rounded-lg text-xs text-slate-500 hover:bg-slate-50 border border-transparent" data-cat="security">
+            <span>🔒</span><span>安全</span>
+            <span class="cat-count ml-auto text-[10px] text-slate-400" data-count-cat="security">0</span>
+          </button>
+        </div>
+
+        <!-- 底部：其他视图 -->
+        <div class="border-t border-slate-100 p-2 flex flex-col gap-1">
+          <button id="btn-view-history" class="flex items-center gap-2 px-3 py-2 rounded-lg text-xs text-slate-500 hover:bg-slate-50">
+            <span>🕐</span><span>执行历史</span>
+          </button>
+          <button id="btn-view-playbook" class="flex items-center gap-2 px-3 py-2 rounded-lg text-xs text-slate-500 hover:bg-slate-50">
+            <span>📘</span><span>Playbook</span>
+            <span class="ml-auto text-[9px] px-1 rounded bg-slate-100 text-slate-400">P1</span>
+          </button>
+          <button id="btn-view-export" class="flex items-center gap-2 px-3 py-2 rounded-lg text-xs text-slate-500 hover:bg-slate-50">
+            <span>📥</span><span>导入 / 导出</span>
+          </button>
+        </div>
+      </aside>
+
+      <!-- ─── 中栏：脚本列表 ─────────────────────────────── -->
+      <aside class="main-panel w-80 shrink-0 flex flex-col bg-shell-panel rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+        <!-- 搜索栏 -->
+        <div class="shrink-0 p-2.5 border-b border-slate-100 flex items-center gap-2">
+          <input type="text" placeholder="搜索脚本、标签、描述…" id="script-search"
+            class="flex-1 h-8 px-3 rounded-lg border border-slate-200 bg-slate-50 text-xs outline-none focus:border-purple-400 focus:ring-1 focus:ring-purple-100" />
+          <button class="h-8 w-8 flex items-center justify-center rounded-lg border border-slate-200 bg-slate-50 text-slate-400 hover:text-purple-500 hover:border-purple-300 text-xs" title="排序">⇅</button>
+        </div>
+
+        <!-- 列表（由 scripts-page.js 动态渲染） -->
+        <div id="script-list" class="flex-1 overflow-y-auto p-2 flex flex-col gap-2">
+          <div class="flex items-center justify-center py-8 text-slate-400 text-xs">加载中...</div>
+        </div>
+
+        <!-- 底部统计 -->
+        <div class="shrink-0 px-3 py-2 border-t border-slate-100 flex items-center justify-between text-[10px] text-slate-400">
+          <span>共 <b class="text-slate-600 dark:text-slate-300" id="script-count">0</b> 个脚本</span>
+          <span>按更新时间排序</span>
+        </div>
+      </aside>
+
+      <!-- ─── 右栏：脚本详情 / 编辑 ───────────────────────── -->
+      <main class="main-panel flex-1 flex flex-col min-w-0 bg-shell-panel rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+
+        <!-- 空状态：未选中任何脚本 -->
+        <div id="detail-empty" class="flex-1 flex flex-col items-center justify-center text-slate-400 gap-3">
+          <div class="text-5xl opacity-40">📜</div>
+          <div class="text-sm">从左侧列表选择一个脚本进行查看和编辑</div>
+          <div class="text-[11px]">或点击右上角"+ 新建脚本"开始</div>
+        </div>
+
+        <!-- 执行历史视图（默认隐藏） -->
+        <div id="history-pane" class="hidden flex-1 flex flex-col min-h-0">
+          <div class="shrink-0 px-5 py-3 border-b border-slate-100 flex items-center justify-between">
+            <div class="flex items-center gap-2">
+              <span class="text-lg">🕐</span>
+              <div class="text-sm font-bold text-slate-700 dark:text-slate-200">全局执行历史</div>
+            </div>
+            <button id="history-back-btn" class="h-7 px-3 rounded-lg border border-slate-200 text-xs text-slate-500 hover:border-purple-300 hover:text-purple-500">← 返回脚本列表</button>
+          </div>
+          <div id="history-list" class="flex-1 overflow-y-auto p-4">
+            <div class="text-center text-slate-400 text-xs py-8">加载中...</div>
+          </div>
+          <div class="shrink-0 px-4 py-2 border-t border-slate-100 flex items-center justify-between text-[10px] text-slate-400">
+            <span id="history-count">共 0 条记录</span>
+            <div class="flex items-center gap-2">
+              <button id="history-prev" class="px-2 py-1 rounded border border-slate-200 hover:border-purple-300 disabled:opacity-50" disabled>上一页</button>
+              <span id="history-page">1</span>
+              <button id="history-next" class="px-2 py-1 rounded border border-slate-200 hover:border-purple-300 disabled:opacity-50" disabled>下一页</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- 详情/编辑区（默认隐藏，选中后显示） -->
+        <div id="detail-pane" class="hidden flex-1 flex flex-col min-h-0">
+          <!-- 详情头部 -->
+          <div class="shrink-0 px-5 py-3 border-b border-slate-100 flex items-center justify-between gap-3">
+            <div class="flex items-center gap-3 min-w-0 flex-1">
+              <span class="text-xl shrink-0" id="detail-icon">📜</span>
+              <div class="min-w-0 flex-1">
+                <input id="detail-name" type="text" placeholder="脚本名称" class="min-w-0 w-full text-sm font-bold text-slate-700 dark:text-slate-200 bg-transparent border-b border-transparent hover:border-slate-200 focus:border-purple-400 outline-none" />
+                <div class="mt-0.5 text-[10px] text-slate-400" id="detail-meta">新脚本</div>
+              </div>
+              <span id="detail-risk-badge" class="shrink-0 text-[9px] px-1.5 py-0.5 rounded bg-emerald-50 text-emerald-600 border border-emerald-200">安全</span>
+            </div>
+            <div class="flex items-center gap-1.5 shrink-0">
+              <button id="btn-delete" class="h-8 px-3 rounded-lg border border-slate-200 text-xs text-slate-500 hover:border-red-200 hover:text-red-500 transition-all">删除</button>
+              <button id="btn-save" class="h-8 px-3 rounded-lg bg-slate-100 dark:bg-slate-700 text-xs font-semibold text-slate-600 dark:text-slate-200 hover:bg-slate-200 transition-all">保存</button>
+              <button id="btn-run" class="h-8 px-3 rounded-lg bg-gradient-to-r from-purple-500 to-blue-500 text-white text-xs font-semibold shadow-md hover:shadow-lg transition-all">▶ 执行</button>
+            </div>
+          </div>
+
+          <!-- 编辑表单（单 Tab，历史与分享暂留为 P1） -->
+          <div class="flex-1 overflow-y-auto p-5 flex flex-col gap-4">
+            <!-- 图标 + 分类 -->
+            <div class="grid grid-cols-3 gap-3">
+              <div class="flex flex-col gap-1">
+                <label class="text-[10px] font-semibold text-slate-400 uppercase tracking-wide">图标（emoji）</label>
+                <input id="field-icon" type="text" maxlength="4" placeholder="📜" class="h-8 px-2 rounded-lg border border-slate-200 bg-slate-50 text-sm text-center outline-none focus:border-purple-400" />
+              </div>
+              <div class="col-span-2 flex flex-col gap-1">
+                <label class="text-[10px] font-semibold text-slate-400 uppercase tracking-wide">分类</label>
+                <select id="field-category" class="h-8 px-2 rounded-lg border border-slate-200 bg-slate-50 text-xs outline-none focus:border-purple-400">
+                  <option value="system">📊 系统</option>
+                  <option value="docker">🐳 Docker</option>
+                  <option value="network">🌐 网络</option>
+                  <option value="backup">💾 备份</option>
+                  <option value="security">🔒 安全</option>
+                  <option value="other">📁 其他</option>
+                </select>
+              </div>
+            </div>
+
+            <!-- 标签 -->
+            <div class="flex flex-col gap-1">
+              <label class="text-[10px] font-semibold text-slate-400 uppercase tracking-wide">标签</label>
+              <div id="field-tags-container" class="flex items-center gap-1 flex-wrap p-2 rounded-lg border border-slate-200 bg-slate-50 min-h-[40px]">
+                <input id="field-tags-input" type="text" placeholder="输入标签后按 Enter..." class="flex-1 min-w-[100px] h-6 px-2 bg-transparent text-[11px] outline-none border-none" />
+              </div>
+            </div>
+
+            <!-- 风险等级 -->
+            <div class="flex flex-col gap-1">
+              <label class="text-[10px] font-semibold text-slate-400 uppercase tracking-wide">风险等级</label>
+              <div class="flex items-center gap-2">
+                <label class="risk-label flex-1 flex items-center gap-2 px-3 py-2 rounded-lg border border-slate-200 bg-slate-50 cursor-pointer transition-all" data-risk="safe">
+                  <input type="radio" name="risk" value="safe" class="accent-emerald-500" />
+                  <div class="flex-1">
+                    <div class="text-xs font-semibold text-emerald-600">🟢 安全</div>
+                    <div class="text-[10px] text-slate-400">直接执行，无需确认</div>
+                  </div>
+                </label>
+                <label class="risk-label flex-1 flex items-center gap-2 px-3 py-2 rounded-lg border border-slate-200 bg-slate-50 cursor-pointer transition-all" data-risk="confirm">
+                  <input type="radio" name="risk" value="confirm" class="accent-amber-500" />
+                  <div class="flex-1">
+                    <div class="text-xs font-semibold text-amber-600">🟡 需确认</div>
+                    <div class="text-[10px] text-slate-400">执行前二次确认</div>
+                  </div>
+                </label>
+                <label class="risk-label flex-1 flex items-center gap-2 px-3 py-2 rounded-lg border border-slate-200 bg-slate-50 cursor-pointer transition-all" data-risk="danger">
+                  <input type="radio" name="risk" value="danger" class="accent-red-500" />
+                  <div class="flex-1">
+                    <div class="text-xs font-semibold text-red-600">🔴 危险</div>
+                    <div class="text-[10px] text-slate-400">需显式确认后执行</div>
+                  </div>
+                </label>
+              </div>
+            </div>
+
+            <!-- 描述 -->
+            <div class="flex flex-col gap-1">
+              <label class="text-[10px] font-semibold text-slate-400 uppercase tracking-wide">描述</label>
+              <textarea id="field-description" rows="2" placeholder="简要说明这个脚本的用途..." class="w-full px-3 py-2 rounded-lg border border-slate-200 bg-slate-50 text-xs outline-none resize-none focus:border-purple-400"></textarea>
+            </div>
+
+            <!-- 参数定义 -->
+            <div class="flex flex-col gap-1">
+              <div class="flex items-center justify-between">
+                <label class="text-[10px] font-semibold text-slate-400 uppercase tracking-wide">参数定义</label>
+                <button id="btn-add-param" type="button" class="text-[10px] text-purple-500 hover:underline font-semibold">+ 添加参数</button>
+              </div>
+              <div id="params-list" class="rounded-lg border border-slate-200 divide-y divide-slate-100 bg-white dark:bg-slate-800 min-h-[44px]">
+                <div class="p-3 text-[10px] text-slate-400 text-center" id="params-empty">暂无参数，点击右上角"+ 添加参数"</div>
+              </div>
+            </div>
+
+            <!-- 脚本内容 -->
+            <div class="flex flex-col gap-1">
+              <div class="flex items-center justify-between">
+                <label class="text-[10px] font-semibold text-slate-400 uppercase tracking-wide">脚本内容（Bash / PowerShell）</label>
+                <div class="flex items-center gap-2">
+                  <span class="text-[10px] text-slate-400">使用 <code class="font-mono text-purple-500 bg-purple-50 dark:bg-purple-500/10 px-1 rounded">{{变量名}}</code> 引用参数</span>
+                </div>
+              </div>
+              <textarea id="field-content" rows="12" placeholder="#!/bin/bash&#10;echo {{greeting}}" class="w-full px-3 py-2 rounded-lg border border-slate-200 bg-slate-900 text-slate-100 font-mono text-xs outline-none resize-y focus:border-purple-400 leading-relaxed"></textarea>
+            </div>
+          </div>
+        </div>
+      </main>
+    </div>
+    </div>
+  </div>
+
+  <!-- ════════════════════════════════════════════════════════
+       执行弹窗
+       ════════════════════════════════════════════════════════ -->
+  <div id="run-modal" class="hidden fixed inset-0 z-[2000] flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
+    <div class="w-full max-w-2xl max-h-[calc(100vh-32px)] bg-white dark:bg-[#111827] rounded-2xl shadow-2xl border border-slate-200 dark:border-[#1e293b] flex flex-col overflow-hidden">
+      <!-- 头部 -->
+      <div class="shrink-0 flex items-center justify-between px-5 py-3.5 border-b border-slate-100 dark:border-[#1e293b]">
+        <div class="flex items-center gap-2 min-w-0">
+          <span class="text-lg" id="run-modal-icon">📜</span>
+          <div class="min-w-0">
+            <div class="text-sm font-bold text-slate-700 dark:text-slate-200 truncate" id="run-modal-title">执行脚本</div>
+            <div class="text-[10px] text-slate-400" id="run-modal-subtitle">填写参数并选择目标主机</div>
+          </div>
+          <span id="run-modal-risk" class="shrink-0 text-[9px] px-1.5 py-0.5 rounded bg-emerald-50 text-emerald-600 border border-emerald-200">安全</span>
+        </div>
+        <button id="run-modal-close" class="h-7 px-2.5 rounded-lg border border-slate-200 dark:border-[#1e293b] text-xs text-slate-500 hover:text-red-500 hover:border-red-200">关闭</button>
+      </div>
+
+      <!-- 表单区 -->
+      <div class="flex-1 overflow-y-auto p-5 flex flex-col gap-4">
+        <!-- 目标主机 -->
+        <div class="flex flex-col gap-1">
+          <label class="text-[10px] font-semibold text-slate-400 uppercase tracking-wide">目标主机</label>
+          <select id="run-host-select" class="h-9 px-3 rounded-lg border border-slate-200 dark:border-[#1e293b] bg-slate-50 dark:bg-[#0b1324] text-xs outline-none focus:border-purple-400">
+            <option value="local">本机（1Shell 宿主）</option>
+          </select>
+        </div>
+
+        <!-- 参数表单（动态生成） -->
+        <div id="run-params-form" class="flex flex-col gap-2">
+          <!-- JS 动态填充 -->
+        </div>
+
+        <!-- 预览 -->
+        <div class="flex flex-col gap-1">
+          <div class="flex items-center justify-between">
+            <label class="text-[10px] font-semibold text-slate-400 uppercase tracking-wide">命令预览</label>
+            <button id="btn-refresh-preview" type="button" class="text-[10px] text-purple-500 hover:underline">🔄 刷新预览</button>
+          </div>
+          <pre id="run-preview-code" class="px-3 py-2 rounded-lg bg-slate-900 text-slate-100 font-mono text-[11px] whitespace-pre-wrap break-all max-h-40 overflow-auto min-h-[48px]">（等待预览）</pre>
+        </div>
+
+        <!-- 结果区（执行后显示） -->
+        <div id="run-result-area" class="hidden flex flex-col gap-2">
+          <div class="flex items-center justify-between">
+            <label class="text-[10px] font-semibold text-slate-400 uppercase tracking-wide">执行结果</label>
+            <div id="run-result-meta" class="text-[10px] text-slate-400"></div>
+          </div>
+          <pre id="run-result-stdout" class="px-3 py-2 rounded-lg bg-slate-900 text-emerald-300 font-mono text-[11px] whitespace-pre-wrap break-all max-h-60 overflow-auto"></pre>
+          <pre id="run-result-stderr" class="hidden px-3 py-2 rounded-lg bg-red-50 dark:bg-red-500/10 text-red-600 dark:text-red-300 font-mono text-[11px] whitespace-pre-wrap break-all max-h-40 overflow-auto"></pre>
+        </div>
+
+        <!-- 危险警告 -->
+        <div id="run-warnings" class="hidden px-3 py-2 rounded-lg bg-amber-50 border border-amber-200 text-amber-700 dark:bg-amber-500/10 dark:border-amber-500/30 dark:text-amber-400 text-[11px]"></div>
+      </div>
+
+      <!-- 底部操作 -->
+      <div class="shrink-0 flex items-center justify-end gap-2 px-5 py-3 border-t border-slate-100 dark:border-[#1e293b] bg-slate-50/50 dark:bg-slate-800/30">
+        <label id="run-confirm-label" class="hidden flex items-center gap-1 text-[11px] text-amber-600 dark:text-amber-400 mr-auto">
+          <input type="checkbox" id="run-confirm-cb" class="accent-amber-500" />
+          我已确认执行该脚本的风险
+        </label>
+        <button id="run-cancel-btn" class="h-8 px-4 rounded-lg border border-slate-200 dark:border-[#1e293b] text-xs text-slate-500 hover:border-slate-400">取消</button>
+        <button id="run-execute-btn" class="h-8 px-4 rounded-lg bg-gradient-to-r from-purple-500 to-blue-500 text-white text-xs font-semibold shadow-md hover:shadow-lg">▶ 执行</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ════════════════════════════════════════════════════════
+       AI 生成弹窗
+       ════════════════════════════════════════════════════════ -->
+  <div id="ai-gen-modal" class="hidden fixed inset-0 z-[2000] flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
+    <div class="w-full max-w-lg bg-white dark:bg-[#111827] rounded-2xl shadow-2xl border border-slate-200 dark:border-[#1e293b] flex flex-col overflow-hidden">
+      <div class="shrink-0 flex items-center justify-between px-5 py-3.5 border-b border-slate-100 dark:border-[#1e293b]">
+        <div class="flex items-center gap-2">
+          <span class="text-lg">✦</span>
+          <div class="text-sm font-bold text-slate-700 dark:text-slate-200">AI 生成脚本</div>
+        </div>
+        <button id="ai-gen-close" class="h-7 px-2.5 rounded-lg border border-slate-200 dark:border-[#1e293b] text-xs text-slate-500 hover:text-red-500 hover:border-red-200">关闭</button>
+      </div>
+      <div class="p-5 flex flex-col gap-3">
+        <label class="text-[10px] font-semibold text-slate-400 uppercase tracking-wide">描述你想要的脚本</label>
+        <textarea id="ai-gen-prompt" rows="3" placeholder="例如：检查 Docker 容器的健康状态，如果不健康就重启..." class="w-full px-3 py-2 rounded-lg border border-slate-200 dark:border-[#1e293b] bg-slate-50 dark:bg-[#0b1324] text-xs outline-none resize-none focus:border-purple-400"></textarea>
+        <div id="ai-gen-status" class="text-[11px] text-slate-400 hidden"></div>
+      </div>
+      <div class="shrink-0 flex items-center justify-end gap-2 px-5 py-3 border-t border-slate-100 dark:border-[#1e293b] bg-slate-50/50 dark:bg-slate-800/30">
+        <button id="ai-gen-cancel" class="h-8 px-4 rounded-lg border border-slate-200 dark:border-[#1e293b] text-xs text-slate-500 hover:border-slate-400">取消</button>
+        <button id="ai-gen-submit" class="h-8 px-4 rounded-lg bg-gradient-to-r from-purple-500 to-blue-500 text-white text-xs font-semibold shadow-md hover:shadow-lg">✦ 生成</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ════════════════════════════════════════════════════════
+       删除确认弹窗（轻量）
+       ════════════════════════════════════════════════════════ -->
+  <div id="confirm-modal" class="hidden fixed inset-0 z-[2100] flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
+    <div class="w-full max-w-sm bg-white dark:bg-[#111827] rounded-2xl shadow-2xl border border-slate-200 dark:border-[#1e293b] p-5">
+      <div class="text-sm font-bold text-slate-700 dark:text-slate-200 mb-2" id="confirm-title">确认删除</div>
+      <div class="text-xs text-slate-500 dark:text-slate-400 mb-4" id="confirm-message">此操作不可撤销，确定要删除这个脚本吗？</div>
+      <div class="flex items-center justify-end gap-2">
+        <button id="confirm-cancel" class="h-8 px-4 rounded-lg border border-slate-200 dark:border-[#1e293b] text-xs text-slate-500">取消</button>
+        <button id="confirm-ok" class="h-8 px-4 rounded-lg bg-red-500 text-white text-xs font-semibold hover:bg-red-600">确认删除</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="shared.js"></script>
+  <script src="scripts-page.js"></script>
+  <script>
+    // ── 主题切换（简易独立于 scripts-page.js） ───────────────────────
+    const themeBtn = document.getElementById('theme-toggle-btn');
+    const themeIcon = document.getElementById('theme-icon');
+    const htmlEl = document.documentElement;
+    if (localStorage.getItem('1shell-theme') === 'dark') {
+      htmlEl.classList.add('dark');
+      themeIcon.textContent = '☀';
+    } else {
+      themeIcon.textContent = '🌙';
+    }
+    themeBtn.addEventListener('click', () => {
+      const isDark = htmlEl.classList.toggle('dark');
+      themeIcon.textContent = isDark ? '☀' : '🌙';
+      localStorage.setItem('1shell-theme', isDark ? 'dark' : 'light');
+    });
+  </script>
+</body>
+</html>

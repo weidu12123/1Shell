@@ -1,0 +1,506 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>1Shell AI CLI 接入 · 2.0.0-dev</title>
+  <link rel="stylesheet" href="style.css" />
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          colors: {
+            shell: {
+              panel: '#f8fafc',
+              'panel-dark': '#111827',
+              accent: '#4f8cff',
+              purple: '#7c3aed',
+              cyan: '#06b6d4',
+            },
+          },
+          fontFamily: {
+            mono: ['"Cascadia Code"', '"JetBrains Mono"', '"Fira Code"', 'Consolas', 'monospace'],
+          },
+        },
+      },
+    }
+  </script>
+  <style type="text/tailwindcss">
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, sans-serif; }
+    .hidden { display: none !important; }
+    ::-webkit-scrollbar { width: 6px; height: 6px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: rgba(0,0,0,0.15); border-radius: 3px; }
+    .dark ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.12); }
+
+    /* ── CLI 卡片 ──────────────────────────────────────── */
+    .cli-card {
+      transition: all 0.22s cubic-bezier(0.4,0,0.2,1);
+      border: 1px solid #e2e8f0;
+    }
+    .cli-card:hover {
+      transform: translateY(-2px);
+      border-color: rgba(6,182,212,0.5);
+      box-shadow: 0 8px 24px rgba(6,182,212,0.12);
+    }
+    .cli-card.connected { border-color: rgba(5,150,105,0.5); }
+
+    /* ── 状态徽章 ──────────────────────────────────────── */
+    .status-badge {
+      display: inline-flex; align-items: center; gap: 4px;
+      padding: 2px 8px; border-radius: 999px;
+      font-size: 10px; font-weight: 600;
+    }
+    .status-connected { background: rgba(5,150,105,0.12); color: #059669; border: 1px solid rgba(5,150,105,0.3); }
+    .status-detected  { background: rgba(6,182,212,0.12); color: #06b6d4; border: 1px solid rgba(6,182,212,0.3); }
+    .status-missing   { background: rgba(148,163,184,0.15); color: #64748b; border: 1px solid rgba(148,163,184,0.3); }
+    .status-error     { background: rgba(239,68,68,0.12); color: #dc2626; border: 1px solid rgba(239,68,68,0.3); }
+
+    .nav-link.active {
+      background: linear-gradient(135deg, rgba(6,182,212,0.15), rgba(59,130,246,0.15));
+      color: #06b6d4;
+      border-color: rgba(6,182,212,0.35);
+    }
+
+    /* ── 全局左侧活动栏（类 1Panel） ─────────────────────── */
+    .app-sidebar {
+      background: linear-gradient(180deg, #1e293b 0%, #0f172a 100%);
+      box-shadow: 2px 0 12px rgba(0,0,0,0.15);
+    }
+    .dark .app-sidebar {
+      background: linear-gradient(180deg, #0b0e18 0%, #050810 100%);
+    }
+    .side-nav-item {
+      position: relative;
+      transition: all 0.2s cubic-bezier(0.4,0,0.2,1);
+    }
+    .side-nav-item:hover {
+      background: rgba(255,255,255,0.06);
+      color: #e2e8f0;
+    }
+    .side-nav-item.active {
+      background: linear-gradient(135deg, rgba(6,182,212,0.22), rgba(59,130,246,0.22));
+      color: #67e8f9;
+    }
+    .side-nav-item.active::before {
+      content: '';
+      position: absolute;
+      left: 0; top: 10px; bottom: 10px; width: 3px;
+      background: linear-gradient(180deg, #06b6d4, #3b82f6);
+      border-radius: 0 3px 3px 0;
+      box-shadow: 0 0 8px rgba(6,182,212,0.5);
+    }
+
+    /* ── 进度步骤 ──────────────────────────────────────── */
+    .step-dot {
+      width: 28px; height: 28px; border-radius: 50%;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 12px; font-weight: 700;
+      background: #f1f5f9; color: #94a3b8;
+      border: 2px solid #e2e8f0;
+      transition: all 0.2s;
+    }
+    .step-dot.done { background: #10b981; color: white; border-color: #10b981; }
+    .step-dot.active { background: #06b6d4; color: white; border-color: #06b6d4; box-shadow: 0 0 0 4px rgba(6,182,212,0.15); }
+    .step-line { flex: 1; height: 2px; background: #e2e8f0; }
+    .step-line.done { background: #10b981; }
+
+    /* ── 暗色 ──────────────────────────────────────────── */
+    .dark body { color: #e2e8f0; }
+    .dark .topbar, .dark .main-panel { @apply bg-[#111827] border-[#1e293b]; }
+    .dark input, .dark textarea, .dark select { @apply bg-[#0b1324] border-[#1e293b] text-slate-200; }
+    .dark .cli-card { @apply bg-[#0b1324] border-[#1e293b]; }
+    .dark .cli-card.connected { border-color: rgba(5,150,105,0.45); }
+    .dark .step-dot { background: #1e293b; color: #64748b; border-color: #334155; }
+    .dark .step-line { background: #334155; }
+    .dark .nav-link.active {
+      background: linear-gradient(135deg, rgba(6,182,212,0.25), rgba(59,130,246,0.20));
+      color: #67e8f9;
+      border-color: rgba(6,182,212,0.45);
+    }
+  </style>
+</head>
+<body class="bg-slate-700 dark:bg-[#0b0e18] w-screen h-screen overflow-hidden text-sm text-slate-700 dark:text-slate-200">
+
+  <div class="flex w-full h-full">
+
+    <!-- ════════════════════════════════════════════════════
+         全局左侧活动栏（类 1Panel）
+         ════════════════════════════════════════════════════ -->
+    <aside class="app-sidebar shrink-0 w-16 flex flex-col items-stretch py-3">
+      <!-- Logo -->
+      <a href="index.html" class="shrink-0 mx-auto mb-3 w-10 h-10 rounded-xl bg-gradient-to-br from-blue-500 to-purple-500 flex items-center justify-center text-white font-extrabold text-sm shadow-lg hover:shadow-blue-500/40 transition-all" title="1Shell 2.0">1S</a>
+
+      <div class="mx-3 h-px bg-slate-700/60 mb-2"></div>
+
+      <!-- 主导航 -->
+      <nav class="flex flex-col flex-1 gap-1 px-1">
+        <a href="index.html" class="side-nav-item flex flex-col items-center gap-0.5 py-2.5 rounded-lg text-slate-400 text-[10px] font-medium" title="主控台">
+          <span class="text-lg">🖥</span>
+          <span>主控</span>
+        </a>
+        <a href="scripts.html" class="side-nav-item flex flex-col items-center gap-0.5 py-2.5 rounded-lg text-slate-400 text-[10px] font-medium" title="脚本库">
+          <span class="text-lg">📜</span>
+          <span>脚本</span>
+        </a>
+        <a href="cli-setup.html" class="side-nav-item active flex flex-col items-center gap-0.5 py-2.5 rounded-lg text-slate-400 text-[10px] font-medium" title="AI CLI 接入">
+          <span class="text-lg">⚡</span>
+          <span>接入</span>
+        </a>
+        <a href="#" class="side-nav-item flex flex-col items-center gap-0.5 py-2.5 rounded-lg text-slate-400 text-[10px] font-medium opacity-50" title="探针（P1）">
+          <span class="text-lg">📡</span>
+          <span>探针</span>
+        </a>
+        <a href="#" class="side-nav-item flex flex-col items-center gap-0.5 py-2.5 rounded-lg text-slate-400 text-[10px] font-medium opacity-50" title="审计日志（P1）">
+          <span class="text-lg">📋</span>
+          <span>审计</span>
+        </a>
+      </nav>
+
+      <!-- 底部：设置 / 主题 -->
+      <div class="shrink-0 flex flex-col gap-1 px-1">
+        <div class="mx-3 h-px bg-slate-700/60 mb-1"></div>
+        <button class="side-nav-item flex flex-col items-center gap-0.5 py-2.5 rounded-lg text-slate-400 text-[10px] font-medium" title="主题切换" id="theme-toggle-btn">
+          <span class="text-base" id="theme-icon">☀</span>
+          <span>主题</span>
+        </button>
+        <button class="side-nav-item flex flex-col items-center gap-0.5 py-2.5 rounded-lg text-slate-400 text-[10px] font-medium" title="设置">
+          <span class="text-base">⚙</span>
+          <span>设置</span>
+        </button>
+      </div>
+    </aside>
+
+    <!-- ════════════════════════════════════════════════════
+         右侧主区域
+         ════════════════════════════════════════════════════ -->
+    <div class="flex flex-col flex-1 min-w-0 p-2 gap-2">
+
+    <!-- ════════════════════════════════════════════════════
+         顶栏
+         ════════════════════════════════════════════════════ -->
+    <header class="topbar shrink-0 h-14 flex items-center px-5 bg-shell-panel rounded-2xl border border-slate-200 shadow-sm">
+      <!-- 左：页面标题 -->
+      <div class="flex items-center gap-3 shrink-0">
+        <span class="text-2xl">⚡</span>
+        <div>
+          <div class="text-base font-bold text-slate-700 dark:text-slate-200 flex items-center gap-1.5">
+            AI CLI 一键接入
+            <span class="text-[9px] px-1.5 py-0.5 rounded bg-cyan-100 text-cyan-600 dark:bg-cyan-500/20 dark:text-cyan-300 font-semibold">BETA</span>
+          </div>
+          <div class="text-[11px] text-slate-400">将本地 AI CLI 工具接入 1Shell MCP / Bridge</div>
+        </div>
+      </div>
+
+      <!-- 中：占位 -->
+      <div class="flex-1"></div>
+
+      <!-- 右：操作按钮 -->
+      <div class="topbar-actions flex items-center gap-2 shrink-0">
+        <button class="h-8 px-3 rounded-lg border border-cyan-200 bg-cyan-50 text-xs font-semibold text-cyan-600 hover:border-cyan-400 hover:bg-cyan-100 transition-all" id="rescan-btn">🔄 重新扫描</button>
+      </div>
+    </header>
+
+    <!-- ════════════════════════════════════════════════════
+         主内容区
+         ════════════════════════════════════════════════════ -->
+    <div class="main-content flex flex-1 gap-2 min-h-0">
+
+      <!-- ─── 左栏：连接信息 / 诊断 ───────────────────────── -->
+      <aside class="main-panel w-80 shrink-0 flex flex-col bg-shell-panel rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+        <div class="px-4 py-3 border-b border-slate-100">
+          <div class="text-[10px] font-semibold text-slate-400 uppercase tracking-wide">1Shell 接入端点</div>
+          <div class="mt-1 text-xs text-slate-500">供 AI CLI / MCP 客户端连接</div>
+        </div>
+
+        <div class="flex-1 overflow-y-auto p-4 flex flex-col gap-4">
+          <!-- Bridge API -->
+          <div class="flex flex-col gap-1.5">
+            <div class="flex items-center justify-between">
+              <label class="text-[10px] font-semibold text-slate-400 uppercase tracking-wide">Bridge API</label>
+              <span class="status-badge status-connected">● 在线</span>
+            </div>
+            <div class="flex items-center gap-1">
+              <input type="text" readonly value="http://localhost:8060/api/bridge" class="flex-1 h-8 px-2 rounded-lg border border-slate-200 bg-slate-50 text-[11px] font-mono outline-none" />
+              <button class="h-8 w-8 flex items-center justify-center rounded-lg border border-slate-200 text-slate-400 hover:text-cyan-500 hover:border-cyan-300 text-xs" title="复制">📋</button>
+            </div>
+          </div>
+
+          <!-- MCP Server -->
+          <div class="flex flex-col gap-1.5">
+            <div class="flex items-center justify-between">
+              <label class="text-[10px] font-semibold text-slate-400 uppercase tracking-wide">MCP Server</label>
+              <span class="status-badge status-connected">● 在线</span>
+            </div>
+            <div class="flex items-center gap-1">
+              <input type="text" readonly value="http://localhost:8060/mcp/sse" class="flex-1 h-8 px-2 rounded-lg border border-slate-200 bg-slate-50 text-[11px] font-mono outline-none" />
+              <button class="h-8 w-8 flex items-center justify-center rounded-lg border border-slate-200 text-slate-400 hover:text-cyan-500 hover:border-cyan-300 text-xs" title="复制">📋</button>
+            </div>
+          </div>
+
+          <!-- Bridge Token -->
+          <div class="flex flex-col gap-1.5">
+            <div class="flex items-center justify-between">
+              <label class="text-[10px] font-semibold text-slate-400 uppercase tracking-wide">Bridge Token</label>
+              <button class="text-[10px] text-cyan-500 hover:underline">重新生成</button>
+            </div>
+            <div class="flex items-center gap-1">
+              <input type="password" readonly value="bt_xxxxxxxxxxxxxxxx" class="flex-1 h-8 px-2 rounded-lg border border-slate-200 bg-slate-50 text-[11px] font-mono outline-none" />
+              <button class="h-8 w-8 flex items-center justify-center rounded-lg border border-slate-200 text-slate-400 hover:text-cyan-500 hover:border-cyan-300 text-xs" title="显示">👁</button>
+              <button class="h-8 w-8 flex items-center justify-center rounded-lg border border-slate-200 text-slate-400 hover:text-cyan-500 hover:border-cyan-300 text-xs" title="复制">📋</button>
+            </div>
+          </div>
+
+          <!-- 诊断 -->
+          <div class="mt-2 flex flex-col gap-2">
+            <div class="text-[10px] font-semibold text-slate-400 uppercase tracking-wide">连通性诊断</div>
+            <div class="rounded-lg border border-slate-200 divide-y divide-slate-100 bg-white dark:bg-slate-800">
+              <div class="p-2.5 flex items-center gap-2 text-xs">
+                <span class="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
+                <span class="flex-1 text-slate-600 dark:text-slate-300">Bridge 端点响应</span>
+                <span class="text-[10px] text-emerald-600">12ms</span>
+              </div>
+              <div class="p-2.5 flex items-center gap-2 text-xs">
+                <span class="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
+                <span class="flex-1 text-slate-600 dark:text-slate-300">MCP SSE 握手</span>
+                <span class="text-[10px] text-emerald-600">OK</span>
+              </div>
+              <div class="p-2.5 flex items-center gap-2 text-xs">
+                <span class="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
+                <span class="flex-1 text-slate-600 dark:text-slate-300">Token 鉴权</span>
+                <span class="text-[10px] text-emerald-600">通过</span>
+              </div>
+              <div class="p-2.5 flex items-center gap-2 text-xs">
+                <span class="w-1.5 h-1.5 rounded-full bg-amber-500"></span>
+                <span class="flex-1 text-slate-600 dark:text-slate-300">本机 SSH 会话池</span>
+                <span class="text-[10px] text-amber-600">1 / 5</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- 全局接入步骤 -->
+          <div class="mt-2 flex flex-col gap-2">
+            <div class="text-[10px] font-semibold text-slate-400 uppercase tracking-wide">接入流程</div>
+            <div class="flex items-center gap-1">
+              <div class="step-dot done">✓</div>
+              <div class="step-line done"></div>
+              <div class="step-dot done">✓</div>
+              <div class="step-line"></div>
+              <div class="step-dot active">3</div>
+              <div class="step-line"></div>
+              <div class="step-dot">4</div>
+            </div>
+            <div class="flex items-center justify-between text-[10px] text-slate-500">
+              <span>检测</span><span>配置</span><span class="text-cyan-500 font-semibold">连接</span><span>验证</span>
+            </div>
+          </div>
+        </div>
+      </aside>
+
+      <!-- ─── 右栏：CLI 列表 + 详情 ───────────────────────── -->
+      <main class="main-panel flex-1 flex flex-col min-w-0 bg-shell-panel rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+
+        <!-- 筛选栏 -->
+        <div class="shrink-0 flex items-center justify-between px-5 py-3 border-b border-slate-100">
+          <div class="flex items-center gap-1.5">
+            <button class="filter-btn active h-7 px-3 rounded-full border border-cyan-300 bg-cyan-50 text-cyan-600 text-[11px] font-semibold" data-filter="all">全部 6</button>
+            <button class="filter-btn h-7 px-3 rounded-full border border-slate-200 bg-slate-50 text-slate-500 text-[11px] hover:border-cyan-300 hover:text-cyan-500" data-filter="connected">已接入 2</button>
+            <button class="filter-btn h-7 px-3 rounded-full border border-slate-200 bg-slate-50 text-slate-500 text-[11px] hover:border-cyan-300 hover:text-cyan-500" data-filter="detected">已检测 2</button>
+            <button class="filter-btn h-7 px-3 rounded-full border border-slate-200 bg-slate-50 text-slate-500 text-[11px] hover:border-cyan-300 hover:text-cyan-500" data-filter="missing">未安装 2</button>
+          </div>
+          <input type="text" placeholder="搜索 CLI 工具…" class="w-56 h-8 px-3 rounded-lg border border-slate-200 bg-slate-50 text-xs outline-none focus:border-cyan-400 focus:ring-1 focus:ring-cyan-100" />
+        </div>
+
+        <!-- CLI 工具卡片列表 -->
+        <div class="flex-1 overflow-y-auto p-5">
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+
+            <!-- ═══ Claude Code ═══ -->
+            <div class="cli-card connected p-4 rounded-xl bg-white dark:bg-[#0b1324]">
+              <div class="flex items-start justify-between gap-3">
+                <div class="flex items-center gap-3 min-w-0">
+                  <div class="w-10 h-10 rounded-lg bg-gradient-to-br from-orange-400 to-pink-500 flex items-center justify-center text-white text-lg shrink-0">✦</div>
+                  <div class="min-w-0">
+                    <div class="text-sm font-bold text-slate-700 dark:text-slate-200 truncate">Claude Code</div>
+                    <div class="text-[10px] text-slate-400 font-mono">v1.0.28 · anthropics/claude-code</div>
+                  </div>
+                </div>
+                <span class="status-badge status-connected shrink-0">● 已接入</span>
+              </div>
+              <div class="mt-3 text-[11px] text-slate-500 dark:text-slate-400 line-clamp-2">Anthropic 官方 CLI。支持通过 MCP server 调用 1Shell 的主机连接、命令执行能力。</div>
+              <div class="mt-3 flex items-center gap-1 text-[10px] text-slate-400">
+                <span>📂 ~/.claude/claude.json</span>
+                <span>·</span>
+                <span class="text-emerald-600">MCP 已注册</span>
+              </div>
+              <div class="mt-3 flex items-center gap-1.5">
+                <button class="flex-1 h-7 rounded-lg border border-emerald-300 bg-emerald-50 text-emerald-600 text-[11px] font-semibold hover:bg-emerald-100">✓ 测试连接</button>
+                <button class="h-7 px-2.5 rounded-lg border border-slate-200 text-[11px] text-slate-500 hover:border-slate-400">配置</button>
+                <button class="h-7 px-2.5 rounded-lg border border-slate-200 text-[11px] text-slate-500 hover:border-red-200 hover:text-red-500">断开</button>
+              </div>
+            </div>
+
+            <!-- ═══ Codex ═══ -->
+            <div class="cli-card connected p-4 rounded-xl bg-white dark:bg-[#0b1324]">
+              <div class="flex items-start justify-between gap-3">
+                <div class="flex items-center gap-3 min-w-0">
+                  <div class="w-10 h-10 rounded-lg bg-gradient-to-br from-slate-700 to-slate-900 flex items-center justify-center text-white text-lg shrink-0">◎</div>
+                  <div class="min-w-0">
+                    <div class="text-sm font-bold text-slate-700 dark:text-slate-200 truncate">OpenAI Codex CLI</div>
+                    <div class="text-[10px] text-slate-400 font-mono">v0.15.0 · openai/codex</div>
+                  </div>
+                </div>
+                <span class="status-badge status-connected shrink-0">● 已接入</span>
+              </div>
+              <div class="mt-3 text-[11px] text-slate-500 dark:text-slate-400 line-clamp-2">OpenAI 官方终端 Agent。通过 Bridge API 转发命令到 1Shell 管理的远程主机。</div>
+              <div class="mt-3 flex items-center gap-1 text-[10px] text-slate-400">
+                <span>📂 ~/.codex/config.toml</span>
+                <span>·</span>
+                <span class="text-emerald-600">Bridge 已配置</span>
+              </div>
+              <div class="mt-3 flex items-center gap-1.5">
+                <button class="flex-1 h-7 rounded-lg border border-emerald-300 bg-emerald-50 text-emerald-600 text-[11px] font-semibold hover:bg-emerald-100">✓ 测试连接</button>
+                <button class="h-7 px-2.5 rounded-lg border border-slate-200 text-[11px] text-slate-500 hover:border-slate-400">配置</button>
+                <button class="h-7 px-2.5 rounded-lg border border-slate-200 text-[11px] text-slate-500 hover:border-red-200 hover:text-red-500">断开</button>
+              </div>
+            </div>
+
+            <!-- ═══ Gemini CLI ═══ -->
+            <div class="cli-card p-4 rounded-xl bg-white dark:bg-[#0b1324]">
+              <div class="flex items-start justify-between gap-3">
+                <div class="flex items-center gap-3 min-w-0">
+                  <div class="w-10 h-10 rounded-lg bg-gradient-to-br from-blue-400 to-cyan-500 flex items-center justify-center text-white text-lg shrink-0">◈</div>
+                  <div class="min-w-0">
+                    <div class="text-sm font-bold text-slate-700 dark:text-slate-200 truncate">Gemini CLI</div>
+                    <div class="text-[10px] text-slate-400 font-mono">v0.2.1 · google/gemini-cli</div>
+                  </div>
+                </div>
+                <span class="status-badge status-detected shrink-0">● 已检测</span>
+              </div>
+              <div class="mt-3 text-[11px] text-slate-500 dark:text-slate-400 line-clamp-2">Google 官方 Gemini 终端 CLI。检测到已安装但尚未配置 1Shell 接入。</div>
+              <div class="mt-3 flex items-center gap-1 text-[10px] text-slate-400">
+                <span>📂 ~/.gemini/config.json</span>
+                <span>·</span>
+                <span class="text-cyan-600">待配置</span>
+              </div>
+              <div class="mt-3 flex items-center gap-1.5">
+                <button class="flex-1 h-7 rounded-lg bg-gradient-to-r from-cyan-500 to-blue-500 text-white text-[11px] font-semibold shadow-md">⚡ 一键接入</button>
+                <button class="h-7 px-2.5 rounded-lg border border-slate-200 text-[11px] text-slate-500 hover:border-slate-400">手动配置</button>
+              </div>
+            </div>
+
+            <!-- ═══ Cursor CLI ═══ -->
+            <div class="cli-card p-4 rounded-xl bg-white dark:bg-[#0b1324]">
+              <div class="flex items-start justify-between gap-3">
+                <div class="flex items-center gap-3 min-w-0">
+                  <div class="w-10 h-10 rounded-lg bg-gradient-to-br from-violet-500 to-fuchsia-500 flex items-center justify-center text-white text-lg shrink-0">⌬</div>
+                  <div class="min-w-0">
+                    <div class="text-sm font-bold text-slate-700 dark:text-slate-200 truncate">Cursor CLI</div>
+                    <div class="text-[10px] text-slate-400 font-mono">v2025.09.1 · cursor-ai/cursor</div>
+                  </div>
+                </div>
+                <span class="status-badge status-detected shrink-0">● 已检测</span>
+              </div>
+              <div class="mt-3 text-[11px] text-slate-500 dark:text-slate-400 line-clamp-2">Cursor 编辑器附带 CLI，支持通过 MCP 调用远程服务。</div>
+              <div class="mt-3 flex items-center gap-1 text-[10px] text-slate-400">
+                <span>📂 ~/.cursor/mcp.json</span>
+                <span>·</span>
+                <span class="text-cyan-600">待配置</span>
+              </div>
+              <div class="mt-3 flex items-center gap-1.5">
+                <button class="flex-1 h-7 rounded-lg bg-gradient-to-r from-cyan-500 to-blue-500 text-white text-[11px] font-semibold shadow-md">⚡ 一键接入</button>
+                <button class="h-7 px-2.5 rounded-lg border border-slate-200 text-[11px] text-slate-500 hover:border-slate-400">手动配置</button>
+              </div>
+            </div>
+
+            <!-- ═══ Aider ═══ -->
+            <div class="cli-card p-4 rounded-xl bg-white dark:bg-[#0b1324] opacity-70">
+              <div class="flex items-start justify-between gap-3">
+                <div class="flex items-center gap-3 min-w-0">
+                  <div class="w-10 h-10 rounded-lg bg-gradient-to-br from-slate-300 to-slate-400 flex items-center justify-center text-white text-lg shrink-0">⬡</div>
+                  <div class="min-w-0">
+                    <div class="text-sm font-bold text-slate-700 dark:text-slate-200 truncate">Aider</div>
+                    <div class="text-[10px] text-slate-400 font-mono">未检测到 · paul-gauthier/aider</div>
+                  </div>
+                </div>
+                <span class="status-badge status-missing shrink-0">○ 未安装</span>
+              </div>
+              <div class="mt-3 text-[11px] text-slate-500 dark:text-slate-400 line-clamp-2">流行的开源 AI pair programmer。通过 1Shell Bridge 可在远程主机上使用 Aider。</div>
+              <div class="mt-3 flex items-center gap-1 text-[10px] text-slate-400">
+                <span>📦 需要通过 pip 安装</span>
+              </div>
+              <div class="mt-3 flex items-center gap-1.5">
+                <button class="flex-1 h-7 rounded-lg border border-slate-200 text-[11px] text-slate-500 hover:border-cyan-300 hover:text-cyan-500">📦 显示安装指令</button>
+                <button class="h-7 px-2.5 rounded-lg border border-slate-200 text-[11px] text-slate-500 hover:border-slate-400">查看文档</button>
+              </div>
+            </div>
+
+            <!-- ═══ Cline ═══ -->
+            <div class="cli-card p-4 rounded-xl bg-white dark:bg-[#0b1324] opacity-70">
+              <div class="flex items-start justify-between gap-3">
+                <div class="flex items-center gap-3 min-w-0">
+                  <div class="w-10 h-10 rounded-lg bg-gradient-to-br from-slate-300 to-slate-400 flex items-center justify-center text-white text-lg shrink-0">⬢</div>
+                  <div class="min-w-0">
+                    <div class="text-sm font-bold text-slate-700 dark:text-slate-200 truncate">Cline</div>
+                    <div class="text-[10px] text-slate-400 font-mono">未检测到 · cline/cline</div>
+                  </div>
+                </div>
+                <span class="status-badge status-missing shrink-0">○ 未安装</span>
+              </div>
+              <div class="mt-3 text-[11px] text-slate-500 dark:text-slate-400 line-clamp-2">VSCode 插件形态的 AI Agent。通过 MCP 协议与 1Shell 协作。</div>
+              <div class="mt-3 flex items-center gap-1 text-[10px] text-slate-400">
+                <span>📦 需要通过 VSCode 插件市场安装</span>
+              </div>
+              <div class="mt-3 flex items-center gap-1.5">
+                <button class="flex-1 h-7 rounded-lg border border-slate-200 text-[11px] text-slate-500 hover:border-cyan-300 hover:text-cyan-500">📦 显示安装指令</button>
+                <button class="h-7 px-2.5 rounded-lg border border-slate-200 text-[11px] text-slate-500 hover:border-slate-400">查看文档</button>
+              </div>
+            </div>
+
+          </div>
+
+          <!-- 底部：自定义接入 -->
+          <div class="mt-6 p-4 rounded-xl border-2 border-dashed border-slate-200 dark:border-slate-700 text-center">
+            <div class="text-sm font-semibold text-slate-600 dark:text-slate-300">+ 没找到你使用的 AI CLI？</div>
+            <div class="mt-1 text-[11px] text-slate-400">1Shell 提供标准的 MCP / Bridge 接入协议，任意支持 HTTP 或 MCP 的 CLI 都可手动接入</div>
+            <button class="mt-3 h-8 px-4 rounded-lg border border-cyan-300 bg-cyan-50 text-cyan-600 text-xs font-semibold hover:bg-cyan-100">查看接入文档 →</button>
+          </div>
+        </div>
+      </main>
+    </div>
+    </div>
+  </div>
+
+  <script>
+    // 筛选按钮
+    document.querySelectorAll('.filter-btn').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        document.querySelectorAll('.filter-btn').forEach((b) => {
+          b.classList.remove('active', 'border-cyan-300', 'bg-cyan-50', 'text-cyan-600');
+          b.classList.add('border-slate-200', 'bg-slate-50', 'text-slate-500');
+        });
+        btn.classList.add('active', 'border-cyan-300', 'bg-cyan-50', 'text-cyan-600');
+        btn.classList.remove('border-slate-200', 'bg-slate-50', 'text-slate-500');
+      });
+    });
+
+    // 主题切换
+    const themeBtn = document.getElementById('theme-toggle-btn');
+    const themeIcon = document.getElementById('theme-icon');
+    const htmlEl = document.documentElement;
+    if (localStorage.getItem('1shell-theme') === 'dark') {
+      htmlEl.classList.add('dark');
+      themeIcon.textContent = '☀';
+    } else {
+      themeIcon.textContent = '🌙';
+    }
+    themeBtn.addEventListener('click', () => {
+      const isDark = htmlEl.classList.toggle('dark');
+      themeIcon.textContent = isDark ? '☀' : '🌙';
+      localStorage.setItem('1shell-theme', isDark ? 'dark' : 'light');
+    });
+  </script>
+</body>
+</html>

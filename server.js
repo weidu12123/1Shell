@@ -19,12 +19,14 @@ const { createApp } = require('./src/app/createApp');
 const { createServer } = require('./src/app/createServer');
 const { errorHandler } = require('./src/middleware/error.middleware');
 const { createHostRepository } = require('./src/repositories/host.repository');
+const { createScriptRepository } = require('./src/repositories/script.repository');
 const { createAiRouter } = require('./src/routes/ai.routes');
 const { createAuditRouter } = require('./src/routes/audit.routes');
 const { createAuthRouter } = require('./src/routes/auth.routes');
 const { createHealthRouter } = require('./src/routes/health.routes');
 const { createHostRouter } = require('./src/routes/host.routes');
 const { createProbeRouter } = require('./src/routes/probe.routes');
+const { createScriptRouter } = require('./src/routes/script.routes');
 const { createAgentProviders } = require('./src/agents/providers');
 const { createAgentPtyService } = require('./src/agents/agent-pty.service');
 const { registerAgentSocketHandlers } = require('./src/sockets/registerAgentSocketHandlers');
@@ -32,6 +34,7 @@ const { registerSessionSocketHandlers } = require('./src/sockets/registerSession
 const { createAIService } = require('./src/services/ai.service');
 const { createAuditService } = require('./src/services/audit.service');
 const { createBridgeService } = require('./src/services/bridge.service');
+const { createScriptService } = require('./src/services/script.service');
 const { createSshPool } = require('./src/services/ssh-pool.service');
 const { createSshShellPool } = require('./src/services/ssh-shell-pool.service');
 const { createDatabase } = require('./src/database/db');
@@ -54,6 +57,7 @@ const db = createDatabase(path.join(dataDir, '1shell.db'));
 const app = createApp(ROOT_DIR);
 const { io, server } = createServer(app);
 const hostRepository = createHostRepository(HOSTS_FILE, db);
+const scriptRepository = createScriptRepository(db);
 const aiService = createAIService();
 const authService = createAuthService();
 const hostService = createHostService({ hostRepository });
@@ -68,6 +72,7 @@ const bridgeService = createBridgeService({ hostService, auditService, sshPool, 
 const fileService = createFileService({ hostService });
 const ipFilterService = createIpFilterService({ db });
 const mcpService = createMcpService({ bridgeService, hostService, auditService });
+const scriptService = createScriptService({ scriptRepository, hostService, bridgeService, auditService });
 
 // ─── 路由挂载 ───────────────────────────────────────────────────────────
 app.use('/api/auth', createAuthRouter(authService));
@@ -96,6 +101,7 @@ app.use('/api', createProbeRouter({ probeService }));
 app.use('/api', createAgentSetupRouter());
 app.use('/api', createFileRouter({ fileService }));
 app.use('/api', createIpFilterRouter({ ipFilterService }));
+app.use('/api', createScriptRouter({ scriptService, aiService }));
 
 // ─── Socket.IO ──────────────────────────────────────────────────────────
 io.use(authService.authenticateSocket);
