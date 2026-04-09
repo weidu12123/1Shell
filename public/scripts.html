@@ -420,12 +420,20 @@
 
       <!-- 表单区 -->
       <div class="flex-1 overflow-y-auto p-5 flex flex-col gap-4">
-        <!-- 目标主机 -->
+        <!-- 目标主机（多选） -->
         <div class="flex flex-col gap-1">
-          <label class="text-[10px] font-semibold text-slate-400 uppercase tracking-wide">目标主机</label>
-          <select id="run-host-select" class="h-9 px-3 rounded-lg border border-slate-200 dark:border-[#1e293b] bg-slate-50 dark:bg-[#0b1324] text-xs outline-none focus:border-purple-400">
-            <option value="local">本机（1Shell 宿主）</option>
+          <div class="flex items-center justify-between">
+            <label class="text-[10px] font-semibold text-slate-400 uppercase tracking-wide">目标主机</label>
+            <div class="flex items-center gap-1.5">
+              <button id="run-host-all" type="button" class="text-[10px] text-purple-500 hover:underline">全选</button>
+              <span class="text-slate-300">|</span>
+              <button id="run-host-none" type="button" class="text-[10px] text-slate-400 hover:underline">取消全选</button>
+            </div>
+          </div>
+          <select id="run-host-select" multiple size="4" class="h-auto min-h-[72px] px-3 py-1.5 rounded-lg border border-slate-200 dark:border-[#1e293b] bg-slate-50 dark:bg-[#0b1324] text-xs outline-none focus:border-purple-400">
+            <option value="local" selected>🖥 本机（1Shell 宿主）</option>
           </select>
+          <div class="text-[10px] text-slate-400">按住 Ctrl / Cmd 可多选，选中多台将批量执行</div>
         </div>
 
         <!-- 参数表单（动态生成） -->
@@ -442,14 +450,15 @@
           <pre id="run-preview-code" class="px-3 py-2 rounded-lg bg-slate-900 text-slate-100 font-mono text-[11px] whitespace-pre-wrap break-all max-h-40 overflow-auto min-h-[48px]">（等待预览）</pre>
         </div>
 
-        <!-- 结果区（执行后显示） -->
+        <!-- 结果区（执行后显示，支持多主机） -->
         <div id="run-result-area" class="hidden flex flex-col gap-2">
           <div class="flex items-center justify-between">
             <label class="text-[10px] font-semibold text-slate-400 uppercase tracking-wide">执行结果</label>
             <div id="run-result-meta" class="text-[10px] text-slate-400"></div>
           </div>
-          <pre id="run-result-stdout" class="px-3 py-2 rounded-lg bg-slate-900 text-emerald-300 font-mono text-[11px] whitespace-pre-wrap break-all max-h-60 overflow-auto"></pre>
-          <pre id="run-result-stderr" class="hidden px-3 py-2 rounded-lg bg-red-50 dark:bg-red-500/10 text-red-600 dark:text-red-300 font-mono text-[11px] whitespace-pre-wrap break-all max-h-40 overflow-auto"></pre>
+          <div id="run-result-list" class="flex flex-col gap-2 max-h-80 overflow-y-auto">
+            <!-- 多主机结果逐条渲染 -->
+          </div>
         </div>
 
         <!-- 危险警告 -->

@@ -67,8 +67,7 @@
   const runPreview = $('run-preview-code');
   const runResultArea = $('run-result-area');
   const runResultMeta = $('run-result-meta');
-  const runResultStdout = $('run-result-stdout');
-  const runResultStderr = $('run-result-stderr');
+  const runResultList = $('run-result-list');
   const runWarnings = $('run-warnings');
   const runConfirmLabel = $('run-confirm-label');
   const runConfirmCb = $('run-confirm-cb');
@@ -201,6 +200,13 @@
     runExecuteBtn.addEventListener('click', onExecute);
     btnRefreshPreview.addEventListener('click', refreshPreview);
     runHostSelect.addEventListener('change', refreshPreview);
+    $('run-host-all').addEventListener('click', () => {
+      Array.from(runHostSelect.options).forEach((o) => { o.selected = true; });
+      refreshPreview();
+    });
+    $('run-host-none').addEventListener('click', () => {
+      Array.from(runHostSelect.options).forEach((o) => { o.selected = false; });
+    });
 
     // 删除确认弹窗
     confirmCancel.addEventListener('click', () => confirmModal.classList.add('hidden'));
@@ -635,9 +641,7 @@
 
     // 结果区重置
     runResultArea.classList.add('hidden');
-    runResultStdout.textContent = '';
-    runResultStderr.textContent = '';
-    runResultStderr.classList.add('hidden');
+    runResultList.innerHTML = '';
     runWarnings.classList.add('hidden');
     runWarnings.innerHTML = '';
 
@@ -692,7 +696,8 @@
 
   async function refreshPreview() {
     if (!state.currentId) return;
-    const hostId = runHostSelect.value;
+    const hostIds = getSelectedHostIds();
+    const hostId = hostIds[0] || 'local';
     const params = collectRunParams();
     try {
       const resp = await requestJson(`/api/scripts/${encodeURIComponent(state.currentId)}/preview`, {
@@ -710,6 +715,10 @@
     }
   }
 
+  function getSelectedHostIds() {
+    return Array.from(runHostSelect.selectedOptions).map((o) => o.value).filter(Boolean);
+  }
+
   async function onExecute() {
     if (!state.currentId) return;
     const script = state.scripts.find((s) => s.id === state.currentId);
@@ -718,47 +727,85 @@
       showToast('请勾选风险确认复选框', 'warn');
       return;
     }
-    const hostId = runHostSelect.value;
+
+    const hostIds = getSelectedHostIds();
+    if (hostIds.length === 0) {
+      showToast('请至少选择一台主机', 'warn');
+      return;
+    }
+
     const params = collectRunParams();
+    const isBatch = hostIds.length > 1;
+
     try {
       runExecuteBtn.disabled = true;
-      runExecuteBtn.textContent = '执行中...';
+      runExecuteBtn.textContent = isBatch ? `执行中（0/${hostIds.length}）...` : '执行中...';
       runResultArea.classList.remove('hidden');
-      runResultStdout.textContent = '正在运行...';
-      runResultStderr.classList.add('hidden');
+      runResultList.innerHTML = '<div class="text-xs text-slate-400 py-2">正在运行...</div>';
 
-      const resp = await requestJson(`/api/scripts/${encodeURIComponent(state.currentId)}/run`, {
-        method: 'POST',
-        body: JSON.stringify({ hostId, params, confirmed: true }),
-      });
-
-      const statusIcon = resp.status === 'success' ? '✅' : '❌';
-      runResultMeta.textContent = `${statusIcon} exit=${resp.exitCode} · ${resp.durationMs}ms · runId=${resp.runId}`;
-      runResultStdout.textContent = resp.stdout || '（无输出）';
-      if (resp.stderr) {
-        runResultStderr.textContent = resp.stderr;
-        runResultStderr.classList.remove('hidden');
-      }
-      if (resp.status === 'success') {
-        showToast('执行成功', 'success');
+      let results;
+      if (isBatch) {
+        const resp = await requestJson(`/api/scripts/${encodeURIComponent(state.currentId)}/run-batch`, {
+          method: 'POST',
+          body: JSON.stringify({ hostIds, params, confirmed: true }),
+        });
+        runResultMeta.textContent = `共 ${resp.total} 台 · ✅ ${resp.success} 成功 · ❌ ${resp.failed} 失败`;
+        results = resp.results || [];
       } else {
-        showToast(`执行失败（exit=${resp.exitCode}）`, 'warn');
+        const resp = await requestJson(`/api/scripts/${encodeURIComponent(state.currentId)}/run`, {
+          method: 'POST',
+          body: JSON.stringify({ hostId: hostIds[0], params, confirmed: true }),
+        });
+        results = [{ hostId: hostIds[0], ...resp, ok: true }];
+        const icon = resp.status === 'success' ? '✅' : '❌';
+        runResultMeta.textContent = `${icon} exit=${resp.exitCode} · ${resp.durationMs}ms`;
       }
 
-      // 刷新列表中的运行次数
+      // 渲染每台主机的结果
+      runResultList.innerHTML = results.map((r) => resultCardHTML(r)).join('');
+
+      const successCount = results.filter((r) => r.ok && r.status === 'success').length;
+      if (successCount === results.length) {
+        showToast(isBatch ? `全部 ${successCount} 台执行成功` : '执行成功', 'success');
+      } else {
+        showToast(`${successCount}/${results.length} 台成功`, successCount > 0 ? 'warn' : 'error');
+      }
+
+      // 刷新运行次数
       const idx = state.scripts.findIndex((s) => s.id === state.currentId);
-      if (idx !== -1) state.scripts[idx].runCount = (state.scripts[idx].runCount || 0) + 1;
+      if (idx !== -1) state.scripts[idx].runCount = (state.scripts[idx].runCount || 0) + results.length;
       renderList();
     } catch (err) {
       runResultMeta.textContent = '❌ 执行失败';
-      runResultStdout.textContent = '';
-      runResultStderr.textContent = err.message;
-      runResultStderr.classList.remove('hidden');
+      runResultList.innerHTML = `<div class="text-xs text-red-500 py-2">${escapeHtml(err.message)}</div>`;
       showErrorMessage(err);
     } finally {
       runExecuteBtn.disabled = false;
       runExecuteBtn.textContent = '▶ 执行';
     }
+  }
+
+  function resultCardHTML(r) {
+    const icon = r.ok && r.status === 'success' ? '🟢' : '🔴';
+    const hostLabel = escapeHtml(r.hostName || r.hostId || '');
+    const meta = [
+      r.exitCode != null ? `exit=${r.exitCode}` : '',
+      r.durationMs != null ? `${r.durationMs}ms` : '',
+      r.runId ? `#${r.runId}` : '',
+    ].filter(Boolean).join(' · ');
+
+    return `
+      <div class="rounded-lg border border-slate-200 dark:border-[#1e293b] bg-white dark:bg-[#0b1324] overflow-hidden">
+        <div class="flex items-center gap-2 px-3 py-1.5 bg-slate-50 dark:bg-slate-800/50 text-[11px]">
+          <span>${icon}</span>
+          <span class="font-semibold text-slate-700 dark:text-slate-200">${hostLabel}</span>
+          <span class="ml-auto text-slate-400">${meta}</span>
+        </div>
+        ${r.stdout ? `<pre class="px-3 py-1.5 bg-slate-900 text-emerald-300 font-mono text-[10px] whitespace-pre-wrap break-all max-h-32 overflow-auto">${escapeHtml(r.stdout)}</pre>` : ''}
+        ${r.stderr ? `<pre class="px-3 py-1.5 bg-red-50 dark:bg-red-500/10 text-red-600 dark:text-red-300 font-mono text-[10px] whitespace-pre-wrap break-all max-h-20 overflow-auto">${escapeHtml(r.stderr)}</pre>` : ''}
+        ${r.error && !r.stderr ? `<div class="px-3 py-1.5 text-[10px] text-red-500">${escapeHtml(r.error)}</div>` : ''}
+      </div>
+    `;
   }
 
   function runModalClose() {

@@ -271,6 +271,65 @@ function createScriptService({ scriptRepository, hostService, bridgeService, aud
     }
   }
 
+  // ─── 批量执行 ────────────────────────────────────────────────────────
+  /**
+   * 在多台主机上并发执行同一脚本。
+   * concurrency 控制并发数（默认 5），避免同时打爆几十台 SSH。
+   * 每台主机独立生成 run 记录，任何单台失败不影响其他。
+   * 返回 results 数组，与 hostIds 等长。
+   */
+  async function runScriptBatch(id, { hostIds, params, confirmed, timeoutMs, concurrency = 5 }, { clientIp } = {}) {
+    const script = scriptRepository.findScript(id);
+    if (!script) throw notFoundError('脚本不存在');
+
+    if (!Array.isArray(hostIds) || hostIds.length === 0) {
+      throw validationError('hostIds 不能为空');
+    }
+    if (hostIds.length > 50) {
+      throw validationError('单次批量执行不能超过 50 台主机');
+    }
+
+    // 风险检查：取一个 hostId 做渲染（参数在所有主机上相同）
+    const { rendered } = renderContent(script, params || {}, { hostId: hostIds[0] });
+    const risk = checkRisk(script, rendered, { confirmed });
+    if (!risk.ok) {
+      const err = new Error(risk.message);
+      err.status = 409;
+      err.code = 'NEED_CONFIRM';
+      err.riskLevel = script.riskLevel;
+      throw err;
+    }
+
+    const limit = Math.max(1, Math.min(concurrency, 20));
+    const results = [];
+    const pending = [...hostIds];
+
+    // 并发限流执行
+    async function runOne(hostId) {
+      try {
+        const result = await runScript(id, { hostId, params, confirmed: true, timeoutMs }, { clientIp });
+        return { hostId, ...result, ok: true };
+      } catch (err) {
+        return { hostId, ok: false, error: err.message, status: 'failed' };
+      }
+    }
+
+    // 简单的池化并发
+    while (pending.length > 0) {
+      const batch = pending.splice(0, limit);
+      const batchResults = await Promise.all(batch.map(runOne));
+      results.push(...batchResults);
+    }
+
+    return {
+      total: hostIds.length,
+      success: results.filter((r) => r.ok && r.status === 'success').length,
+      failed: results.filter((r) => !r.ok || r.status === 'failed').length,
+      results,
+      warnings: risk.warnings,
+    };
+  }
+
   // ─── 执行历史 ────────────────────────────────────────────────────────
   function getRun(runId) {
     return scriptRepository.findRun(runId);
@@ -293,6 +352,7 @@ function createScriptService({ scriptRepository, hostService, bridgeService, aud
     renderContent, // 暴露用于"命令预览"接口
     checkRisk,
     runScript,
+    runScriptBatch,
     getRun,
     listRunsByScript,
     listAllRuns,

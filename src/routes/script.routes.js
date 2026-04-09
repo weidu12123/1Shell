@@ -141,6 +141,33 @@ function createScriptRouter({ scriptService, aiService }) {
     }
   });
 
+  // ─── 批量执行 ─────────────────────────────────────────────────────
+  router.post('/scripts/:id/run-batch', async (req, res, next) => {
+    try {
+      const body = req.body || {};
+      const hostIds = Array.isArray(body.hostIds) ? body.hostIds.filter((h) => typeof h === 'string' && h) : [];
+      if (hostIds.length === 0) {
+        return res.status(400).json({ error: 'hostIds 不能为空' });
+      }
+      const params = (body.params && typeof body.params === 'object' && !Array.isArray(body.params)) ? body.params : {};
+      const confirmed = body.confirmed === true;
+      const timeoutMs = typeof body.timeoutMs === 'number' ? body.timeoutMs : undefined;
+      const concurrency = typeof body.concurrency === 'number' ? body.concurrency : 5;
+
+      const result = await scriptService.runScriptBatch(
+        req.params.id,
+        { hostIds, params, confirmed, timeoutMs, concurrency },
+        { clientIp: req.ip },
+      );
+      return res.json({ ok: true, ...result });
+    } catch (err) {
+      if (err.code === 'NEED_CONFIRM') {
+        return res.status(409).json({ ok: false, error: err.message, needConfirm: true, riskLevel: err.riskLevel });
+      }
+      return next(err);
+    }
+  });
+
   // ─── 某脚本的执行历史 ─────────────────────────────────────────────
   router.get('/scripts/:id/runs', (req, res, next) => {
     try {
