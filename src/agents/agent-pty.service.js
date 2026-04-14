@@ -13,6 +13,30 @@ const {
   nowIso,
 } = require('../utils/common');
 
+const AI_ENV_VARS_TO_STRIP = [
+  'OPENAI_API_KEY',
+  'OPENAI_API_BASE',
+  'OPENAI_BASE_URL',
+  'OPENAI_ORGANIZATION',
+  'OPENAI_ORG_ID',
+  'ANTHROPIC_API_KEY',
+  'ANTHROPIC_AUTH_TOKEN',
+  'ANTHROPIC_BASE_URL',
+  'GOOGLE_API_KEY',
+  'GEMINI_API_KEY',
+  'GOOGLE_GEMINI_BASE_URL',
+  'GOOGLE_VERTEX_BASE_URL',
+];
+
+function stripAiEnvVars(env, useLocalEnv) {
+  if (useLocalEnv) return { ...env };
+  const cleaned = { ...env };
+  for (const key of AI_ENV_VARS_TO_STRIP) {
+    delete cleaned[key];
+  }
+  return cleaned;
+}
+
 function createAgentPtyService({ hostService, providerRegistry }) {
   const socketAgentSessions = new Map();
 
@@ -42,6 +66,7 @@ function createAgentPtyService({ hostService, providerRegistry }) {
       hostId: session.hostId,
       hostName: session.hostName,
       status: session.status,
+      useLocalEnv: Boolean(session.useLocalEnv),
       createdAt: session.createdAt,
       lastError: session.lastError || null,
     };
@@ -86,6 +111,7 @@ function createAgentPtyService({ hostService, providerRegistry }) {
     hostId,
     cols = AGENT_DEFAULT_COLS,
     rows = AGENT_DEFAULT_ROWS,
+    useLocalEnv = false,
   }) {
     const sessions = getSocketAgentSessionMap(socket.id);
     if (sessions.size >= AGENT_MAX_SESSIONS_PER_SOCKET) {
@@ -109,6 +135,7 @@ function createAgentPtyService({ hostService, providerRegistry }) {
       hostId: host.id,
       hostName: host.name,
       status: 'starting',
+      useLocalEnv: Boolean(useLocalEnv),
       createdAt: nowIso(),
       isFinalized: false,
       lastError: null,
@@ -124,10 +151,11 @@ function createAgentPtyService({ hostService, providerRegistry }) {
     try {
       const isWin = os.platform() === 'win32';
       let command = provider.command;
-      let args = [...(provider.args || [])];
+      const resolvedArgs = typeof provider.args === 'function'
+        ? (provider.args({ host, hostId: host.id, useLocalEnv }) || [])
+        : (provider.args || []);
+      let args = [...resolvedArgs];
 
-      // Windows 兼容：npm 全局包（如 claude）是 .ps1 脚本，node-pty 无法直接执行
-      // 改为通过 powershell.exe 调用
       if (isWin) {
         const { findExecutableCommand } = require('./windows-compat');
         const resolved = findExecutableCommand(command);
@@ -137,14 +165,20 @@ function createAgentPtyService({ hostService, providerRegistry }) {
         }
       }
 
+      const resolvedProviderEnv = typeof provider.env === 'function'
+        ? (provider.env({ host, hostId: host.id, useLocalEnv }) || {})
+        : (provider.env || {});
+
+      const sanitizedEnv = stripAiEnvVars(process.env, useLocalEnv);
+
       const ptyProcess = pty.spawn(command, args, {
         name: 'xterm-256color',
         cols,
         rows,
         cwd: process.cwd(),
         env: {
-          ...process.env,
-          ...(provider.env || {}),
+          ...sanitizedEnv,
+          ...resolvedProviderEnv,
         },
       });
 
@@ -168,6 +202,39 @@ function createAgentPtyService({ hostService, providerRegistry }) {
       ptyProcess.onData((data) => {
         if (session.isFinalized) return;
         emitAgentOutput(socket, session, data, 'stdout');
+
+        if (host.id !== 'local' && !session._remotePromptInjected) {
+          const readyPatterns = {
+            'claude-code': /claude/i,
+            'codex':       /model:|directory:|Codex|model to change/i,
+            'opencode':    /opencode/i,
+          };
+          const pattern = readyPatterns[session.providerId];
+          if (pattern && pattern.test(data)) {
+            session._remotePromptInjected = true;
+            const hostDesc = `${host.username}@${host.host}:${host.port}`;
+            const toolNameMap = {
+              'claude-code': 'mcp__1shell__execute_ssh_command',
+              'codex':       'mcp_1shell_execute_ssh_command',
+              'opencode':    'mcp_1shell_execute_ssh_command',
+            };
+            const toolName = toolNameMap[session.providerId] || 'mcp__1shell__execute_ssh_command';
+            const prompt = [
+              `[系统背景，无需向用户重复或说明]`,
+              `当前操作目标是远程主机 ${host.name}（${hostDesc}），hostId="${host.id}"。`,
+              `执行任何 shell 命令时，必须通过 1shell MCP 工具（工具名 ${toolName}）在该远端主机上执行，`,
+              `调用时传入参数 hostId="${host.id}"。`,
+              `禁止在本地执行命令，不要解释工具调用过程，不要说明 MCP 状态，直接输出命令结果。`,
+            ].join(' ');
+            const submitDelay = session.providerId === 'codex' ? 300 : 100;
+            setTimeout(() => {
+              if (!session.isFinalized) session.write(prompt);
+              setTimeout(() => {
+                if (!session.isFinalized) session.write('\r');
+              }, submitDelay);
+            }, 200);
+          }
+        }
       });
 
       ptyProcess.onExit(({ exitCode, signal }) => {
@@ -179,20 +246,6 @@ function createAgentPtyService({ hostService, providerRegistry }) {
 
       session.status = 'ready';
       emitAgentStatus(socket, session);
-
-      // 远程主机：claude 启动后等待交互界面就绪，再注入目标主机上下文
-      if (provider.id === 'claude-code' && host.id !== 'local') {
-        const hostDesc = `${host.username}@${host.host}:${host.port}`;
-        const prompt = [
-          `[系统背景，无需向用户重复或说明]`,
-          `目标主机 hostId="${host.id}"（${host.name}，${hostDesc}）。`,
-          `执行所有 shell 命令时，静默调用 mcp__1shell__execute_ssh_command 并传入 hostId="${host.id}"，不要解释工具调用过程，不要重复安全提示，不要说明 MCP 状态。`,
-          `直接输出命令结果即可。`,
-        ].join(' ');
-        setTimeout(() => {
-          if (!session.isFinalized) session.write(prompt + '\r');
-        }, 3000);
-      }
 
       return session;
     } catch (error) {

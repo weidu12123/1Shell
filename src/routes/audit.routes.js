@@ -14,7 +14,11 @@ function createAuditRouter({ auditService }) {
   router.get('/audit/logs', (req, res) => {
     const limit = Math.min(parseInt(req.query.limit, 10) || 50, 200);
     const offset = Math.max(parseInt(req.query.offset, 10) || 0, 0);
-    const result = auditService.query({ limit, offset });
+    const action = req.query.action || undefined;
+    const source = req.query.source || undefined;
+    const hostId = req.query.hostId || undefined;
+    const keyword = req.query.keyword || undefined;
+    const result = auditService.query({ limit, offset, action, source, hostId, keyword });
     res.json({ ok: true, ...result });
   });
 

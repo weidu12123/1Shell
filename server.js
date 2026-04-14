@@ -10,6 +10,7 @@ ensureBridgeToken(path.join(__dirname, 'data'));
 const { isUsingFallbackSecret } = require('./lib/crypto');
 const log = require('./lib/logger');
 const {
+  BRIDGE_TOKEN,
   HOSTS_FILE,
   PORT,
   ROOT_DIR,
@@ -20,6 +21,7 @@ const { createServer } = require('./src/app/createServer');
 const { errorHandler } = require('./src/middleware/error.middleware');
 const { createHostRepository } = require('./src/repositories/host.repository');
 const { createScriptRepository } = require('./src/repositories/script.repository');
+const { createPlaybookRepository } = require('./src/repositories/playbook.repository');
 const { createAiRouter } = require('./src/routes/ai.routes');
 const { createAuditRouter } = require('./src/routes/audit.routes');
 const { createAuthRouter } = require('./src/routes/auth.routes');
@@ -27,6 +29,8 @@ const { createHealthRouter } = require('./src/routes/health.routes');
 const { createHostRouter } = require('./src/routes/host.routes');
 const { createProbeRouter } = require('./src/routes/probe.routes');
 const { createScriptRouter } = require('./src/routes/script.routes');
+const { createPlaybookRouter } = require('./src/routes/playbook.routes');
+const { createCliSandbox } = require('./src/agents/cli-sandbox');
 const { createAgentProviders } = require('./src/agents/providers');
 const { createAgentPtyService } = require('./src/agents/agent-pty.service');
 const { registerAgentSocketHandlers } = require('./src/sockets/registerAgentSocketHandlers');
@@ -35,6 +39,7 @@ const { createAIService } = require('./src/services/ai.service');
 const { createAuditService } = require('./src/services/audit.service');
 const { createBridgeService } = require('./src/services/bridge.service');
 const { createScriptService } = require('./src/services/script.service');
+const { createPlaybookService } = require('./src/services/playbook.service');
 const { createSshPool } = require('./src/services/ssh-pool.service');
 const { createSshShellPool } = require('./src/services/ssh-shell-pool.service');
 const { createDatabase } = require('./src/database/db');
@@ -50,6 +55,7 @@ const { createSessionService } = require('./src/services/session.service');
 const { createFileService } = require('./src/services/file.service');
 const { createIpFilterService } = require('./src/services/ip-filter.service');
 const { createIpFilterRouter } = require('./src/routes/ip-filter.routes');
+const { createProxyRouter, createProxyConfigStore } = require('./src/routes/proxy.routes');
 
 // ─── 初始化核心服务 ─────────────────────────────────────────────────────
 const dataDir = path.join(ROOT_DIR, 'data');
@@ -58,12 +64,15 @@ const app = createApp(ROOT_DIR);
 const { io, server } = createServer(app);
 const hostRepository = createHostRepository(HOSTS_FILE, db);
 const scriptRepository = createScriptRepository(db);
+const playbookRepository = createPlaybookRepository(db);
 const aiService = createAIService();
 const authService = createAuthService();
 const hostService = createHostService({ hostRepository });
 const auditService = createAuditService({ db, dataDir });
 const sessionService = createSessionService({ hostService });
-const agentProviders = createAgentProviders();
+const proxyConfigStore = createProxyConfigStore(dataDir);
+const cliSandbox = createCliSandbox({ dataDir, bridgeToken: BRIDGE_TOKEN, port: PORT, proxyConfigStore });
+const agentProviders = createAgentProviders({ cliSandbox });
 const agentPtyService = createAgentPtyService({ hostService, providerRegistry: agentProviders });
 const sshPool = createSshPool({ hostService });
 const sshShellPool = createSshShellPool({ hostService });
@@ -71,8 +80,9 @@ const probeService = createProbeService({ hostRepository, hostService, sshShellP
 const bridgeService = createBridgeService({ hostService, auditService, sshPool, sshShellPool });
 const fileService = createFileService({ hostService });
 const ipFilterService = createIpFilterService({ db });
-const mcpService = createMcpService({ bridgeService, hostService, auditService });
+const mcpService = createMcpService({ bridgeService, hostService, auditService, bridgeToken: BRIDGE_TOKEN });
 const scriptService = createScriptService({ scriptRepository, hostService, bridgeService, auditService });
+const playbookService = createPlaybookService({ playbookRepository, scriptService, auditService });
 
 // ─── 路由挂载 ───────────────────────────────────────────────────────────
 app.use('/api/auth', createAuthRouter(authService));
@@ -83,6 +93,10 @@ app.use('/api', createHealthRouter({ isUsingFallbackSecret }));
 // Bridge 内部 API 和 MCP 使用 BRIDGE_TOKEN 鉴权，不走 Web session
 app.use('/api', createBridgeRouter({ bridgeService }));
 app.use('/mcp', createMcpRouter({ mcpService }));
+
+// 协议转换代理：Claude Code 直接调用，不走 Web session 鉴权
+// Claude Code 设置 ANTHROPIC_BASE_URL=http://localhost:PORT/api/proxy 即可
+app.use('/api/proxy', createProxyRouter({ proxyConfigStore }));
 
 // IP 访问控制：在鉴权之前执行（未登录的请求也要过滤）
 app.use(ipFilterService.ipFilterMiddleware);
@@ -98,10 +112,11 @@ app.use('/api', createHostRouter({
   isUsingFallbackSecret,
 }));
 app.use('/api', createProbeRouter({ probeService }));
-app.use('/api', createAgentSetupRouter());
+app.use('/api', createAgentSetupRouter({ proxyConfigStore, cliSandbox }));
 app.use('/api', createFileRouter({ fileService }));
 app.use('/api', createIpFilterRouter({ ipFilterService }));
 app.use('/api', createScriptRouter({ scriptService, aiService }));
+app.use('/api', createPlaybookRouter({ playbookService }));
 
 // ─── Socket.IO ──────────────────────────────────────────────────────────
 io.use(authService.authenticateSocket);

@@ -30,6 +30,7 @@
   let terminalAnalyzeModule = null;
   let fileBrowserModule = null;
   let agentPanelModule = null;
+  let scriptInjectModule = null;
 
   function setSessionStatus(status, text) {
     sessionStatusDotEl.className = `status-dot ${status || ''}`.trim();
@@ -103,13 +104,6 @@
     updateActiveHostUI,
   });
 
-  const probeModule = window.createProbeModule({
-    escapeHtml,
-    getSocket: () => sessionTerminalModule.getSocket(),
-    requestJson,
-    showErrorMessage,
-  });
-
   terminalAiModule = window.createTerminalAiModule({
     escapeHtml,
     getActiveHost,
@@ -160,16 +154,24 @@
     state,
   });
 
+  scriptInjectModule = window.createScriptInjectModule({
+    escapeHtml,
+    getActiveHost,
+    getSessionTerminalModule: () => sessionTerminalModule,
+    requestJson,
+    showErrorMessage,
+  });
+
   sessionTerminalModule.initialize();
   authModule.initialize();
   hostsModule.initialize();
-  probeModule.initialize();
   terminalAiModule.initialize();
   aiChatModule.initialize();
   agentPanelModule.initialize();
   commandSuggestionModule.initialize();
   terminalAnalyzeModule.initialize();
   fileBrowserModule.initialize();
+  scriptInjectModule.initialize();
 
   // 顶栏探针：延迟注入 socket（socket 在首次 connectToHost 时才创建）
   const _topbarProbeCheck = setInterval(() => {
@@ -187,16 +189,13 @@
     sessionTerminalModule.connectToHost(state.activeHostId, true).catch(showErrorMessage);
   });
 
-  // 移动端侧边栏 toggle - 由 layout.js 处理
-  const overlayEl = document.getElementById('mobile-overlay');
-  const sidebarEl = document.querySelector('.sidebar');
-
   document.addEventListener('keydown', (event) => {
     if (event.key === 'Escape') {
       hostsModule.closeHostModal();
-      probeModule.closeProbeDrawer();
       commandSuggestionModule.closeCmdModal();
       terminalAnalyzeModule.closePanel();
+      scriptInjectModule.closeScriptPanel();
+      scriptInjectModule.closePlaybookPanel();
       document.getElementById('settings-modal')?.classList.add('hidden');
       document.getElementById('ai-api-modal')?.classList.add('hidden');
       // 分析面板关闭时恢复 AI Chat 面板

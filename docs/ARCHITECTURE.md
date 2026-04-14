@@ -13,7 +13,7 @@ V5 完成了 PTY Agent 透传的第一步——claude-code 可以在侧边栏启
 
 V6 的目标是将这个"感知"升级为"执行"：
 
-- 让 AI CLI 工具（claude-code、gemini-cli、opencode 等）获得**真正的 SSH 执行能力**，而不依赖 prompt 层面的行为约束
+- 让 AI CLI 工具（claude-code、opencode、codex 等）获得**真正的 SSH 执行能力**，而不依赖 prompt 层面的行为约束
 - 通过 **MCP (Model Context Protocol)** 给 claude-code 注册标准工具，实现可靠的远端命令执行闭环
 - 通过 **Bridge Exec API** 给其他 CLI 工具提供 1shell-exec 调用路径
 - 保持 1Shell 的核心灵魂：**目标 VPS 零侵入，凭据不离主控端**
@@ -61,7 +61,7 @@ claude-code（本地 PTY 进程）
 
 - 在主控机注册全局命令 `1shell-exec`（Node.js 脚本或 shell wrapper）
 - 调用 `POST /api/internal/bridge/exec`（内部 token 鉴权）
-- 适用于不支持 MCP 的 CLI 工具（gemini-cli、opencode 等）
+- 适用于不支持 MCP 的 CLI 工具（opencode 等）
 - banner 注入中明确告知 AI 使用 `1shell-exec` 代替 `ssh`
 
 ### 3.3 Bridge Exec API（两条路线共享底层）
@@ -114,7 +114,7 @@ list_hosts() → { hosts: [{id, name, type, host, port}] }
 ### 4.3 P2：扩展 Agent Providers
 
 **更新文件：**
-- `src/agents/providers/index.js` — 添加 Gemini CLI、OpenCode provider
+- `src/agents/providers/index.js` — 添加 OpenCode provider
 
 **provider 最小结构：**
 ```javascript
@@ -152,7 +152,7 @@ src/routes/mcp.routes.js
 ### 修改文件
 ```
 src/config/env.js          — 新增 BRIDGE_TOKEN、BRIDGE_EXEC_TIMEOUT_MS
-src/agents/providers/index.js  — 新增 Gemini CLI、OpenCode provider
+src/agents/providers/index.js  — 新增 OpenCode provider
 server.js                  — 装配新路由和服务
 .env.example               — 新增变量说明
 ```
@@ -207,7 +207,7 @@ claude --mcp-server http://localhost:3301/mcp/sse
 - SSE 连接断开时资源正确清理
 
 ### Providers 扩展
-- 前端 provider 选择器能看到 Gemini CLI 和 OpenCode 选项
+- 前端 provider 选择器能看到 OpenCode 选项
 - 对应 CLI 工具存在时能正常启动 PTY session
 
 ---

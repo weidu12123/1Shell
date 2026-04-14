@@ -78,27 +78,27 @@ function createFileService({ hostService }) {
 
     const entries = await fs.promises.readdir(resolvedPath, { withFileTypes: true });
 
-    const items = [];
-    for (const entry of entries) {
-      const name = entry.name;
-      try {
-        const fullPath = path.join(resolvedPath, name);
-        // 从列表中隐藏应用敏感路径
-        if (isSensitivePath(fullPath)) continue;
-        const isDir = entry.isDirectory();
-        const stat = await fs.promises.stat(fullPath).catch(() => null);
-
-        items.push({
-          name,
-          path: fullPath,
-          isDir,
-          size: stat ? stat.size : 0,
-          mtime: stat ? stat.mtimeMs : 0,
-        });
-      } catch {
-        // 跳过无权限的文件
-      }
-    }
+    // 并发 stat 所有文件，避免串行阻塞
+    const statResults = await Promise.all(
+      entries.map(async (entry) => {
+        try {
+          const fullPath = path.join(resolvedPath, entry.name);
+          if (isSensitivePath(fullPath)) return null;
+          const isDir = entry.isDirectory();
+          const stat = await fs.promises.stat(fullPath).catch(() => null);
+          return {
+            name: entry.name,
+            path: fullPath,
+            isDir,
+            size: stat ? stat.size : 0,
+            mtime: stat ? stat.mtimeMs : 0,
+          };
+        } catch {
+          return null;
+        }
+      }),
+    );
+    const items = statResults.filter(Boolean);
 
     items.sort((a, b) => {
       if (a.isDir !== b.isDir) return a.isDir ? -1 : 1;
@@ -120,7 +120,8 @@ function createFileService({ hostService }) {
   // ─── SFTP 连接池：复用 SSH 连接，避免每次操作都握手 ──────────────────────
 
   const SFTP_IDLE_TIMEOUT_MS = 120000; // 空闲 2 分钟后断开
-  // Map<hostId, { client, proxyClient, sftp, timer, busy }>
+  const SFTP_LIVENESS_SKIP_MS = 10000; // 10 秒内用过的连接跳过健康检测
+  // Map<hostId, { client, proxyClient, sftp, timer, busy, lastUsed }>
   const sftpPool = new Map();
 
   function releaseSftp(hostId) {
@@ -146,7 +147,15 @@ function createFileService({ hostService }) {
   async function acquireSftp(hostId) {
     const entry = sftpPool.get(hostId);
     if (entry && !entry.busy) {
-      // 快速健康检测：尝试 realpath
+      // 最近用过的连接直接复用，跳过健康检测
+      const recentlyUsed = entry.lastUsed && (Date.now() - entry.lastUsed < SFTP_LIVENESS_SKIP_MS);
+      if (recentlyUsed) {
+        entry.busy = true;
+        entry.lastUsed = Date.now();
+        resetSftpTimer(hostId);
+        return entry;
+      }
+      // 空闲较久，快速健康检测
       try {
         await new Promise((resolve, reject) => {
           const t = setTimeout(() => reject(new Error('sftp liveness timeout')), 3000);
@@ -156,6 +165,7 @@ function createFileService({ hostService }) {
           });
         });
         entry.busy = true;
+        entry.lastUsed = Date.now();
         resetSftpTimer(hostId);
         return entry;
       } catch {
@@ -179,7 +189,7 @@ function createFileService({ hostService }) {
     client.on('error', () => releaseSftp(hostId));
     client.on('close', () => { sftpPool.delete(hostId); });
 
-    const newEntry = { client, proxyClient, sftp, timer: null, busy: true };
+    const newEntry = { client, proxyClient, sftp, timer: null, busy: true, lastUsed: Date.now() };
     sftpPool.set(hostId, newEntry);
     resetSftpTimer(hostId);
     return newEntry;
@@ -189,6 +199,7 @@ function createFileService({ hostService }) {
     const entry = sftpPool.get(hostId);
     if (!entry) return;
     entry.busy = false;
+    entry.lastUsed = Date.now();
     resetSftpTimer(hostId);
   }
 
@@ -202,10 +213,9 @@ function createFileService({ hostService }) {
     try {
       return await new Promise((resolve, reject) => {
         const targetPath = dirPath || '.';
+        const isAbsolute = targetPath.startsWith('/');
 
-        sftp.realpath(targetPath, (rpErr, absPath) => {
-          const resolvedPath = rpErr ? targetPath : absPath;
-
+        function doReaddir(resolvedPath) {
           sftp.readdir(resolvedPath, (rdErr, list) => {
             if (rdErr) return reject(new Error(`读取目录失败: ${rdErr.message}`));
 
@@ -228,10 +238,19 @@ function createFileService({ hostService }) {
             const parent = resolvedPath === '/' ? '/' : resolvedPath.replace(/\/[^/]+\/?$/, '') || '/';
             resolve({ path: resolvedPath, parent, items });
           });
-        });
+        }
+
+        // 绝对路径跳过 realpath，省一次 RTT
+        if (isAbsolute) {
+          doReaddir(targetPath.replace(/\/+$/, '') || '/');
+        } else {
+          sftp.realpath(targetPath, (rpErr, absPath) => {
+            doReaddir(rpErr ? targetPath : absPath);
+          });
+        }
       });
     } catch (err) {
-      releaseSftp(hostId); // 出错时销毁连接
+      releaseSftp(hostId);
       throw err;
     } finally {
       returnSftp(hostId);

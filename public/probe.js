@@ -6,15 +6,20 @@
     getSocket,
     requestJson,
     showErrorMessage,
+    onSnapshot,
   }) {
     const probeBtnEl = document.getElementById('probe-btn');
     const probeCloseBtnEl = document.getElementById('probe-close-btn');
     const probeRefreshBtnEl = document.getElementById('probe-refresh-btn');
     const probeDrawerEl = document.getElementById('probe-drawer');
     const probeSummaryEl = document.getElementById('probe-summary');
-    const drawerProbeSummaryEl = document.getElementById('drawer-probe-summary');
     const probeListEl = document.getElementById('probe-list');
+    const hasDrawerMode = Boolean(probeDrawerEl);
+    const hasProbeView = Boolean(probeSummaryEl && probeListEl);
     const expandedProbeIds = new Set();
+    const expandedTrendProbeIds = new Set();
+    const probeHistoryMap = new Map();
+    const MAX_TREND_POINTS = 24;
     const ERROR_CODE_LABELS = Object.freeze({
       AUTH_FAILED: '认证失败',
       CONNECTION_REFUSED: '端口拒绝',
@@ -60,21 +65,81 @@
       return date.toLocaleTimeString();
     }
 
-    function formatUptime(seconds) {
-      if (!seconds && seconds !== 0) return '--';
-      const day = Math.floor(seconds / 86400);
-      const hour = Math.floor((seconds % 86400) / 3600);
-      const minute = Math.floor((seconds % 3600) / 60);
-      if (day > 0) return `${day}天 ${hour}小时`;
-      if (hour > 0) return `${hour}小时 ${minute}分钟`;
-      return `${minute}分钟`;
+    function formatTrendTime(value) {
+      if (!value) return '--';
+      const date = new Date(value);
+      if (Number.isNaN(date.getTime())) return '--';
+      return date.toLocaleTimeString([], {
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit',
+      });
     }
-    let initialized = false;
-    let lastSnapshot = {
-      generatedAt: null,
-      probes: [],
-      sampleIntervalMs: null,
-    };
+
+    function normalizeBandwidthValue(value) {
+      const num = Number(value);
+      if (!Number.isFinite(num) || num < 0) return 0;
+      return num;
+    }
+
+    function buildTickIndexes(length, tickCount = 4) {
+      if (length <= 1) return [0];
+      const indexes = new Set();
+      for (let i = 0; i < tickCount; i += 1) {
+        indexes.add(Math.round((i / (tickCount - 1)) * (length - 1)));
+      }
+      return [...indexes].sort((a, b) => a - b);
+    }
+
+    function buildTrendPath(points, valueGetter, getX, getY) {
+      return points.map((point, index) => {
+        const command = index === 0 ? 'M' : 'L';
+        return `${command}${getX(index).toFixed(2)},${getY(valueGetter(point)).toFixed(2)}`;
+      }).join(' ');
+    }
+
+    function renderTrendDots(points, valueGetter, getX, getY, className) {
+      return points.map((point, index) => `
+        <circle class="${className}" cx="${getX(index).toFixed(2)}" cy="${getY(valueGetter(point)).toFixed(2)}" r="2.8"></circle>
+      `).join('');
+    }
+
+    function updateProbeHistory(probes = [], generatedAt) {
+      const activeHostIds = new Set();
+
+      for (const probe of probes) {
+        if (!probe?.hostId) continue;
+        activeHostIds.add(probe.hostId);
+
+        const fallbackTime = probe.checkedAt || probe.lastSuccessAt || generatedAt || Date.now();
+        const time = new Date(fallbackTime).getTime();
+        const point = {
+          time: Number.isFinite(time) ? time : Date.now(),
+          rx: normalizeBandwidthValue(probe.bandwidthRxBps),
+          tx: normalizeBandwidthValue(probe.bandwidthTxBps),
+        };
+
+        const history = probeHistoryMap.get(probe.hostId) || [];
+        const lastPoint = history[history.length - 1];
+        if (lastPoint && lastPoint.time === point.time) {
+          history[history.length - 1] = point;
+        } else {
+          history.push(point);
+        }
+
+        if (history.length > MAX_TREND_POINTS) {
+          history.splice(0, history.length - MAX_TREND_POINTS);
+        }
+
+        probeHistoryMap.set(probe.hostId, history);
+      }
+
+      for (const hostId of probeHistoryMap.keys()) {
+        if (!activeHostIds.has(hostId)) {
+          probeHistoryMap.delete(hostId);
+        }
+      }
+    }
 
     function ensureSocket() {
       const currentSocket = getSocket?.();
@@ -100,6 +165,7 @@
     }
 
     function renderSummary(total, onlineCount, offlineCount, staleCount, generatedAt, sampleIntervalMs) {
+      if (!probeSummaryEl) return;
       probeSummaryEl.innerHTML = [
         ['总主机数', total],
         ['在线', onlineCount],
@@ -183,14 +249,100 @@
       `;
     }
 
+    function renderTrendChart(probe) {
+      const history = probeHistoryMap.get(probe.hostId) || [];
+      if (!history.length) {
+        return `
+          <div class="probe-trend-chart-wrap">
+            <div class="probe-trend-chart-header">
+              <div>
+                <div class="probe-detail-title">带宽趋势</div>
+                <div class="probe-trend-chart-meta">等待采样数据</div>
+              </div>
+            </div>
+            <div class="probe-trend-empty">暂无带宽采样历史</div>
+          </div>
+        `;
+      }
+
+      const points = history.slice(-MAX_TREND_POINTS);
+      const chartWidth = 360;
+      const chartHeight = 180;
+      const marginTop = 10;
+      const marginRight = 14;
+      const marginBottom = 28;
+      const marginLeft = 52;
+      const plotWidth = chartWidth - marginLeft - marginRight;
+      const plotHeight = chartHeight - marginTop - marginBottom;
+      const maxValue = Math.max(1, ...points.flatMap((point) => [point.rx, point.tx]));
+      const getX = (index) => {
+        if (points.length === 1) return marginLeft + (plotWidth / 2);
+        return marginLeft + (index / (points.length - 1)) * plotWidth;
+      };
+      const getY = (value) => marginTop + plotHeight - ((value / maxValue) * plotHeight);
+      const yTickValues = [maxValue, maxValue * (2 / 3), maxValue * (1 / 3), 0];
+      const xTickIndexes = buildTickIndexes(points.length);
+      const rxPath = buildTrendPath(points, (point) => point.rx, getX, getY);
+      const txPath = buildTrendPath(points, (point) => point.tx, getX, getY);
+      const lastPoint = points[points.length - 1];
+
+      const horizontalGrid = yTickValues.map((tickValue) => {
+        const y = getY(tickValue);
+        return `
+          <g>
+            <line class="probe-trend-grid" x1="${marginLeft}" y1="${y.toFixed(2)}" x2="${(marginLeft + plotWidth).toFixed(2)}" y2="${y.toFixed(2)}"></line>
+            <text class="probe-trend-label" x="${marginLeft - 8}" y="${(y + 3).toFixed(2)}" text-anchor="end">${escapeHtml(formatBandwidth(tickValue))}</text>
+          </g>
+        `;
+      }).join('');
+
+      const verticalGrid = xTickIndexes.map((index) => {
+        const x = getX(index);
+        return `
+          <g>
+            <line class="probe-trend-grid" x1="${x.toFixed(2)}" y1="${marginTop}" x2="${x.toFixed(2)}" y2="${(marginTop + plotHeight).toFixed(2)}"></line>
+            <text class="probe-trend-label" x="${x.toFixed(2)}" y="${(marginTop + plotHeight + 18).toFixed(2)}" text-anchor="middle">${escapeHtml(formatTrendTime(points[index].time))}</text>
+          </g>
+        `;
+      }).join('');
+
+      return `
+        <div class="probe-trend-chart-wrap">
+          <div class="probe-trend-chart-header">
+            <div>
+              <div class="probe-detail-title">带宽趋势</div>
+              <div class="probe-trend-chart-meta">最近 ${points.length} 次采样 · 最新 ${escapeHtml(formatTrendTime(lastPoint.time))}</div>
+            </div>
+            <div class="probe-trend-legend">
+              <span class="probe-trend-legend-item"><span class="probe-trend-legend-line probe-trend-line-rx"></span><span>下行 Rx</span></span>
+              <span class="probe-trend-legend-item"><span class="probe-trend-legend-line probe-trend-line-tx"></span><span>上行 Tx</span></span>
+            </div>
+          </div>
+          ${points.length < 2 ? '<div class="probe-trend-empty">已记录 1 次采样，等待更多采样后显示完整折线。</div>' : ''}
+          <svg class="probe-trend-svg" viewBox="0 0 360 180" role="img" aria-label="带宽趋势图">
+            ${horizontalGrid}
+            ${verticalGrid}
+            <line class="probe-trend-axis" x1="${marginLeft}" y1="${marginTop}" x2="${marginLeft}" y2="${(marginTop + plotHeight).toFixed(2)}"></line>
+            <line class="probe-trend-axis" x1="${marginLeft}" y1="${(marginTop + plotHeight).toFixed(2)}" x2="${(marginLeft + plotWidth).toFixed(2)}" y2="${(marginTop + plotHeight).toFixed(2)}"></line>
+            <path class="probe-trend-line-rx" d="${rxPath}"></path>
+            <path class="probe-trend-line-tx" d="${txPath}"></path>
+            ${renderTrendDots(points, (point) => point.rx, getX, getY, 'probe-trend-point-rx')}
+            ${renderTrendDots(points, (point) => point.tx, getX, getY, 'probe-trend-point-tx')}
+          </svg>
+        </div>
+      `;
+    }
+
     function renderProbeCard(probe) {
-      const expanded = expandedProbeIds.has(probe.hostId);
+      const detailExpanded = expandedProbeIds.has(probe.hostId);
+      const trendExpanded = expandedTrendProbeIds.has(probe.hostId);
+      const name = probe.name || probe.hostId || '未命名主机';
 
       return `
         <div class="probe-card ${probe.online ? '' : 'offline'} ${probe.stale ? 'stale' : ''}">
           <div class="probe-card-top">
             <div>
-              <div class="probe-name">${escapeHtml(probe.name)}</div>
+              <div class="probe-name">${escapeHtml(name)}</div>
               <div class="probe-meta">${escapeHtml(probe.hostname || '--')}</div>
             </div>
             <div>
@@ -220,28 +372,43 @@
             <span>${probe.lastSuccessAt ? `最后成功 ${formatTime(probe.lastSuccessAt)}` : '暂无成功采样'}</span>
           </div>
           <div class="probe-card-actions">
-            <button class="probe-detail-toggle ${expanded ? 'expanded' : ''}" data-host-id="${escapeHtml(probe.hostId)}" type="button">
-              <span class="probe-detail-toggle-icon">${expanded ? '▾' : '▸'}</span>
-              <span>${expanded ? '收起详情' : '查看详情'}</span>
+            <button class="probe-trend-expand-btn ${trendExpanded ? 'expanded' : ''}" data-host-id="${escapeHtml(probe.hostId)}" type="button">
+              <span class="probe-detail-toggle-icon">${trendExpanded ? '▾' : '▸'}</span>
+              <span>${trendExpanded ? '收起趋势' : '带宽趋势'}</span>
+            </button>
+            <button class="probe-detail-toggle ${detailExpanded ? 'expanded' : ''}" data-host-id="${escapeHtml(probe.hostId)}" type="button">
+              <span class="probe-detail-toggle-icon">${detailExpanded ? '▾' : '▸'}</span>
+              <span>${detailExpanded ? '收起详情' : '查看详情'}</span>
             </button>
           </div>
-          ${expanded ? `
+          ${(detailExpanded || trendExpanded) ? `
             <div class="probe-detail-panel">
-              ${renderDetailStats(probe)}
+              ${trendExpanded ? renderTrendChart(probe) : ''}
+              ${detailExpanded ? renderDetailStats(probe) : ''}
             </div>
           ` : ''}
         </div>
       `;
     }
 
+    function applySnapshot(snapshot = {}) {
+      const probes = snapshot.probes || [];
+      updateProbeHistory(probes, snapshot.generatedAt);
+      renderProbes(probes, snapshot.generatedAt, snapshot.sampleIntervalMs);
+      onSnapshot?.(snapshot);
+    }
+
     async function loadProbes(forceRefresh = false) {
-      if(probeSummaryEl) probeSummaryEl.innerHTML = '';
-      if(drawerProbeSummaryEl) drawerProbeSummaryEl.innerHTML = '';
+      if (probeSummaryEl) probeSummaryEl.innerHTML = '';
+      if (probeListEl) probeListEl.innerHTML = '';
       const data = await requestJson(forceRefresh ? '/api/probes?refresh=1' : '/api/probes');
-      renderProbes(data.probes || [], data.generatedAt, data.sampleIntervalMs);
+      applySnapshot(data);
+      return data;
     }
 
     function renderProbes(probes, generatedAt, sampleIntervalMs) {
+      if (!hasProbeView) return;
+
       lastSnapshot = {
         probes,
         generatedAt,
@@ -275,44 +442,106 @@
       renderProbes(lastSnapshot.probes || [], lastSnapshot.generatedAt, lastSnapshot.sampleIntervalMs);
     }
 
+    function toggleProbeTrend(hostId) {
+      if (!hostId) return;
+
+      if (expandedTrendProbeIds.has(hostId)) {
+        expandedTrendProbeIds.delete(hostId);
+      } else {
+        expandedTrendProbeIds.add(hostId);
+      }
+
+      renderProbes(lastSnapshot.probes || [], lastSnapshot.generatedAt, lastSnapshot.sampleIntervalMs);
+    }
+
+    function shouldApplyRealtimeUpdates() {
+      if (!hasProbeView) return false;
+      if (!hasDrawerMode) return true;
+      return !probeDrawerEl.classList.contains('hidden');
+    }
+
     function attachSocketListeners() {
-      const currentSocket = ensureSocket();
+      let currentSocket;
+      try {
+        currentSocket = ensureSocket();
+      } catch {
+        return;
+      }
+
       currentSocket.off('probe:update');
       currentSocket.on('probe:update', (snapshot = {}) => {
-        if (probeDrawerEl.classList.contains('hidden')) return;
-        renderProbes(snapshot.probes || [], snapshot.generatedAt, snapshot.sampleIntervalMs);
+        if (!shouldApplyRealtimeUpdates()) return;
+        applySnapshot(snapshot);
       });
     }
 
+    function clearProbeView(message = '') {
+      if (probeSummaryEl) probeSummaryEl.innerHTML = '';
+      if (probeListEl) {
+        probeListEl.innerHTML = message
+          ? `<div class="probe-empty">${escapeHtml(message)}</div>`
+          : '';
+      }
+    }
+
     function openProbeDrawer() {
+      if (!hasDrawerMode) return;
       probeDrawerEl.classList.remove('hidden');
       attachSocketListeners();
       loadProbes().catch((error) => {
-        if(probeSummaryEl) probeSummaryEl.innerHTML = '';
-      if(drawerProbeSummaryEl) drawerProbeSummaryEl.innerHTML = '';
-        probeListEl.innerHTML = '';
+        clearProbeView(error.message || '加载探针失败');
       });
     }
 
     function closeProbeDrawer() {
+      if (!hasDrawerMode) return;
       probeDrawerEl.classList.add('hidden');
       detachSocketListeners();
     }
+
+    let initialized = false;
+    let lastSnapshot = {
+      generatedAt: null,
+      probes: [],
+      sampleIntervalMs: null,
+    };
 
     function initialize() {
       if (initialized) return;
       initialized = true;
 
-      probeBtnEl.addEventListener('click', openProbeDrawer);
-      probeCloseBtnEl.addEventListener('click', closeProbeDrawer);
-      probeRefreshBtnEl.addEventListener('click', () => {
-        loadProbes(true).catch(showErrorMessage);
-      });
-      probeListEl.addEventListener('click', (event) => {
-        const toggleButton = event.target.closest('.probe-detail-toggle');
-        if (!toggleButton) return;
-        toggleProbeDetails(toggleButton.dataset.hostId || '');
-      });
+      if (hasDrawerMode && probeBtnEl) {
+        probeBtnEl.addEventListener('click', (event) => {
+          event.preventDefault();
+          openProbeDrawer();
+        });
+      }
+      if (hasDrawerMode && probeCloseBtnEl) {
+        probeCloseBtnEl.addEventListener('click', closeProbeDrawer);
+      }
+      if (probeRefreshBtnEl) {
+        probeRefreshBtnEl.addEventListener('click', () => {
+          loadProbes(true).catch(showErrorMessage);
+        });
+      }
+      if (probeListEl) {
+        probeListEl.addEventListener('click', (event) => {
+          const trendButton = event.target.closest('.probe-trend-expand-btn');
+          if (trendButton) {
+            toggleProbeTrend(trendButton.dataset.hostId || '');
+            return;
+          }
+
+          const toggleButton = event.target.closest('.probe-detail-toggle');
+          if (!toggleButton) return;
+          toggleProbeDetails(toggleButton.dataset.hostId || '');
+        });
+      }
+
+      if (!hasDrawerMode && hasProbeView) {
+        attachSocketListeners();
+        loadProbes().catch(showErrorMessage);
+      }
     }
 
     return {

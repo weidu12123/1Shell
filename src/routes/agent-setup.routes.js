@@ -1,209 +1,27 @@
 'use strict';
 
-const fs = require('fs');
-const os = require('os');
-const path = require('path');
-const { execSync } = require('child_process');
 const { Router } = require('express');
 const { BRIDGE_TOKEN, PORT } = require('../config/env');
+const { getAllManifests, getManifest, UPSTREAM_LABELS } = require('../agents/cli-manifest');
 
 /**
- * Agent Setup Routes — 2.0 重构
+ * Agent Setup Routes — 3.0 Sandbox
  *
- * 统一的 AI CLI 检测 / 一键接入 / 断开 / 诊断 框架。
- *
- * GET  /api/agent/scan           扫描所有已知 CLI 工具（安装 + 配置状态）
- * GET  /api/agent/endpoints      返回 1Shell 的 Bridge / MCP 端点信息
- * GET  /api/agent/diagnostics    连通性诊断
- * POST /api/agent/mcp-setup      一键接入指定 CLI
- * POST /api/agent/mcp-remove     断开指定 CLI
- * GET  /api/agent/mcp-status     （兼容旧接口）
+ * GET  /api/agent/scan                            扫描所有 CLI（含沙箱状态）
+ * GET  /api/agent/endpoints                       1Shell 端点信息
+ * GET  /api/agent/diagnostics                     连通性诊断
+ * POST /api/agent/sandbox/ensure/:cliId           确保沙箱就绪
+ * POST /api/agent/sandbox/reset/:cliId            重置沙箱
+ * GET  /api/agent/sandbox/status/:cliId           查询沙箱状态
+ * GET  /api/agent/launch-command/:cliId           获取启动命令
+ * GET  /api/agent/providers/:cliId                列出某 CLI 的所有 Provider
+ * POST /api/agent/providers/:cliId                添加 Provider
+ * PUT  /api/agent/providers/:cliId/:pid            更新 Provider
+ * DELETE /api/agent/providers/:cliId/:pid          删除 Provider
+ * PUT  /api/agent/providers/:cliId/:pid/activate    设为活跃
  */
-function createAgentSetupRouter() {
+function createAgentSetupRouter({ proxyConfigStore, cliSandbox } = {}) {
   const router = Router();
-  const isWindows = os.platform() === 'win32';
-  const home = os.homedir();
-
-  // ─── CLI 工具注册表 ─────────────────────────────────────────────────
-  // 每个 CLI 定义：
-  //   id, name, icon, gradient, repo, description,
-  //   binary: 用于 which/where 检测的命令名,
-  //   configPath: 配置文件路径（绝对），
-  //   protocol: 'mcp' | 'bridge' | 'none'
-  //   setup(serverUrl): 写入配置 → { configFile, detail }
-  //   check(): 检查配置状态 → { configured, configFile, detail }
-  //   remove(): 移除配置 → { removed, configFile }
-
-  const CLI_REGISTRY = [
-    {
-      id: 'claude-code',
-      name: 'Claude Code',
-      icon: '✦',
-      gradient: 'from-orange-400 to-pink-500',
-      repo: 'anthropics/claude-code',
-      description: 'Anthropic 官方 CLI，通过 MCP server 调用 1Shell 的主机连接、命令执行能力。',
-      binary: 'claude',
-      configPath: path.join(home, '.claude', 'settings.json'),
-      protocol: 'mcp',
-      setup(serverUrl) {
-        let settings = safeReadJSON(this.configPath) || {};
-        if (!settings.mcpServers || typeof settings.mcpServers !== 'object') settings.mcpServers = {};
-        settings.mcpServers['1shell'] = buildMcpEntry(serverUrl);
-        safeWriteJSON(this.configPath, settings);
-        return { configFile: this.configPath, detail: 'mcpServers["1shell"] 已写入' };
-      },
-      check() {
-        const settings = safeReadJSON(this.configPath);
-        const entry = settings?.mcpServers?.['1shell'];
-        return entry
-          ? { configured: true, configFile: this.configPath, detail: `MCP URL: ${entry.url}` }
-          : { configured: false, configFile: this.configPath };
-      },
-      remove() {
-        const settings = safeReadJSON(this.configPath);
-        if (settings?.mcpServers?.['1shell']) {
-          delete settings.mcpServers['1shell'];
-          safeWriteJSON(this.configPath, settings);
-          return { removed: true, configFile: this.configPath };
-        }
-        return { removed: false, configFile: this.configPath };
-      },
-    },
-    {
-      id: 'codex',
-      name: 'OpenAI Codex CLI',
-      icon: '◎',
-      gradient: 'from-slate-700 to-slate-900',
-      repo: 'openai/codex',
-      description: 'OpenAI 官方终端 Agent，通过 MCP 与 1Shell 协作执行远程命令。',
-      binary: 'codex',
-      configPath: path.join(home, '.codex', 'mcp.json'),
-      protocol: 'mcp',
-      setup(serverUrl) {
-        let config = safeReadJSON(this.configPath) || {};
-        if (!config.mcpServers || typeof config.mcpServers !== 'object') config.mcpServers = {};
-        config.mcpServers['1shell'] = buildMcpEntry(serverUrl);
-        safeWriteJSON(this.configPath, config);
-        return { configFile: this.configPath, detail: 'mcpServers["1shell"] 已写入' };
-      },
-      check() {
-        const config = safeReadJSON(this.configPath);
-        const entry = config?.mcpServers?.['1shell'];
-        return entry
-          ? { configured: true, configFile: this.configPath, detail: `MCP URL: ${entry.url}` }
-          : { configured: false, configFile: this.configPath };
-      },
-      remove() {
-        const config = safeReadJSON(this.configPath);
-        if (config?.mcpServers?.['1shell']) {
-          delete config.mcpServers['1shell'];
-          safeWriteJSON(this.configPath, config);
-          return { removed: true, configFile: this.configPath };
-        }
-        return { removed: false, configFile: this.configPath };
-      },
-    },
-    {
-      id: 'gemini-cli',
-      name: 'Gemini CLI',
-      icon: '◈',
-      gradient: 'from-blue-400 to-cyan-500',
-      repo: 'google/gemini-cli',
-      description: 'Google 官方 Gemini 终端 CLI，支持 MCP 协议扩展。',
-      binary: 'gemini',
-      configPath: path.join(home, '.gemini', 'settings.json'),
-      protocol: 'mcp',
-      setup(serverUrl) {
-        let config = safeReadJSON(this.configPath) || {};
-        if (!config.mcpServers || typeof config.mcpServers !== 'object') config.mcpServers = {};
-        config.mcpServers['1shell'] = buildMcpEntry(serverUrl);
-        safeWriteJSON(this.configPath, config);
-        return { configFile: this.configPath, detail: 'mcpServers["1shell"] 已写入' };
-      },
-      check() {
-        const config = safeReadJSON(this.configPath);
-        const entry = config?.mcpServers?.['1shell'];
-        return entry
-          ? { configured: true, configFile: this.configPath, detail: `MCP URL: ${entry.url}` }
-          : { configured: false, configFile: this.configPath };
-      },
-      remove() {
-        const config = safeReadJSON(this.configPath);
-        if (config?.mcpServers?.['1shell']) {
-          delete config.mcpServers['1shell'];
-          safeWriteJSON(this.configPath, config);
-          return { removed: true, configFile: this.configPath };
-        }
-        return { removed: false, configFile: this.configPath };
-      },
-    },
-    {
-      id: 'opencode',
-      name: 'OpenCode',
-      icon: '▣',
-      gradient: 'from-emerald-400 to-teal-500',
-      repo: 'opencode-ai/opencode',
-      description: '开源终端 AI 编程工具，原生支持 MCP 协议，可直接接入 1Shell。',
-      binary: 'opencode',
-      configPath: path.join(home, '.opencode', 'mcp.json'),
-      protocol: 'mcp',
-      setup(serverUrl) {
-        let config = safeReadJSON(this.configPath) || {};
-        if (!config.mcpServers || typeof config.mcpServers !== 'object') config.mcpServers = {};
-        config.mcpServers['1shell'] = buildMcpEntry(serverUrl);
-        safeWriteJSON(this.configPath, config);
-        return { configFile: this.configPath, detail: 'mcpServers["1shell"] 已写入' };
-      },
-      check() {
-        const config = safeReadJSON(this.configPath);
-        const entry = config?.mcpServers?.['1shell'];
-        return entry
-          ? { configured: true, configFile: this.configPath, detail: `MCP URL: ${entry.url}` }
-          : { configured: false, configFile: this.configPath };
-      },
-      remove() {
-        const config = safeReadJSON(this.configPath);
-        if (config?.mcpServers?.['1shell']) {
-          delete config.mcpServers['1shell'];
-          safeWriteJSON(this.configPath, config);
-          return { removed: true, configFile: this.configPath };
-        }
-        return { removed: false, configFile: this.configPath };
-      },
-    },
-  ];
-
-  // ─── 工具函数 ─────────────────────────────────────────────────────────
-
-  function buildMcpEntry(serverUrl) {
-    return {
-      type: 'sse',
-      url: `${serverUrl}/mcp/sse`,
-      headers: { 'X-Bridge-Token': BRIDGE_TOKEN },
-    };
-  }
-
-  function safeReadJSON(filePath) {
-    if (!filePath) return null;
-    try { return JSON.parse(fs.readFileSync(filePath, 'utf8')); } catch { return null; }
-  }
-
-  function safeWriteJSON(filePath, data) {
-    fs.mkdirSync(path.dirname(filePath), { recursive: true });
-    fs.writeFileSync(filePath, JSON.stringify(data, null, 2));
-  }
-
-  function detectBinary(name) {
-    if (!name) return { installed: false };
-    try {
-      const cmd = isWindows ? `where ${name} 2>NUL` : `which ${name} 2>/dev/null`;
-      const result = execSync(cmd, { timeout: 3000, encoding: 'utf8' }).trim();
-      if (result) {
-        return { installed: true, path: result.split('\n')[0].trim() };
-      }
-    } catch { /* not found */ }
-    return { installed: false };
-  }
 
   function resolveServerUrl(reqBody, req) {
     if (reqBody?.serverUrl && typeof reqBody.serverUrl === 'string') {
@@ -219,43 +37,25 @@ function createAgentSetupRouter() {
     return token.substring(0, 6) + '…' + token.substring(token.length - 4);
   }
 
-  // ─── 路由 ─────────────────────────────────────────────────────────────
+  // ─── 扫描所有 CLI 工具 ────────────────────────────────────────────────
+  router.get('/agent/scan', (req, res) => {
+    if (!cliSandbox) {
+      return res.json({ ok: false, error: 'CLI 沙箱管理器未初始化' });
+    }
 
-  // 扫描所有 CLI 工具
-  router.get('/agent/scan', (_req, res) => {
-    const tools = CLI_REGISTRY.map((cli) => {
-      const binary = detectBinary(cli.binary);
-      const config = cli.check();
-      let status;
-      if (config.configured) status = 'connected';
-      else if (binary.installed || (cli.binary === null && fs.existsSync(cli.configPath || ''))) status = 'detected';
-      else status = 'missing';
-
-      return {
-        id: cli.id,
-        name: cli.name,
-        icon: cli.icon,
-        gradient: cli.gradient,
-        repo: cli.repo,
-        description: cli.description,
-        protocol: cli.protocol,
-        status,
-        binary: { name: cli.binary, ...binary },
-        config: { ...config, configPath: cli.configPath },
-      };
-    });
+    const tools = cliSandbox.getScanInfo();
 
     const counts = {
       total: tools.length,
-      connected: tools.filter((t) => t.status === 'connected').length,
-      detected: tools.filter((t) => t.status === 'detected').length,
-      missing: tools.filter((t) => t.status === 'missing').length,
+      sandboxed: tools.filter(t => t.status === 'sandboxed').length,
+      detected: tools.filter(t => t.status === 'detected').length,
+      missing: tools.filter(t => t.status === 'missing').length,
     };
 
-    return res.json({ ok: true, tools, counts });
+    return res.json({ ok: true, tools, counts, upstreamLabels: UPSTREAM_LABELS });
   });
 
-  // 端点信息
+  // ─── 端点信息 ─────────────────────────────────────────────────────────
   router.get('/agent/endpoints', (req, res) => {
     const serverUrl = resolveServerUrl(null, req);
     return res.json({
@@ -264,19 +64,14 @@ function createAgentSetupRouter() {
         bridge: { url: `${serverUrl}/api/bridge`, protocol: 'REST' },
         mcp: { url: `${serverUrl}/mcp/sse`, protocol: 'SSE' },
       },
-      token: {
-        masked: maskToken(BRIDGE_TOKEN),
-        ready: Boolean(BRIDGE_TOKEN),
-      },
+      token: { masked: maskToken(BRIDGE_TOKEN), ready: Boolean(BRIDGE_TOKEN) },
     });
   });
 
-  // 诊断
+  // ─── 诊断 ─────────────────────────────────────────────────────────────
   router.get('/agent/diagnostics', async (req, res) => {
     const serverUrl = resolveServerUrl(null, req);
     const checks = [];
-
-    // Bridge 端点自检
     try {
       const start = Date.now();
       const resp = await fetch(`${serverUrl}/api/health`, { signal: AbortSignal.timeout(3000) });
@@ -284,66 +79,138 @@ function createAgentSetupRouter() {
     } catch (err) {
       checks.push({ name: 'Bridge 端点响应', ok: false, error: err.message });
     }
-
-    // MCP SSE 端点自检
     try {
       const start = Date.now();
       const resp = await fetch(`${serverUrl}/mcp/sse`, {
         headers: { 'X-Bridge-Token': BRIDGE_TOKEN },
         signal: AbortSignal.timeout(3000),
       });
-      // SSE 会 200 并保持连接，我们只需确认 200
       checks.push({ name: 'MCP SSE 握手', ok: resp.ok || resp.status === 200, ms: Date.now() - start });
-      // 立即中断连接
       try { resp.body?.cancel(); } catch { /* ignore */ }
     } catch (err) {
       checks.push({ name: 'MCP SSE 握手', ok: false, error: err.message });
     }
-
-    // Token 检查
     checks.push({ name: 'Bridge Token', ok: Boolean(BRIDGE_TOKEN), detail: BRIDGE_TOKEN ? '已配置' : '未配置' });
-
     return res.json({ ok: true, checks });
   });
 
-  // 一键接入
-  router.post('/agent/mcp-setup', (req, res) => {
-    const { provider } = req.body || {};
-    const cli = CLI_REGISTRY.find((c) => c.id === provider);
-    if (!cli) {
-      return res.status(400).json({ ok: false, error: `不支持的 provider: ${provider}` });
+  // ─── 沙箱管理 ──────────────────────────────────────────────────────────
+
+  function requireSandbox(req, res) {
+    if (!cliSandbox) {
+      res.status(503).json({ ok: false, error: 'CLI 沙箱管理器未初始化' });
+      return false;
     }
-    if (!BRIDGE_TOKEN) {
-      return res.status(503).json({ ok: false, error: 'BRIDGE_TOKEN 尚未就绪' });
+    return true;
+  }
+
+  function validateCli(cliId, res) {
+    if (!getManifest(cliId)) {
+      res.status(400).json({ ok: false, error: `未知 CLI: ${cliId}` });
+      return false;
     }
+    return true;
+  }
+
+  router.post('/agent/sandbox/ensure/:cliId', (req, res) => {
+    if (!requireSandbox(req, res)) return;
+    const { cliId } = req.params;
+    if (!validateCli(cliId, res)) return;
+
     try {
-      const serverUrl = resolveServerUrl(req.body, req);
-      const result = cli.setup(serverUrl);
-      return res.json({ ok: true, provider: cli.id, ...result, serverUrl });
+      const dir = cliSandbox.ensureSandbox(cliId, { cwd: req.body?.cwd || process.cwd() });
+      const status = cliSandbox.getSandboxStatus(cliId);
+      return res.json({ ok: true, cliId, sandboxDir: dir, ...status });
     } catch (err) {
       return res.status(500).json({ ok: false, error: err.message });
     }
   });
 
-  // 断开
-  router.post('/agent/mcp-remove', (req, res) => {
-    const { provider } = req.body || {};
-    const cli = CLI_REGISTRY.find((c) => c.id === provider);
-    if (!cli) {
-      return res.status(400).json({ ok: false, error: `不支持的 provider: ${provider}` });
-    }
+  router.post('/agent/sandbox/reset/:cliId', (req, res) => {
+    if (!requireSandbox(req, res)) return;
+    const { cliId } = req.params;
+    if (!validateCli(cliId, res)) return;
+
+    const ok = cliSandbox.resetSandbox(cliId);
+    return res.json({ ok, cliId });
+  });
+
+  router.get('/agent/sandbox/status/:cliId', (req, res) => {
+    if (!requireSandbox(req, res)) return;
+    const { cliId } = req.params;
+    if (!validateCli(cliId, res)) return;
+
+    const status = cliSandbox.getSandboxStatus(cliId);
+    return res.json({ ok: true, cliId, ...status });
+  });
+
+  router.get('/agent/launch-command/:cliId', (req, res) => {
+    if (!requireSandbox(req, res)) return;
+    const { cliId } = req.params;
+    if (!validateCli(cliId, res)) return;
+
+    const shell = req.query.shell || (process.platform === 'win32' ? 'powershell' : 'bash');
     try {
-      const result = cli.remove();
-      return res.json({ ok: true, provider: cli.id, ...result });
+      const command = cliSandbox.buildShellCommand(cliId, { shell });
+      const manifest = getManifest(cliId);
+      return res.json({
+        ok: true,
+        cliId,
+        shell,
+        command,
+        vars: Object.fromEntries(
+          Object.entries(cliSandbox.buildLaunchEnv(cliId))
+            .filter(([k]) => k !== '1SHELL_MCP_TOKEN')
+        ),
+      });
     } catch (err) {
       return res.status(500).json({ ok: false, error: err.message });
     }
   });
 
-  // 兼容旧接口
-  router.get('/agent/mcp-status', (_req, res) => {
-    const tools = CLI_REGISTRY.map((cli) => ({ id: cli.id, ...cli.check() }));
-    return res.json({ ok: true, bridgeReady: Boolean(BRIDGE_TOKEN), providers: tools });
+  // ─── Per-CLI Provider CRUD ─────────────────────────────────────────────
+
+  router.get('/agent/providers/:cliId', (req, res) => {
+    if (!validateCli(req.params.cliId, res)) return;
+    const result = proxyConfigStore.listProviders(req.params.cliId);
+    return res.json({ ok: true, ...result });
+  });
+
+  router.post('/agent/providers/:cliId', (req, res) => {
+    if (!validateCli(req.params.cliId, res)) return;
+    const body = req.body || {};
+    if (!body.apiBase || !body.apiKey) {
+      return res.status(400).json({ ok: false, error: 'apiBase 和 apiKey 不能为空' });
+    }
+    const cli = getManifest(req.params.cliId);
+    const allowed = cli?.supportedUpstream || ['openai'];
+    const upstream = body.upstreamProtocol || 'openai';
+    if (!allowed.includes(upstream)) {
+      return res.status(400).json({ ok: false, error: `${cli.name} 不支持 ${upstream} 上游协议，可选: ${allowed.join(', ')}` });
+    }
+    const id = proxyConfigStore.addProvider(req.params.cliId, body);
+    return res.json({ ok: true, id });
+  });
+
+  router.put('/agent/providers/:cliId/:pid', (req, res) => {
+    if (!validateCli(req.params.cliId, res)) return;
+    const ok = proxyConfigStore.updateProvider(req.params.cliId, req.params.pid, req.body || {});
+    if (!ok) return res.status(404).json({ ok: false, error: 'Provider 不存在' });
+    return res.json({ ok: true });
+  });
+
+  router.delete('/agent/providers/:cliId/:pid', (req, res) => {
+    if (!validateCli(req.params.cliId, res)) return;
+    const ok = proxyConfigStore.deleteProvider(req.params.cliId, req.params.pid);
+    if (!ok) return res.status(404).json({ ok: false, error: 'Provider 不存在' });
+    return res.json({ ok: true });
+  });
+
+  router.put('/agent/providers/:cliId/:pid/activate', (req, res) => {
+    if (!validateCli(req.params.cliId, res)) return;
+    const ok = proxyConfigStore.setActive(req.params.cliId, req.params.pid);
+    if (!ok) return res.status(404).json({ ok: false, error: 'Provider 不存在' });
+    return res.json({ ok: true });
   });
 
   return router;

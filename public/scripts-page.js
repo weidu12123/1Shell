@@ -17,7 +17,11 @@
     isNew: false,
     historyOffset: 0,
     historyTotal: 0,
-    view: 'scripts', // 'scripts' | 'history'
+    view: 'scripts', // 'scripts' | 'history' | 'playbook'
+    playbooks: [],
+    currentPlaybookId: null,
+    currentPlaybookDraft: null,
+    isNewPlaybook: false,
   };
 
   const requestJson = createRequestJson({
@@ -91,6 +95,21 @@
   const historyPrev = $('history-prev');
   const historyNext = $('history-next');
   const historyBackBtn = $('history-back-btn');
+
+  // Playbook
+  const playbookPane = $('playbook-pane');
+  const playbookListView = $('playbook-list-view');
+  const playbookEditor = $('playbook-editor');
+  const playbookNewBtn = $('playbook-new-btn');
+  const playbookBackBtn = $('playbook-back-btn');
+  const pbNameEl = $('pb-name');
+  const pbIconEl = $('pb-icon');
+  const pbDescEl = $('pb-desc');
+  const pbStepsList = $('pb-steps-list');
+  const pbAddStepBtn = $('pb-add-step-btn');
+  const pbSaveBtn = $('pb-save-btn');
+  const pbRunBtn = $('pb-run-btn');
+  const pbDeleteBtn = $('pb-delete-btn');
 
   // 左栏底部按钮
   const btnViewHistory = $('btn-view-history');
@@ -219,7 +238,13 @@
     historyBackBtn.addEventListener('click', hideHistoryView);
     historyPrev.addEventListener('click', () => loadHistory(state.historyOffset - 20));
     historyNext.addEventListener('click', () => loadHistory(state.historyOffset + 20));
-    btnViewPlaybook.addEventListener('click', () => showToast('Playbook 功能将在 P1 阶段上线', 'info'));
+    btnViewPlaybook.addEventListener('click', () => showPlaybookView());
+    playbookBackBtn.addEventListener('click', hidePlaybookView);
+    playbookNewBtn.addEventListener('click', newPlaybook);
+    pbAddStepBtn.addEventListener('click', () => appendPlaybookStep({}));
+    pbSaveBtn.addEventListener('click', onSavePlaybook);
+    pbRunBtn.addEventListener('click', onRunPlaybook);
+    pbDeleteBtn.addEventListener('click', onDeletePlaybook);
     btnViewExport.addEventListener('click', () => showToast('导入/导出功能将在 P1 阶段上线', 'info'));
 
     // AI 生成弹窗
@@ -889,6 +914,7 @@
     state.historyOffset = 0;
     emptyEl.classList.add('hidden');
     paneEl.classList.add('hidden');
+    playbookPane.classList.add('hidden');
     historyPane.classList.remove('hidden');
     loadHistory(0);
   }
@@ -960,6 +986,269 @@
       clearTimeout(timer);
       timer = setTimeout(() => fn(...args), delay);
     };
+  }
+
+  // ─── Playbook ─────────────────────────────────────────────────────
+  function showPlaybookView() {
+    state.view = 'playbook';
+    emptyEl.classList.add('hidden');
+    paneEl.classList.add('hidden');
+    historyPane.classList.add('hidden');
+    playbookPane.classList.remove('hidden');
+    playbookEditor.classList.add('hidden');
+    playbookListView.classList.remove('hidden');
+    loadPlaybooks();
+  }
+
+  function hidePlaybookView() {
+    state.view = 'scripts';
+    playbookPane.classList.add('hidden');
+    state.currentPlaybookId = null;
+    state.currentPlaybookDraft = null;
+    state.isNewPlaybook = false;
+    if (state.currentDraft) {
+      paneEl.classList.remove('hidden');
+    } else {
+      emptyEl.classList.remove('hidden');
+    }
+  }
+
+  async function loadPlaybooks() {
+    playbookListView.innerHTML = '<div class="text-center text-slate-400 text-xs py-8">加载中...</div>';
+    try {
+      const resp = await requestJson('/api/playbooks');
+      state.playbooks = resp.playbooks || [];
+      renderPlaybookList();
+    } catch (err) {
+      playbookListView.innerHTML = `<div class="text-center text-red-400 text-xs py-8">加载失败: ${escapeHtml(err.message)}</div>`;
+    }
+  }
+
+  function renderPlaybookList() {
+    if (!state.playbooks.length) {
+      playbookListView.innerHTML = `
+        <div class="flex flex-col items-center justify-center py-12 text-slate-400 gap-3">
+          <div class="text-4xl opacity-40">📘</div>
+          <div class="text-xs">暂无 Playbook，点击右上角创建</div>
+        </div>
+      `;
+      return;
+    }
+    playbookListView.innerHTML = state.playbooks.map((pb) => `
+      <div class="p-4 rounded-xl border border-slate-200 dark:border-[#1e293b] bg-white dark:bg-[#0b1324] mb-3 cursor-pointer hover:border-purple-300 transition-all playbook-card" data-pb-id="${escapeHtml(pb.id)}">
+        <div class="flex items-center gap-3">
+          <span class="text-xl">${escapeHtml(pb.icon || '📘')}</span>
+          <div class="flex-1 min-w-0">
+            <div class="text-sm font-bold text-slate-700 dark:text-slate-200 truncate">${escapeHtml(pb.name)}</div>
+            <div class="text-[10px] text-slate-400 truncate">${escapeHtml(pb.description || '无描述')}</div>
+          </div>
+          <div class="text-right shrink-0">
+            <div class="text-[10px] text-slate-400">${pb.steps.length} 步</div>
+            <div class="text-[10px] text-slate-400">${escapeHtml(pb.updatedAt || '')}</div>
+          </div>
+        </div>
+        ${pb.steps.length ? `
+          <div class="mt-2 flex flex-wrap gap-1">
+            ${pb.steps.map((s, i) => `<span class="text-[9px] px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-slate-500">${i + 1}. ${escapeHtml(s.scriptName || s.scriptId || '?')}</span>`).join('')}
+          </div>
+        ` : ''}
+      </div>
+    `).join('');
+
+    playbookListView.querySelectorAll('.playbook-card').forEach((card) => {
+      card.addEventListener('click', () => {
+        const id = card.dataset.pbId;
+        const pb = state.playbooks.find((p) => p.id === id);
+        if (pb) openPlaybookEditor(pb);
+      });
+    });
+  }
+
+  function newPlaybook() {
+    state.isNewPlaybook = true;
+    state.currentPlaybookId = null;
+    state.currentPlaybookDraft = { name: '', icon: '📘', description: '', steps: [] };
+    renderPlaybookEditor();
+  }
+
+  function openPlaybookEditor(pb) {
+    state.isNewPlaybook = false;
+    state.currentPlaybookId = pb.id;
+    state.currentPlaybookDraft = deepClone(pb);
+    renderPlaybookEditor();
+  }
+
+  function renderPlaybookEditor() {
+    const draft = state.currentPlaybookDraft;
+    if (!draft) return;
+    playbookListView.classList.add('hidden');
+    playbookEditor.classList.remove('hidden');
+    pbNameEl.value = draft.name || '';
+    pbIconEl.value = draft.icon || '📘';
+    pbDescEl.value = draft.description || '';
+    pbDeleteBtn.classList.toggle('hidden', state.isNewPlaybook);
+    renderPlaybookSteps();
+  }
+
+  function buildHostOptions(selectedId, { optional = false } = {}) {
+    const opts = state.hosts.map((h) => `<option value="${escapeHtml(h.id)}" ${h.id === selectedId ? 'selected' : ''}>${escapeHtml(h.name)} (${escapeHtml(h.host || '本机')})</option>`);
+    if (optional) {
+      return `<option value="" ${!selectedId ? 'selected' : ''}>选择主机（可选）</option><option value="local" ${selectedId === 'local' ? 'selected' : ''}>本机</option>${opts.join('')}`;
+    }
+    return `<option value="local" ${selectedId === 'local' || !selectedId ? 'selected' : ''}>本机</option>${opts.join('')}`;
+  }
+
+  function buildScriptOptions(selectedId) {
+    return state.scripts.map((s) => `<option value="${escapeHtml(s.id)}" ${s.id === selectedId ? 'selected' : ''}>${escapeHtml(s.icon || '📜')} ${escapeHtml(s.name)}</option>`).join('');
+  }
+
+  function renderPlaybookSteps() {
+    const draft = state.currentPlaybookDraft;
+    if (!draft) return;
+    if (!draft.steps.length) {
+      pbStepsList.innerHTML = '<div class="text-center text-slate-400 text-xs py-6">点击"+ 添加步骤"来组装编排</div>';
+      return;
+    }
+    pbStepsList.innerHTML = draft.steps.map((step, index) => `
+      <div class="rounded-xl border border-slate-200 dark:border-[#1e293b] bg-white dark:bg-[#0b1324] p-3" data-step-idx="${index}">
+        <div class="flex items-center gap-2 mb-2">
+          <span class="text-[10px] font-bold text-slate-400 w-5 text-center shrink-0">${index + 1}</span>
+          <select class="pb-step-script flex-1 h-7 px-2 rounded border border-slate-200 bg-slate-50 dark:bg-[#0b1324] dark:border-[#1e293b] text-xs outline-none">
+            <option value="">选择脚本</option>
+            ${buildScriptOptions(step.scriptId)}
+          </select>
+          <select class="pb-step-host w-36 h-7 px-2 rounded border border-slate-200 bg-slate-50 dark:bg-[#0b1324] dark:border-[#1e293b] text-xs outline-none">
+            ${buildHostOptions(step.hostId, { optional: true })}
+          </select>
+          <button class="pb-step-up w-6 h-6 flex items-center justify-center rounded border border-slate-200 text-[10px] text-slate-400 hover:text-blue-500 ${index === 0 ? 'opacity-30' : ''}" type="button" ${index === 0 ? 'disabled' : ''}>↑</button>
+          <button class="pb-step-down w-6 h-6 flex items-center justify-center rounded border border-slate-200 text-[10px] text-slate-400 hover:text-blue-500 ${index === draft.steps.length - 1 ? 'opacity-30' : ''}" type="button" ${index === draft.steps.length - 1 ? 'disabled' : ''}>↓</button>
+          <button class="pb-step-remove w-6 h-6 flex items-center justify-center rounded border border-slate-200 text-[10px] text-red-400 hover:text-red-600" type="button">✕</button>
+        </div>
+        <div class="pl-7 text-[10px] text-slate-400">${escapeHtml(step.scriptName || '')}${step.hostId ? ' → ' + escapeHtml(step.hostId) : ''}</div>
+      </div>
+    `).join('');
+
+    // 事件委托
+    pbStepsList.querySelectorAll('[data-step-idx]').forEach((el) => {
+      const idx = Number(el.dataset.stepIdx);
+      el.querySelector('.pb-step-script')?.addEventListener('change', (e) => {
+        const s = state.scripts.find((sc) => sc.id === e.target.value);
+        draft.steps[idx].scriptId = e.target.value;
+        draft.steps[idx].scriptName = s?.name || '';
+      });
+      el.querySelector('.pb-step-host')?.addEventListener('change', (e) => {
+        draft.steps[idx].hostId = e.target.value;
+      });
+      el.querySelector('.pb-step-up')?.addEventListener('click', () => {
+        if (idx > 0) { [draft.steps[idx - 1], draft.steps[idx]] = [draft.steps[idx], draft.steps[idx - 1]]; renderPlaybookSteps(); }
+      });
+      el.querySelector('.pb-step-down')?.addEventListener('click', () => {
+        if (idx < draft.steps.length - 1) { [draft.steps[idx], draft.steps[idx + 1]] = [draft.steps[idx + 1], draft.steps[idx]]; renderPlaybookSteps(); }
+      });
+      el.querySelector('.pb-step-remove')?.addEventListener('click', () => {
+        draft.steps.splice(idx, 1);
+        renderPlaybookSteps();
+      });
+    });
+  }
+
+  function appendPlaybookStep(step) {
+    const draft = state.currentPlaybookDraft;
+    if (!draft) return;
+    draft.steps.push({ scriptId: step.scriptId || '', scriptName: step.scriptName || '', hostId: step.hostId || '', params: step.params || {}, stopOnFail: true });
+    renderPlaybookSteps();
+  }
+
+  function collectPlaybookDraft() {
+    const draft = state.currentPlaybookDraft;
+    if (!draft) return null;
+    draft.name = pbNameEl.value.trim();
+    draft.icon = pbIconEl.value.trim() || '📘';
+    draft.description = pbDescEl.value.trim();
+    return draft;
+  }
+
+  async function onSavePlaybook() {
+    const draft = collectPlaybookDraft();
+    if (!draft) return;
+    if (!draft.name) { showToast('请输入 Playbook 名称', 'warn'); return; }
+    if (!draft.steps.length) { showToast('请至少添加一个步骤', 'warn'); return; }
+    for (const step of draft.steps) {
+      if (!step.scriptId) { showToast('有步骤未选择脚本', 'warn'); return; }
+    }
+
+    pbSaveBtn.disabled = true;
+    pbSaveBtn.textContent = '保存中...';
+    try {
+      if (state.isNewPlaybook) {
+        const resp = await requestJson('/api/playbooks', { method: 'POST', body: JSON.stringify(draft) });
+        state.currentPlaybookId = resp.playbook.id;
+        state.isNewPlaybook = false;
+        state.currentPlaybookDraft = deepClone(resp.playbook);
+        showToast('Playbook 已创建', 'success');
+      } else {
+        const resp = await requestJson(`/api/playbooks/${encodeURIComponent(state.currentPlaybookId)}`, { method: 'PUT', body: JSON.stringify(draft) });
+        state.currentPlaybookDraft = deepClone(resp.playbook);
+        showToast('Playbook 已保存', 'success');
+      }
+      pbDeleteBtn.classList.remove('hidden');
+      await loadPlaybooks();
+    } catch (err) {
+      showErrorMessage(err);
+    } finally {
+      pbSaveBtn.disabled = false;
+      pbSaveBtn.textContent = '保存';
+    }
+  }
+
+  async function onRunPlaybook() {
+    if (state.isNewPlaybook || !state.currentPlaybookId) {
+      showToast('请先保存 Playbook', 'warn');
+      return;
+    }
+    pbRunBtn.disabled = true;
+    pbRunBtn.textContent = '执行中...';
+    try {
+      const resp = await requestJson(`/api/playbooks/${encodeURIComponent(state.currentPlaybookId)}/run`, { method: 'POST' });
+      const run = resp.run;
+      if (run.status === 'success') {
+        showToast(`Playbook 执行成功，完成 ${run.completedSteps}/${run.totalSteps} 步`, 'success');
+      } else {
+        showToast(`Playbook 执行失败：${run.error || '部分步骤未通过'}`, 'error');
+      }
+    } catch (err) {
+      showErrorMessage(err);
+    } finally {
+      pbRunBtn.disabled = false;
+      pbRunBtn.textContent = '▶ 执行';
+    }
+  }
+
+  async function onDeletePlaybook() {
+    if (state.isNewPlaybook || !state.currentPlaybookId) return;
+    const pb = state.playbooks.find((p) => p.id === state.currentPlaybookId);
+    confirmTitle.textContent = '确认删除 Playbook';
+    confirmMessage.textContent = `此操作不可撤销，确定要删除"${pb?.name || state.currentPlaybookId}"吗？`;
+    confirmModal.classList.remove('hidden');
+
+    const handler = async () => {
+      confirmOk.removeEventListener('click', handler);
+      try {
+        await requestJson(`/api/playbooks/${encodeURIComponent(state.currentPlaybookId)}`, { method: 'DELETE' });
+        showToast('Playbook 已删除', 'success');
+        state.currentPlaybookId = null;
+        state.currentPlaybookDraft = null;
+        state.isNewPlaybook = false;
+        playbookEditor.classList.add('hidden');
+        playbookListView.classList.remove('hidden');
+        await loadPlaybooks();
+      } catch (err) {
+        showErrorMessage(err);
+      } finally {
+        confirmModal.classList.add('hidden');
+      }
+    };
+    confirmOk.addEventListener('click', handler);
   }
 
   // ─── 启动 ─────────────────────────────────────────────────────────

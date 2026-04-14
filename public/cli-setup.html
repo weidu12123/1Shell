@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>1Shell AI CLI 接入 · 2.0.0-dev</title>
+  <title>1Shell AI CLI 接入 · 3.0 Sandbox</title>
   <link rel="stylesheet" href="style.css" />
   <script src="https://cdn.tailwindcss.com"></script>
   <script>
@@ -53,7 +53,7 @@
       padding: 2px 8px; border-radius: 999px;
       font-size: 10px; font-weight: 600;
     }
-    .status-connected { background: rgba(5,150,105,0.12); color: #059669; border: 1px solid rgba(5,150,105,0.3); }
+    .status-connected, .status-sandboxed { background: rgba(5,150,105,0.12); color: #059669; border: 1px solid rgba(5,150,105,0.3); }
     .status-detected  { background: rgba(6,182,212,0.12); color: #06b6d4; border: 1px solid rgba(6,182,212,0.3); }
     .status-missing   { background: rgba(148,163,184,0.15); color: #64748b; border: 1px solid rgba(148,163,184,0.3); }
     .status-error     { background: rgba(239,68,68,0.12); color: #dc2626; border: 1px solid rgba(239,68,68,0.3); }
@@ -149,11 +149,11 @@
           <span class="text-lg">⚡</span>
           <span>接入</span>
         </a>
-        <a href="#" class="side-nav-item flex flex-col items-center gap-0.5 py-2.5 rounded-lg text-slate-400 text-[10px] font-medium opacity-50" title="探针（P1）">
+        <a href="probe.html" class="side-nav-item flex flex-col items-center gap-0.5 py-2.5 rounded-lg text-slate-400 text-[10px] font-medium" title="探针">
           <span class="text-lg">📡</span>
           <span>探针</span>
         </a>
-        <a href="#" class="side-nav-item flex flex-col items-center gap-0.5 py-2.5 rounded-lg text-slate-400 text-[10px] font-medium opacity-50" title="审计日志（P1）">
+        <a href="audit.html" class="side-nav-item flex flex-col items-center gap-0.5 py-2.5 rounded-lg text-slate-400 text-[10px] font-medium" title="审计日志">
           <span class="text-lg">📋</span>
           <span>审计</span>
         </a>
@@ -190,7 +190,7 @@
             AI CLI 一键接入
             <span class="text-[9px] px-1.5 py-0.5 rounded bg-cyan-100 text-cyan-600 dark:bg-cyan-500/20 dark:text-cyan-300 font-semibold">BETA</span>
           </div>
-          <div class="text-[11px] text-slate-400">将本地 AI CLI 工具接入 1Shell MCP / Bridge</div>
+           <div class="text-[11px] text-slate-400">将本地 AI CLI 工具通过沙箱配置接入 1Shell MCP / Bridge（零侵入）</div>
         </div>
       </div>
 
@@ -208,14 +208,14 @@
          ════════════════════════════════════════════════════ -->
     <div class="main-content flex flex-1 gap-2 min-h-0">
 
-      <!-- ─── 左栏：连接信息 / 诊断（动态渲染） ──────────── -->
-      <aside class="main-panel w-80 shrink-0 flex flex-col bg-shell-panel rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+      <!-- ─── 左栏：连接信息 / 诊断 ──────────────────────── -->
+      <aside class="main-panel w-72 shrink-0 flex flex-col bg-shell-panel rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
         <div class="px-4 py-3 border-b border-slate-100">
           <div class="text-[10px] font-semibold text-slate-400 uppercase tracking-wide">1Shell 接入端点</div>
           <div class="mt-1 text-xs text-slate-500">供 AI CLI / MCP 客户端连接</div>
         </div>
-        <div id="endpoints-area" class="flex-1 overflow-y-auto p-4 flex flex-col gap-4">
-          <div class="text-center text-slate-400 text-xs py-8">加载中...</div>
+        <div id="endpoints-area" class="overflow-y-auto p-4 flex flex-col gap-4 flex-1">
+          <div class="text-center text-slate-400 text-xs py-4">加载中...</div>
         </div>
       </aside>
 
@@ -225,7 +225,7 @@
         <div class="shrink-0 flex items-center justify-between px-5 py-3 border-b border-slate-100">
           <div id="filter-bar" class="flex items-center gap-1.5">
             <button class="filter-btn active h-7 px-3 rounded-full border border-cyan-300 bg-cyan-50 text-cyan-600 text-[11px] font-semibold" data-filter="all">全部</button>
-            <button class="filter-btn h-7 px-3 rounded-full border border-slate-200 bg-slate-50 text-slate-500 text-[11px] hover:border-cyan-300 hover:text-cyan-500" data-filter="connected">已接入</button>
+            <button class="filter-btn h-7 px-3 rounded-full border border-slate-200 bg-slate-50 text-slate-500 text-[11px] hover:border-cyan-300 hover:text-cyan-500" data-filter="sandboxed">沙箱就绪</button>
             <button class="filter-btn h-7 px-3 rounded-full border border-slate-200 bg-slate-50 text-slate-500 text-[11px] hover:border-cyan-300 hover:text-cyan-500" data-filter="detected">已检测</button>
             <button class="filter-btn h-7 px-3 rounded-full border border-slate-200 bg-slate-50 text-slate-500 text-[11px] hover:border-cyan-300 hover:text-cyan-500" data-filter="missing">未安装</button>
           </div>
@@ -237,6 +237,81 @@
           <div class="text-center text-slate-400 text-xs py-12">扫描中...</div>
         </div>
       </main>
+    </div>
+
+    <!-- ════════════════════════════════════════════════════
+         Per-CLI Provider 管理 Modal
+         ════════════════════════════════════════════════════ -->
+    <div id="proxy-modal" class="fixed inset-0 z-50 hidden items-center justify-center bg-black/40 backdrop-blur-sm">
+      <div class="w-[580px] max-h-[90vh] overflow-y-auto bg-white dark:bg-[#111827] rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-700">
+        <!-- 头 -->
+        <div class="flex items-center justify-between px-5 py-4 border-b border-slate-100 dark:border-slate-700">
+          <div>
+            <div class="text-sm font-bold text-slate-700 dark:text-slate-200" id="proxy-modal-title">配置 API 代理</div>
+            <div class="text-[10px] text-slate-400 mt-0.5" id="proxy-modal-subtitle">多 Provider 管理</div>
+          </div>
+          <button id="proxy-modal-close" class="w-7 h-7 flex items-center justify-center rounded-lg hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-400 text-sm">✕</button>
+        </div>
+
+        <!-- Provider 列表 -->
+        <div class="px-5 pt-4 pb-2">
+          <div class="flex items-center justify-between mb-2">
+            <span class="text-[10px] font-semibold text-slate-400 uppercase tracking-wide">API 渠道列表</span>
+            <button id="pm-add-btn" class="h-6 px-2.5 rounded-md bg-cyan-50 border border-cyan-200 text-cyan-600 text-[10px] font-semibold hover:bg-cyan-100">+ 添加渠道</button>
+          </div>
+          <div id="pm-provider-list" class="flex flex-col gap-1.5 max-h-36 overflow-y-auto">
+            <!-- JS 动态渲染 -->
+            <div class="text-[10px] text-slate-400 text-center py-3">加载中...</div>
+          </div>
+        </div>
+
+        <!-- 分割线 -->
+        <div class="mx-5 h-px bg-slate-100 dark:bg-slate-700"></div>
+
+        <!-- Provider 表单（添加/编辑） -->
+        <div id="pm-form-area" class="px-5 py-4 flex flex-col gap-3">
+          <div class="flex items-center gap-2">
+            <span id="pm-form-label" class="text-[11px] font-bold text-slate-600 dark:text-slate-300">添加新渠道</span>
+            <span id="pm-form-badge" class="text-[9px] px-1.5 py-0.5 rounded bg-cyan-100 text-cyan-600 dark:bg-cyan-500/20 dark:text-cyan-300 font-semibold hidden">编辑中</span>
+          </div>
+          <div class="flex flex-col gap-1.5">
+            <label class="text-[10px] font-semibold text-slate-400 uppercase">渠道名称</label>
+            <input id="pm-name" type="text" placeholder="例：DeepSeek / 官方 API" class="h-8 px-3 rounded-lg border border-slate-200 bg-slate-50 dark:bg-[#0b1324] dark:border-slate-700 text-xs outline-none focus:border-cyan-400" />
+          </div>
+          <div class="flex flex-col gap-1.5">
+            <label class="text-[10px] font-semibold text-slate-400 uppercase">上游协议类型</label>
+            <select id="pm-upstream" class="h-8 px-2 rounded-lg border border-slate-200 bg-slate-50 dark:bg-[#0b1324] dark:border-slate-700 text-xs outline-none focus:border-cyan-400">
+              <option value="openai">OpenAI 兼容</option>
+              <option value="anthropic">Anthropic</option>
+            </select>
+          </div>
+          <div class="flex flex-col gap-1.5">
+            <label class="text-[10px] font-semibold text-slate-400 uppercase">上游 API 基础地址</label>
+            <input id="pm-api-base" type="text" placeholder="https://api.openai.com" class="h-8 px-3 rounded-lg border border-slate-200 bg-slate-50 dark:bg-[#0b1324] dark:border-slate-700 text-xs font-mono outline-none focus:border-cyan-400" />
+          </div>
+          <div class="flex flex-col gap-1.5">
+            <label class="text-[10px] font-semibold text-slate-400 uppercase">API Key</label>
+            <input id="pm-api-key" type="password" placeholder="sk-..." class="h-8 px-3 rounded-lg border border-slate-200 bg-slate-50 dark:bg-[#0b1324] dark:border-slate-700 text-xs font-mono outline-none focus:border-cyan-400" />
+          </div>
+          <div class="flex flex-col gap-1.5">
+            <label class="text-[10px] font-semibold text-slate-400 uppercase">目标模型</label>
+            <input id="pm-model" type="text" placeholder="gpt-4o / deepseek-chat" class="h-8 px-3 rounded-lg border border-slate-200 bg-slate-50 dark:bg-[#0b1324] dark:border-slate-700 text-xs font-mono outline-none focus:border-cyan-400" />
+          </div>
+          <!-- 启动命令提示 -->
+          <div id="pm-env-hint" class="rounded-lg bg-slate-50 dark:bg-[#0b1324] border border-slate-200 dark:border-slate-700 p-3 hidden">
+            <div class="text-[10px] font-semibold text-slate-400 uppercase mb-1.5">启动命令（不修改本地配置）</div>
+            <pre id="pm-env-command" class="text-[11px] font-mono text-cyan-600 dark:text-cyan-400 whitespace-pre-wrap break-all select-all"></pre>
+            <div id="pm-env-note" class="mt-1.5 text-[10px] text-slate-400"></div>
+          </div>
+          <div id="pm-status" class="text-[10px] hidden"></div>
+        </div>
+
+        <!-- 按钮 -->
+        <div class="px-5 py-3.5 border-t border-slate-100 dark:border-slate-700 flex items-center gap-2">
+          <button id="pm-save-btn" class="flex-1 h-9 rounded-lg bg-gradient-to-r from-cyan-500 to-blue-500 text-white text-xs font-semibold shadow-md hover:shadow-lg">保存渠道</button>
+          <button id="pm-cancel-btn" class="h-9 px-4 rounded-lg border border-slate-200 dark:border-slate-700 text-slate-500 text-xs hover:bg-slate-50 dark:hover:bg-slate-800">关闭</button>
+        </div>
+      </div>
     </div>
     </div>
   </div>

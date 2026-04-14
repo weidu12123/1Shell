@@ -9,6 +9,7 @@
     const openBtnEl        = document.getElementById('agent-panel-btn');
     const closeBtnEl       = document.getElementById('agent-panel-close-btn');
     const startBtnEl       = document.getElementById('agent-start-btn');
+    const startLocalBtnEl  = document.getElementById('agent-start-local-btn');
     const stopBtnEl        = document.getElementById('agent-stop-btn');
     const clearBtnEl       = document.getElementById('agent-clear-btn');
     const setupBtnEl       = document.getElementById('agent-setup-btn');
@@ -31,12 +32,14 @@
     const state = {
       initialized:    false,
       providersLoaded: false,
+      providerLoadPromise: null,
       visible:        false,
       socketBound:    false,
       sessions:       new Map(), // hostId → session data + terminal
       activeHostId:   null,
       pendingOutput:  new Map(), // agentSessionId → string[]（早于回调到达的输出）
       agentIdToHostId: new Map(), // agentSessionId → hostId 反向查找
+      providerMeta:   new Map(), // providerId → provider metadata
     };
 
     function getSocket() {
@@ -277,8 +280,9 @@
     function syncButtons() {
       const activeSess = state.activeHostId ? state.sessions.get(state.activeHostId) : null;
       const running    = activeSess?.status === 'ready';
-      if (stopBtnEl)  stopBtnEl.disabled  = !running;
+      if (stopBtnEl) stopBtnEl.disabled = !running;
       if (startBtnEl) startBtnEl.disabled = false;
+      if (startLocalBtnEl) startLocalBtnEl.disabled = false;
     }
 
     // ─── MCP Setup ────────────────────────────────────────────────────────
@@ -286,12 +290,41 @@
     function syncSetupButton(configured) {
       if (!setupBtnEl) return;
       if (configured) {
-        setupBtnEl.textContent = '✓ 已接入';
+        setupBtnEl.textContent = '✓ 沙箱就绪';
         setupBtnEl.classList.add('btn-link--done');
       } else {
-        setupBtnEl.textContent = '⚡ 一键接入';
+        setupBtnEl.textContent = '⚡ 创建沙箱';
         setupBtnEl.classList.remove('btn-link--done');
       }
+    }
+
+    function getSelectedProviderMeta() {
+      const providerId = providerSelectEl?.value || 'claude-code';
+      return state.providerMeta.get(providerId) || null;
+    }
+
+    function syncProviderRuntimeStatus(providers = []) {
+      state.providerMeta = new Map((providers || []).map((provider) => [provider.id, provider]));
+
+      const selected = getSelectedProviderMeta();
+      if (!selected) {
+        setStatus('未启动');
+        return;
+      }
+
+      const activeSess = state.activeHostId ? state.sessions.get(state.activeHostId) : null;
+      if (activeSess?.status === 'ready' || activeSess?.status === 'starting') {
+        return;
+      }
+
+      if (selected.configured) {
+        const channel = selected.activeProviderName || '已配置渠道';
+        const model = selected.model ? ` · ${selected.model}` : '';
+        setStatus(`就绪 · ${channel}${model}`);
+        return;
+      }
+
+      setStatus('未配置 API · 请先到 AI CLI 接入页配置');
     }
 
     function getCsrfToken() {
@@ -301,12 +334,12 @@
 
     async function checkMcpStatus() {
       try {
-        const res  = await fetch('/api/agent/mcp-status');
+        const providerId = providerSelectEl?.value || 'claude-code';
+        const res  = await fetch(`/api/agent/sandbox/status/${encodeURIComponent(providerId)}`);
         const json = await res.json();
-        const provider = providerSelectEl?.value || 'claude-code';
-        const configured = json?.status?.providers?.[provider]?.configured || false;
-        syncSetupButton(configured);
-        return configured;
+        const sandboxed = Boolean(json?.sandboxed);
+        syncSetupButton(sandboxed);
+        return sandboxed;
       } catch {
         syncSetupButton(false);
         return false;
@@ -317,50 +350,51 @@
       const provider = providerSelectEl?.value || 'claude-code';
       if (setupBtnEl) { setupBtnEl.disabled = true; setupBtnEl.textContent = '配置中…'; }
       try {
-        const res  = await fetch('/api/agent/mcp-setup', {
+        const res  = await fetch(`/api/agent/sandbox/ensure/${encodeURIComponent(provider)}`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', 'x-csrf-token': getCsrfToken() },
-          body: JSON.stringify({ provider, serverUrl: window.location.origin }),
+          body: JSON.stringify({}),
         });
         const json = await res.json();
         if (!json.ok) {
-          appendSystemLine(`[Setup] 配置失败：${json.error || '未知错误'}`);
-          if (setupBtnEl) setupBtnEl.textContent = '⚡ 一键接入';
+          appendSystemLine(`[Setup] 沙箱创建失败：${json.error || '未知错误'}`);
+          if (setupBtnEl) setupBtnEl.textContent = '⚡ 创建沙箱';
           return;
         }
-        appendSystemLine(`[Setup] ${json.note || `MCP 配置成功：${json.configFile || ''}`}`);
-        if (!json.note) appendSystemLine('[Setup] 下次启动 claude-code 时将自动接入 1Shell Bridge');
+        appendSystemLine(`[Setup] 沙箱已就绪：${json.sandboxDir || ''}`);
+        appendSystemLine('[Setup] 下次启动该 CLI 时将自动接入 1Shell MCP');
         syncSetupButton(true);
       } catch (err) {
         appendSystemLine(`[Setup] 请求失败：${err.message}`);
-        if (setupBtnEl) setupBtnEl.textContent = '⚡ 一键接入';
+        if (setupBtnEl) setupBtnEl.textContent = '⚡ 创建沙箱';
       } finally {
         if (setupBtnEl) setupBtnEl.disabled = false;
       }
     }
 
-    async function ensureClaudeCodeMcpSetup() {
+    async function ensureMcpSetup() {
       const provider = providerSelectEl?.value || 'claude-code';
-      if (provider !== 'claude-code') return false;
 
       const configured = await checkMcpStatus();
       if (configured) return false;
 
-      appendSystemLine('[Setup] 检测到 Claude Code 尚未接入 1Shell，正在自动配置…');
+      const meta = state.providerMeta.get(provider);
+      const label = meta?.label || provider;
+      appendSystemLine(`[Setup] 检测到 ${label} 沙箱未就绪，正在自动创建…`);
 
-      const res = await fetch('/api/agent/mcp-setup', {
+      const res = await fetch(`/api/agent/sandbox/ensure/${encodeURIComponent(provider)}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'x-csrf-token': getCsrfToken() },
-        body: JSON.stringify({ provider, serverUrl: window.location.origin }),
+        body: JSON.stringify({}),
       });
       const json = await res.json();
 
       if (!json.ok) {
-        throw new Error(json.error || 'MCP 配置失败');
+        throw new Error(json.error || '沙箱创建失败');
       }
 
       syncSetupButton(true);
-      appendSystemLine('[Setup] 已写入 Claude Code MCP 配置，本次新启动的会话将直接加载 1Shell 工具。');
+      appendSystemLine(`[Setup] ${label} 沙箱已就绪，新启动的会话将自动加载 1Shell 工具。`);
       return true;
     }
 
@@ -397,8 +431,10 @@
         const sess = state.sessions.get(hostId);
         if (!sess) return;
 
-        sess.status      = payload.status      || sess.status;
+        sess.status       = payload.status       || sess.status;
+        sess.providerId    = payload.providerId    || sess.providerId;
         sess.providerLabel = payload.providerLabel || sess.providerLabel;
+        if (typeof payload.useLocalEnv === 'boolean') sess.useLocalEnv = payload.useLocalEnv;
 
         if (payload.status === 'error' && payload.lastError) {
           appendSystemLine(`[Agent Error] ${payload.lastError}`, hostId);
@@ -436,25 +472,57 @@
       state.socketBound = true;
     }
 
-    function loadProviders() {
+    function loadProviders(force = false) {
       const socket = getSocket();
-      if (!socket || state.providersLoaded) return;
+      if (!socket) return Promise.resolve([]);
+      if (!force && state.providersLoaded) return Promise.resolve([...state.providerMeta.values()]);
+      if (!force && state.providerLoadPromise) return state.providerLoadPromise;
 
-      socket.emit('agent:providers', (result) => {
-        if (!result?.ok) { setStatus(result?.error || '加载 Provider 失败'); return; }
-        if (providerSelectEl) {
-          providerSelectEl.innerHTML = (result.providers || []).map((p) =>
-            `<option value="${p.id}" ${p.isDefault ? 'selected' : ''}>${p.label}</option>`
-          ).join('');
-        }
-        state.providersLoaded = true;
-        checkMcpStatus();
+      state.providerLoadPromise = new Promise((resolve) => {
+        socket.emit('agent:providers', (result) => {
+          if (!result?.ok) {
+            state.providerLoadPromise = null;
+            setStatus(result?.error || '加载 Provider 失败');
+            resolve([]);
+            return;
+          }
+          if (providerSelectEl) {
+            const previousValue = providerSelectEl.value;
+            providerSelectEl.innerHTML = (result.providers || []).map((p) => {
+              const meta = p.configured
+                ? `${p.activeProviderName ? ` · ${p.activeProviderName}` : ''}${p.model ? ` · ${p.model}` : ''}`
+                : ' · 未配置 API';
+              return `<option value="${p.id}" ${p.isDefault ? 'selected' : ''}>${p.label}${meta}</option>`;
+            }).join('');
+            // 恢复用户之前的选择，防止重建下拉框后被重置回默认值
+            if (previousValue && [...providerSelectEl.options].some((o) => o.value === previousValue)) {
+              providerSelectEl.value = previousValue;
+            }
+          }
+          state.providersLoaded = true;
+          state.providerLoadPromise = null;
+          checkMcpStatus();
+          syncProviderRuntimeStatus(result.providers || []);
+          resolve(result.providers || []);
+        });
       });
+
+      return state.providerLoadPromise;
     }
 
-    // ─── Start / stop agent ────────────────────────────────────────────────
+    async function ensureProviderReadyForLaunch() {
+      await loadProviders(true);
+      const selected = getSelectedProviderMeta();
+      if (!selected) {
+        throw new Error('当前 CLI 不存在，请刷新页面后重试');
+      }
+      if (!selected.configured) {
+        throw new Error('当前 CLI 未配置 API 渠道，请先到 AI CLI 接入页配置');
+      }
+      return selected;
+    }
 
-    async function startAgent() {
+    async function runAgentStart({ useLocalEnv = false } = {}) {
       const socket          = getSocket();
       const sessionTerminal = getSessionTerminalModule?.();
       const host            = getActiveHost?.();
@@ -462,29 +530,40 @@
         throw new Error('当前环境未就绪，无法启动 Agent');
       }
 
-      // 如果该主机已有运行中的会话，直接切换过去
+      const providerId = providerSelectEl?.value || 'claude-code';
       const existing = state.sessions.get(host.id);
-      if (existing?.status === 'ready') {
-        switchToSession(host.id);
-        return;
-      }
 
       bindSocketEvents();
-      loadProviders();
-      setStatus('启动中…');
+      setStatus(useLocalEnv ? '本地启动中…' : '启动中…');
 
+      let sandboxPreparedNow = false;
       try {
-        await ensureClaudeCodeMcpSetup();
+        if (!useLocalEnv) {
+          await ensureProviderReadyForLaunch();
+        }
+        sandboxPreparedNow = await ensureMcpSetup();
       } catch (error) {
         setStatus(error.message || '启动 Agent 失败');
+        maybeOpenCliSetup(error);
         throw error;
       }
 
+      const sameProvider = existing?.providerId === providerId;
+      const sameEnvMode = Boolean(existing?.useLocalEnv) === Boolean(useLocalEnv);
+      if (existing?.status === 'ready' && sameProvider && sameEnvMode && !sandboxPreparedNow) {
+        switchToSession(host.id);
+        return;
+      }
+      if (existing?.status === 'ready') {
+        stopAndRemoveSession(host.id);
+      }
+
       socket.emit('agent:start', {
-        providerId: providerSelectEl?.value || 'claude-code',
+        providerId,
         hostId:     host.id,
         cols:       100,
         rows:       28,
+        useLocalEnv,
       }, (result) => {
         if (!result?.ok) {
           setStatus(result?.error || '启动 Agent 失败');
@@ -496,16 +575,16 @@
           ? '本机 / 控制节点'
           : `${host.username}@${host.host}:${host.port}`;
 
-        // 注册会话（banner 先写入本地终端，再回放缓冲的 PTY 输出）
         registerSession(host.id, {
           agentSessionId: session.id,
+          providerId:     session.providerId,
           status:         session.status,
           providerLabel:  session.providerLabel,
           hostName:       session.hostName || host.name,
+          useLocalEnv:    Boolean(session.useLocalEnv),
           banner:         buildLocalBanner(host.name, hostMeta),
         });
 
-        // 将 PTY 尺寸同步到实际终端大小
         const sess = state.sessions.get(host.id);
         if (sess?.terminal) {
           const { cols, rows } = sess.terminal;
@@ -515,10 +594,35 @@
         }
 
         switchToSession(host.id);
-        setStatus(`运行中 · ${session.providerLabel || 'Agent'}`);
+        setStatus(`运行中 · ${session.providerLabel || 'Agent'}${useLocalEnv ? ' · 本地环境' : ''}`);
         syncButtons();
         renderAgentTabs();
       });
+    }
+
+    function handleProviderChange() {
+      syncProviderRuntimeStatus([...state.providerMeta.values()]);
+      checkMcpStatus();
+    }
+
+    function openCliSetupPage() {
+      window.location.href = 'cli-setup.html';
+    }
+
+    function maybeOpenCliSetup(error) {
+      const message = error?.message || '';
+      if (!message.includes('未配置 API 渠道')) return;
+      window.setTimeout(openCliSetupPage, 900);
+    }
+
+    // ─── Start / stop agent ────────────────────────────────────────────────
+
+    async function startAgent() {
+      return runAgentStart({ useLocalEnv: false });
+    }
+
+    async function startAgentLocal() {
+      return runAgentStart({ useLocalEnv: true });
     }
 
     function stopAgent() {
@@ -582,9 +686,12 @@
       startBtnEl?.addEventListener('click', () => {
         Promise.resolve(startAgent()).catch(showErrorMessage);
       });
+      startLocalBtnEl?.addEventListener('click', () => {
+        Promise.resolve(startAgentLocal()).catch(showErrorMessage);
+      });
       stopBtnEl?.addEventListener('click', stopAgent);
       clearBtnEl?.addEventListener('click', clearTerminal);
-      providerSelectEl?.addEventListener('change', checkMcpStatus);
+      providerSelectEl?.addEventListener('change', handleProviderChange);
       setupBtnEl?.addEventListener('click', handleSetup);
 
       const sessionTerminal = getSessionTerminalModule?.();

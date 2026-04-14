@@ -23,17 +23,7 @@ function createAuditService({ db, dataDir }) {
       `)
     : null;
 
-  const queryStmt = db
-    ? db.prepare(`
-        SELECT * FROM audit_logs
-        ORDER BY id DESC
-        LIMIT ? OFFSET ?
-      `)
-    : null;
-
-  const countStmt = db
-    ? db.prepare('SELECT COUNT(*) as total FROM audit_logs')
-    : null;
+  // 筛选查询通过动态拼接 WHERE 子句实现（参数化防注入）
 
   /**
    * 记录一条审计日志。
@@ -80,15 +70,40 @@ function createAuditService({ db, dataDir }) {
   }
 
   /**
-   * 查询审计日志（分页）。
+   * 查询审计日志（分页 + 筛选）。
    */
-  function query({ limit = 50, offset = 0 } = {}) {
-    if (!queryStmt) {
+  function query({ limit = 50, offset = 0, action, source, hostId, keyword } = {}) {
+    if (!db) {
       return { logs: [], total: 0, source: 'file' };
     }
 
-    const logs = queryStmt.all(Math.min(limit, 200), Math.max(offset, 0));
-    const { total } = countStmt.get();
+    const conditions = [];
+    const params = [];
+
+    if (action) {
+      conditions.push('action = ?');
+      params.push(action);
+    }
+    if (source) {
+      conditions.push('source = ?');
+      params.push(source);
+    }
+    if (hostId) {
+      conditions.push('(host_id = ? OR host_name = ?)');
+      params.push(hostId, hostId);
+    }
+    if (keyword) {
+      conditions.push('(command LIKE ? OR host_name LIKE ? OR error LIKE ? OR details LIKE ?)');
+      const like = `%${keyword}%`;
+      params.push(like, like, like, like);
+    }
+
+    const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
+    const logs = db.prepare(`SELECT * FROM audit_logs ${where} ORDER BY id DESC LIMIT ? OFFSET ?`)
+      .all(...params, Math.min(limit, 200), Math.max(offset, 0));
+    const { total } = db.prepare(`SELECT COUNT(*) as total FROM audit_logs ${where}`)
+      .get(...params);
+
     return { logs, total, source: 'sqlite' };
   }
 

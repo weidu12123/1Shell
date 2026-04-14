@@ -123,6 +123,35 @@ button { cursor: pointer; font-family: inherit; }
 .probe-detail-title { font-size: 11px; color: #94a3b8; margin-bottom: 8px; }
 .probe-detail-empty { font-size: 11px; color: #94a3b8; }
 .probe-process-list { display: flex; flex-wrap: wrap; gap: 4px; }
+.probe-trend-chart-wrap { padding: 12px; border: 1px solid #e2e8f0; border-radius: 10px; background: #f8fafc; }
+.probe-trend-chart-header { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 10px; }
+.probe-trend-chart-meta { font-size: 10px; color: #94a3b8; }
+.probe-trend-legend { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; font-size: 10px; color: #64748b; }
+.probe-trend-legend-item { display: inline-flex; align-items: center; gap: 5px; }
+.probe-trend-legend-line { width: 16px; height: 2px; border-radius: 999px; }
+.probe-trend-legend-line.probe-trend-line-rx { background: #3b82f6; }
+.probe-trend-legend-line.probe-trend-line-tx { background: #8b5cf6; }
+.probe-trend-svg { display: block; width: 100%; height: 180px; }
+.probe-trend-axis { stroke: #cbd5e1; stroke-width: 1; }
+.probe-trend-grid { stroke: #e2e8f0; stroke-width: 1; stroke-dasharray: 3 3; }
+.probe-trend-label { fill: #94a3b8; font-size: 10px; }
+.probe-trend-line-rx { fill: none; stroke: #3b82f6; stroke-width: 2; }
+.probe-trend-line-tx { fill: none; stroke: #8b5cf6; stroke-width: 2; }
+.probe-trend-point-rx { fill: #3b82f6; }
+.probe-trend-point-tx { fill: #8b5cf6; }
+.probe-trend-empty { padding: 16px 0; text-align: center; font-size: 11px; color: #94a3b8; }
+.probe-trend-expand-btn {
+  display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px;
+  border: 1px solid #cbd5e1; border-radius: 8px;
+  background: #fff; color: #475569; font-size: 11px; cursor: pointer;
+}
+.probe-trend-expand-btn:hover { background: #f8fafc; border-color: #94a3b8; }
+.probe-trend-expand-btn.expanded { background: #eff6ff; border-color: #bfdbfe; color: #2563eb; }
+.probe-card-actions { display: flex; justify-content: flex-end; gap: 8px; flex-wrap: wrap; }
+@media (max-width: 640px) {
+  .probe-detail-grid { grid-template-columns: 1fr; }
+}
+.probe-process-list { display: flex; flex-wrap: wrap; gap: 4px; }
 .probe-process-chip {
   display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px; height: 22px;
   border-radius: 6px; border: 1px solid #e2e8f0; font-size: 11px;
@@ -308,6 +337,13 @@ button { cursor: pointer; font-family: inherit; }
 .dark .probe-bandwidth-value { color: #e2e8f0; }
 .dark .probe-detail-block { background: #0b1324; border-color: #1e293b; }
 .dark .probe-detail-toggle { background: rgba(59,130,246,0.12); border-color: rgba(59,130,246,0.35); color: #93c5fd; }
+.dark .probe-trend-chart-wrap { background: #0b1324; border-color: #1e293b; }
+.dark .probe-trend-expand-btn { background: #111827; border-color: #334155; color: #cbd5e1; }
+.dark .probe-trend-expand-btn:hover { background: #1e293b; border-color: #475569; }
+.dark .probe-trend-expand-btn.expanded { background: rgba(59,130,246,0.12); border-color: rgba(59,130,246,0.35); color: #93c5fd; }
+.dark .probe-trend-axis { stroke: #334155; }
+.dark .probe-trend-grid { stroke: rgba(148,163,184,0.2); }
+.dark .probe-trend-label { fill: #64748b; }
 
 .dark .link-row { background: #0b1324; border-color: #1e293b; }
 .dark .auth-tab { background: #1a2332; border-color: #1e293b; color: #94a3b8; }

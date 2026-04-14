@@ -43,7 +43,7 @@
 | **AI 选区分析** | 框选终端输出，AI 自动解读错误并给出修复命令 |
 | **MCP Server** | 标准 MCP 协议，让 claude-code 等 AI CLI 直接操控远端主机 |
 | **Bridge API** | HTTP API 桥接 SSH 执行，适配任意 CLI 工具 |
-| **AI Agent 面板** | 侧边栏运行 claude-code / Gemini CLI / OpenCode / Codex |
+| **AI Agent 面板** | 侧边栏运行 claude-code / OpenCode / Codex |
 | **网站任意门** | 每台主机关联多个业务入口，一键直达 |
 | **审计日志** | 所有操作记录到 SQLite，可翻页查询，可追溯 |
 | **IP 访问控制** | 白名单 / 黑名单，CIDR 支持 |

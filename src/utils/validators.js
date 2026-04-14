@@ -266,6 +266,9 @@ function validateAgentStartPayload(payload) {
   const body = ensureObject(payload, 'agent:start 参数必须是对象');
   ensureNonEmptyString(body.providerId, 'providerId 不能为空');
   ensureNonEmptyString(body.hostId, 'hostId 不能为空');
+  if (hasOwn(body, 'useLocalEnv') && typeof body.useLocalEnv !== 'boolean') {
+    throw createValidationError('useLocalEnv 必须是布尔值');
+  }
   ensureOptionalIntegerInRange(body.cols, { field: 'cols', min: 20, max: 400 });
   ensureOptionalIntegerInRange(body.rows, { field: 'rows', min: 10, max: 200 });
   return body;

@@ -10,10 +10,13 @@ services:
     volumes:
       - ./data:/app/data
       # 将宿主机的 AI CLI 工具挂载进容器（只读），无需在镜像内安装
-      # claude-code：宿主机 npm install -g @anthropic-ai/claude-code 后自动生效
       - /root/.claude:/root/.claude
       - /usr/local/bin/claude:/usr/local/bin/claude:ro
       - /usr/local/lib/node_modules/@anthropic-ai:/usr/local/lib/node_modules/@anthropic-ai:ro
+      - /usr/bin/opencode:/usr/bin/opencode:ro
+      - /usr/lib/node_modules/opencode-ai:/usr/lib/node_modules/opencode-ai:ro
+      - /usr/bin/codex:/usr/bin/codex:ro
+      - /usr/lib/node_modules/@openai:/usr/lib/node_modules/@openai:ro
     env_file:
       - .env
     environment:

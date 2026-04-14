@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>1Shell 探针 · 2.0.0-dev</title>
+  <link rel="stylesheet" href="style.css" />
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          colors: {
+            shell: {
+              outer: '#334155',
+              'outer-dark': '#0b0e18',
+              panel: '#f8fafc',
+              'panel-dark': '#111827',
+              accent: '#4f8cff',
+              purple: '#7c3aed',
+              success: '#059669',
+              warn: '#d97706',
+              danger: '#dc2626',
+            },
+          },
+        },
+      },
+    };
+  </script>
+  <style type="text/tailwindcss">
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, sans-serif; }
+    .hidden { display: none !important; }
+    ::-webkit-scrollbar { width: 6px; height: 6px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: rgba(0,0,0,0.15); border-radius: 3px; }
+    .dark ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.12); }
+
+    .app-sidebar {
+      background: linear-gradient(180deg, #1e293b 0%, #0f172a 100%);
+      box-shadow: 2px 0 12px rgba(0,0,0,0.15);
+    }
+    .dark .app-sidebar {
+      background: linear-gradient(180deg, #0b0e18 0%, #050810 100%);
+    }
+    .side-nav-item {
+      position: relative;
+      transition: all 0.2s cubic-bezier(0.4,0,0.2,1);
+    }
+    .side-nav-item:hover {
+      background: rgba(255,255,255,0.06);
+      color: #e2e8f0;
+    }
+    .side-nav-item.active {
+      background: linear-gradient(135deg, rgba(59,130,246,0.22), rgba(139,92,246,0.22));
+      color: #93c5fd;
+    }
+    .side-nav-item.active::before {
+      content: '';
+      position: absolute;
+      left: 0; top: 10px; bottom: 10px; width: 3px;
+      background: linear-gradient(180deg, #3b82f6, #8b5cf6);
+      border-radius: 0 3px 3px 0;
+      box-shadow: 0 0 8px rgba(139,92,246,0.5);
+    }
+
+    .dark .topbar { @apply bg-[#111827] border-[#1e293b]; }
+    .dark .main-panel { @apply bg-[#111827] border-[#1e293b]; }
+  </style>
+</head>
+<body class="bg-slate-700 dark:bg-[#0b0e18] w-screen h-screen overflow-hidden text-sm text-slate-700 dark:text-slate-200">
+  <div class="flex w-full h-full">
+    <aside class="app-sidebar shrink-0 w-16 flex flex-col items-stretch py-3">
+      <a href="index.html" class="shrink-0 mx-auto mb-3 w-10 h-10 rounded-xl bg-gradient-to-br from-blue-500 to-purple-500 flex items-center justify-center text-white font-extrabold text-sm shadow-lg hover:shadow-blue-500/40 transition-all" title="1Shell 2.0">1S</a>
+      <div class="mx-3 h-px bg-slate-700/60 mb-2"></div>
+      <nav class="flex flex-col flex-1 gap-1 px-1">
+        <a href="index.html" class="side-nav-item flex flex-col items-center gap-0.5 py-2.5 rounded-lg text-slate-400 text-[10px] font-medium" title="主控台">
+          <span class="text-lg">🖥</span>
+          <span>主控</span>
+        </a>
+        <a href="scripts.html" class="side-nav-item flex flex-col items-center gap-0.5 py-2.5 rounded-lg text-slate-400 text-[10px] font-medium" title="脚本库">
+          <span class="text-lg">📜</span>
+          <span>脚本</span>
+        </a>
+        <a href="cli-setup.html" class="side-nav-item flex flex-col items-center gap-0.5 py-2.5 rounded-lg text-slate-400 text-[10px] font-medium" title="AI CLI 接入">
+          <span class="text-lg">⚡</span>
+          <span>接入</span>
+        </a>
+        <a href="probe.html" class="side-nav-item active flex flex-col items-center gap-0.5 py-2.5 rounded-lg text-slate-400 text-[10px] font-medium" title="探针">
+          <span class="text-lg">📡</span>
+          <span>探针</span>
+        </a>
+        <a href="audit.html" class="side-nav-item flex flex-col items-center gap-0.5 py-2.5 rounded-lg text-slate-400 text-[10px] font-medium" title="审计日志">
+          <span class="text-lg">📋</span>
+          <span>审计</span>
+        </a>
+      </nav>
+      <div class="shrink-0 flex flex-col gap-1 px-1">
+        <div class="mx-3 h-px bg-slate-700/60 mb-1"></div>
+        <button class="side-nav-item flex flex-col items-center gap-0.5 py-2.5 rounded-lg text-slate-400 text-[10px] font-medium" title="主题切换" id="theme-toggle-btn" type="button">
+          <span class="text-base" id="theme-icon">☀</span>
+          <span>主题</span>
+        </button>
+      </div>
+    </aside>
+
+    <div class="flex flex-col flex-1 min-w-0 p-2 gap-2">
+      <header class="topbar shrink-0 h-14 flex items-center px-5 bg-shell-panel rounded-2xl border border-slate-200 shadow-sm">
+        <div class="flex items-center gap-3 shrink-0">
+          <span class="text-2xl">📡</span>
+          <div>
+            <div class="text-base font-bold text-slate-700 dark:text-slate-200">探针中心</div>
+            <div class="text-[11px] text-slate-400">查看全部主机在线状态与资源指标</div>
+          </div>
+        </div>
+        <div class="flex-1"></div>
+        <div class="topbar-actions flex items-center gap-2 shrink-0">
+          <button class="h-8 px-3 rounded-lg border border-slate-200 bg-white text-xs font-semibold text-slate-600 hover:border-blue-300 hover:text-blue-500 transition-all" id="probe-refresh-btn" type="button">立即刷新</button>
+        </div>
+      </header>
+
+      <main class="main-panel flex-1 min-h-0 bg-shell-panel rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+        <div class="h-full flex flex-col min-h-0 overflow-y-auto">
+          <div class="probe-summary p-4" id="probe-summary"></div>
+          <div class="probe-list p-4 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3" id="probe-list"></div>
+        </div>
+      </main>
+    </div>
+  </div>
+
+  <script src="/socket.io/socket.io.js"></script>
+  <script src="shared.js"></script>
+  <script src="probe.js"></script>
+  <script src="probe-page.js"></script>
+</body>
+</html>

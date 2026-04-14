@@ -199,11 +199,11 @@
           <span class="text-lg">⚡</span>
           <span>接入</span>
         </a>
-        <a href="#" class="side-nav-item flex flex-col items-center gap-0.5 py-2.5 rounded-lg text-slate-400 text-[10px] font-medium opacity-50" title="探针（P1）">
+        <a href="probe.html" class="side-nav-item flex flex-col items-center gap-0.5 py-2.5 rounded-lg text-slate-400 text-[10px] font-medium" title="探针">
           <span class="text-lg">📡</span>
           <span>探针</span>
         </a>
-        <a href="#" class="side-nav-item flex flex-col items-center gap-0.5 py-2.5 rounded-lg text-slate-400 text-[10px] font-medium opacity-50" title="审计日志（P1）">
+        <a href="audit.html" class="side-nav-item flex flex-col items-center gap-0.5 py-2.5 rounded-lg text-slate-400 text-[10px] font-medium" title="审计日志">
           <span class="text-lg">📋</span>
           <span>审计</span>
         </a>
@@ -254,7 +254,6 @@
       <!-- 右：操作按钮 -->
       <div class="topbar-actions flex items-center gap-2 shrink-0">
         <button class="h-8 px-3 rounded-lg border border-slate-200 bg-white text-xs font-semibold text-slate-600 hover:border-blue-300 hover:text-blue-500 transition-all hidden" id="refresh-hosts-btn" type="button">刷新</button>
-        <button class="h-8 px-3 rounded-lg border border-slate-200 bg-white text-xs font-semibold text-slate-600 hover:border-blue-300 hover:text-blue-500 transition-all" id="probe-btn" type="button">探针</button>
         <button class="h-8 px-3 rounded-lg bg-gradient-to-r from-purple-500 to-blue-500 text-white text-xs font-semibold shadow-md hover:shadow-lg transition-all" id="agent-panel-btn" type="button">AI Agent</button>
         <button class="h-8 px-3 rounded-lg bg-gradient-to-r from-purple-500 to-blue-500 text-white text-xs font-semibold shadow-md hover:shadow-lg transition-all" id="ai-api-config-btn" type="button" title="AI API 配置">⚙ AI 配置</button>
         <button class="h-8 px-3 rounded-lg border border-slate-200 bg-white text-xs font-semibold text-slate-600 hover:border-blue-300 hover:text-blue-500 transition-all" id="ai-panel-toggle-btn" type="button" title="折叠/展开 AI 面板">AI 折叠</button>
@@ -327,6 +326,8 @@
             <span class="panel-subtitle text-slate-400 hidden" id="ai-context-text">当前上下文：本机</span>
           </div>
           <div class="panel-actions flex items-center gap-1.5">
+            <button class="icon-btn h-6 px-2 rounded-md border border-slate-200 text-[11px] text-purple-500 hover:text-purple-600 hover:border-purple-300 transition-all" id="inject-script-btn" type="button" title="快捷执行脚本库中的脚本">脚本</button>
+            <button class="icon-btn h-6 px-2 rounded-md border border-slate-200 text-[11px] text-purple-500 hover:text-purple-600 hover:border-purple-300 transition-all" id="inject-playbook-btn" type="button" title="快捷执行 Playbook 编排">Playbook</button>
             <button class="icon-btn h-6 px-2 rounded-md border border-slate-200 text-[11px] text-slate-500 hover:text-blue-500 hover:border-blue-300 transition-all" id="reconnect-btn" type="button">重连</button>
             <button class="icon-btn h-6 px-2 rounded-md border border-slate-200 text-[11px] text-slate-500 hover:text-blue-500 hover:border-blue-300 transition-all" id="cmd-suggest-btn" type="button">AI 命令</button>
             <button class="icon-btn h-6 px-2 rounded-md border border-slate-200 text-[11px] text-slate-500 hover:text-blue-500 hover:border-blue-300 transition-all" id="clear-term-btn" type="button">清屏</button>
@@ -359,6 +360,39 @@
               <button id="cmd-insert-btn" class="h-7 px-2.5 rounded-lg bg-blue-500 text-white text-xs font-semibold hover:bg-blue-600 transition-all" type="button">注入终端</button>
             </div>
           </div>
+        </div>
+
+        <!-- 脚本快捷注入面板 -->
+        <div id="script-inject-panel" class="hidden shrink-0 border-b border-slate-100 bg-slate-50 dark:bg-[#0d1117]">
+          <div class="flex items-center gap-2 px-3 py-2">
+            <span class="text-xs font-semibold text-purple-600 dark:text-purple-400 shrink-0">📜 脚本注入</span>
+            <select id="si-script-select" class="flex-1 h-7 px-2 rounded-lg border border-slate-200 bg-white dark:bg-[#0b1324] dark:border-[#1e293b] dark:text-slate-200 text-xs outline-none focus:border-purple-400">
+              <option value="">选择脚本…</option>
+            </select>
+            <button id="si-close-btn" class="shrink-0 h-7 w-7 flex items-center justify-center rounded-lg border border-slate-200 dark:border-[#1e293b] text-slate-400 hover:text-red-500 hover:border-red-200 transition-all text-xs" type="button">✕</button>
+          </div>
+          <div id="si-params-form" class="hidden px-3 pb-2 flex flex-wrap gap-2"></div>
+          <div id="si-preview-row" class="hidden flex items-center gap-2 px-3 pb-2">
+            <pre id="si-preview-code" class="flex-1 px-3 py-1.5 rounded-lg bg-slate-800 text-slate-200 font-mono text-xs overflow-x-auto whitespace-pre-wrap break-all max-h-24 overflow-y-auto"></pre>
+            <div class="flex flex-col gap-1 shrink-0">
+              <button id="si-inject-btn" class="h-7 px-2.5 rounded-lg bg-purple-500 text-white text-xs font-semibold hover:bg-purple-600 transition-all" type="button">注入终端</button>
+              <button id="si-run-btn" class="h-7 px-2.5 rounded-lg border border-slate-200 dark:border-[#1e293b] text-xs text-slate-600 dark:text-slate-300 hover:border-purple-300 hover:text-purple-500 transition-all" type="button">复制</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Playbook 快捷注入面板 -->
+        <div id="playbook-inject-panel" class="hidden shrink-0 border-b border-slate-100 bg-slate-50 dark:bg-[#0d1117]">
+          <div class="flex items-center gap-2 px-3 py-2">
+            <span class="text-xs font-semibold text-purple-600 dark:text-purple-400 shrink-0">📘 Playbook</span>
+            <select id="pi-playbook-select" class="flex-1 h-7 px-2 rounded-lg border border-slate-200 bg-white dark:bg-[#0b1324] dark:border-[#1e293b] dark:text-slate-200 text-xs outline-none focus:border-purple-400">
+              <option value="">选择 Playbook…</option>
+            </select>
+            <button id="pi-run-btn" class="shrink-0 h-7 px-3 rounded-lg bg-purple-500 text-white text-xs font-semibold hover:bg-purple-600 transition-all disabled:opacity-50" type="button" disabled>执行</button>
+            <button id="pi-close-btn" class="shrink-0 h-7 w-7 flex items-center justify-center rounded-lg border border-slate-200 dark:border-[#1e293b] text-slate-400 hover:text-red-500 hover:border-red-200 transition-all text-xs" type="button">✕</button>
+          </div>
+          <div id="pi-steps-preview" class="hidden px-3 pb-2 text-xs text-slate-500 dark:text-slate-400"></div>
+          <div id="pi-result" class="hidden px-3 pb-2 text-xs"></div>
         </div>
 
         <!-- 终端主体 -->
@@ -434,6 +468,7 @@
         <!-- 操作按钮 -->
         <div class="shrink-0 flex items-center justify-end gap-2 px-4 py-2 border-t border-slate-100">
           <button class="h-7 px-3 rounded-lg bg-gradient-to-r from-purple-500 to-purple-600 text-white text-xs font-semibold shadow-md hover:shadow-lg transition-all" id="agent-start-btn" type="button">启动</button>
+          <button class="h-7 px-3 rounded-lg border border-slate-200 text-xs font-semibold text-slate-600 hover:border-emerald-300 hover:text-emerald-600 transition-all" id="agent-start-local-btn" type="button">本地启动</button>
           <button class="h-7 px-3 rounded-lg border border-slate-200 text-xs font-semibold text-slate-600 hover:border-purple-300 hover:text-purple-500 transition-all" id="agent-stop-btn" type="button">停止</button>
           <button class="h-7 px-3 rounded-lg border border-slate-200 text-xs font-semibold text-slate-600 hover:border-slate-400 transition-all" id="agent-clear-btn" type="button">清屏</button>
         </div>
@@ -678,27 +713,6 @@
   </div>
 
   <!-- ════════════════════════════════════════════════════════
-       弹窗层：探针面板
-       ════════════════════════════════════════════════════════ -->
-  <div class="drawer-overlay hidden fixed inset-0 z-[2000] flex items-center justify-center bg-black/50 backdrop-blur-sm" id="probe-drawer">
-    <div class="drawer w-full max-w-4xl max-h-[calc(100vh-48px)] overflow-y-auto bg-white rounded-2xl shadow-2xl border border-slate-200">
-      <div class="drawer-header flex items-center justify-between px-5 py-3.5 border-b border-slate-100">
-        <div>
-          <div class="drawer-title text-base font-bold text-slate-700">探针面板</div>
-          <div class="text-xs text-slate-400 mt-0.5">查看全部主机在线状态和基础资源指标</div>
-        </div>
-        <div class="drawer-actions flex items-center gap-2">
-          <button class="btn-secondary h-8 px-3 rounded-lg border border-slate-200 text-xs font-semibold text-slate-600 hover:border-blue-300 hover:text-blue-500 transition-all" id="probe-refresh-btn" type="button">立即刷新</button>
-          <button class="icon-btn h-8 px-2.5 rounded-lg border border-slate-200 text-xs text-slate-500 hover:text-red-500 hover:border-red-200 transition-all" id="probe-close-btn" type="button">关闭</button>
-        </div>
-      </div>
-      <div class="probe-summary p-4" id="probe-summary"></div>
-      <div class="probe-list p-4 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3" id="probe-list"></div>
-    </div>
-  </div>
-
-
-  <!-- ════════════════════════════════════════════════════════
        浮层：选区右键菜单
        ════════════════════════════════════════════════════════ -->
   <ul class="analyze-ctx-menu hidden fixed z-[500] min-w-[160px] py-1 bg-white rounded-lg shadow-xl border border-slate-200" id="analyze-ctx-menu" role="menu">
@@ -817,6 +831,7 @@
   <script src="command-suggestion.js"></script>
   <script src="terminal-analyze.js"></script>
   <script src="file-browser.js"></script>
+  <script src="script-inject.js"></script>
   <script src="layout.js"></script>
   <script src="app.js"></script>
 </body>

@@ -25,7 +25,7 @@ const SERVER_INFO = { name: '1shell-bridge', version: '1.0.0' };
  *   - tools/list
  *   - tools/call
  */
-function createMcpService({ bridgeService, hostService, auditService }) {
+function createMcpService({ bridgeService, hostService, auditService, bridgeToken }) {
   // Map<sessionId, { res: Response, initialized: boolean }>
   const sessions = new Map();
 
@@ -158,8 +158,8 @@ function createMcpService({ bridgeService, hostService, auditService }) {
     const sessionId = createId('mcp');
     sessions.set(sessionId, { res, initialized: false });
 
-    // 告知客户端用于 POST 消息的端点
-    sseWrite(res, 'endpoint', `${baseUrl}/mcp/message?sessionId=${sessionId}`);
+    const tokenParam = bridgeToken ? `&token=${bridgeToken}` : '';
+    sseWrite(res, 'endpoint', `${baseUrl}/mcp/message?sessionId=${sessionId}${tokenParam}`);
 
     return sessionId;
   }
@@ -190,7 +190,43 @@ function createMcpService({ bridgeService, hostService, auditService }) {
     return crypto.timingSafeEqual(Buffer.from(token), Buffer.from(BRIDGE_TOKEN));
   }
 
-  return { connect, disconnect, receiveMessage, validateToken };
+  /**
+   * 处理 Streamable HTTP MCP 请求（无状态，不需要 SSE session）。
+   * 返回 JSON-RPC 响应对象，或 null（通知类消息）。
+   */
+  async function handleDirectRequest(msg) {
+    const { id, method, params } = msg;
+
+    if (id === undefined || id === null) {
+      return null;
+    }
+
+    if (method === 'initialize') {
+      return makeResponse(id, {
+        protocolVersion: MCP_PROTOCOL_VERSION,
+        capabilities: { tools: {} },
+        serverInfo: SERVER_INFO,
+      });
+    }
+
+    if (method === 'ping') {
+      return makeResponse(id, {});
+    }
+
+    if (method === 'tools/list') {
+      return makeResponse(id, { tools: TOOLS });
+    }
+
+    if (method === 'tools/call') {
+      const { name, arguments: args } = params || {};
+      const toolResult = await callTool(name, args);
+      return makeResponse(id, toolResult);
+    }
+
+    return makeError(id, -32601, `未知方法: ${method}`);
+  }
+
+  return { connect, disconnect, receiveMessage, handleDirectRequest, validateToken };
 }
 
 module.exports = { createMcpService };

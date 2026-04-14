@@ -15,7 +15,16 @@ function createMcpRouter({ mcpService }) {
   const router = Router();
 
   function requireToken(req, res, next) {
-    const token = req.headers['x-bridge-token'];
+    let token = req.headers['x-bridge-token'];
+    if (!token) {
+      const authHeader = req.headers['authorization'] || '';
+      if (authHeader.startsWith('Bearer ')) {
+        token = authHeader.slice(7);
+      }
+    }
+    if (!token) {
+      token = req.query.token;
+    }
     if (!mcpService.validateToken(token)) {
       return res.status(401).json({
         ok: false,
@@ -25,6 +34,32 @@ function createMcpRouter({ mcpService }) {
     }
     return next();
   }
+
+  // Streamable HTTP MCP：POST /mcp/sse — Codex v0.120+ 使用此协议
+  router.post('/sse', requireToken, async (req, res) => {
+    const msg = req.body;
+
+    if (!msg || typeof msg !== 'object') {
+      return res.status(400).json({ jsonrpc: '2.0', error: { code: -32600, message: 'Invalid Request' }, id: null });
+    }
+
+    const batch = Array.isArray(msg) ? msg : [msg];
+    const results = [];
+
+    for (const item of batch) {
+      const result = await mcpService.handleDirectRequest(item);
+      if (result) results.push(result);
+    }
+
+    if (results.length === 0) {
+      return res.status(202).end();
+    }
+
+    if (Array.isArray(msg)) {
+      return res.json(results);
+    }
+    return res.json(results[0]);
+  });
 
   // SSE 连接端点
   router.get('/sse', requireToken, (req, res) => {

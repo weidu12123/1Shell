@@ -7,7 +7,7 @@ const os = require('os');
 /**
  * Windows 兼容层
  *
- * 在 Windows 上，npm 全局安装的 CLI（如 claude、gemini）通常是 .ps1 脚本，
+ * 在 Windows 上，npm 全局安装的 CLI（如 claude、codex、opencode）通常是 .ps1 脚本，
  * node-pty 无法直接执行。此模块通过查找对应的 .ps1 文件，
  * 返回通过 powershell.exe 执行的命令格式。
  */
@@ -38,7 +38,7 @@ function findExecutableCommand(commandName) {
     if (fs.existsSync(cmdPath)) {
       return {
         command: 'cmd.exe',
-        args: ['/d', '/s', '/c', `"${cmdPath}"`],
+        args: ['/d', '/s', '/c', cmdPath],
       };
     }
 
@@ -47,7 +47,7 @@ function findExecutableCommand(commandName) {
     if (fs.existsSync(batPath)) {
       return {
         command: 'cmd.exe',
-        args: ['/d', '/s', '/c', `"${batPath}"`],
+        args: ['/d', '/s', '/c', batPath],
       };
     }
   }

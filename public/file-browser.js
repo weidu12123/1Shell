@@ -11,9 +11,46 @@ window.createFileBrowserModule = function ({ escapeHtml, getActiveHost, requestJ
   const fileTreeEl = document.getElementById('file-tree');
   let currentHostId = null;
   let filePreviewEl = null;
-  let showHidden = false;
+  let showHidden = true;
   let lastData = null;
   let lastError = null;
+
+  // ─── 目录缓存 ────────────────────────────────────────────────────────
+  // key: `${hostId}:${dirPath}`, value: { data, timestamp }
+  const dirCache = new Map();
+  const DIR_CACHE_TTL_MS = 60000; // 缓存有效期 60 秒
+  const DIR_CACHE_MAX = 50;       // 最多缓存 50 个目录
+
+  function cacheKey(hostId, dirPath) {
+    return `${hostId}:${dirPath || ''}`;
+  }
+
+  function getCachedDir(hostId, dirPath) {
+    const key = cacheKey(hostId, dirPath);
+    const entry = dirCache.get(key);
+    if (!entry) return null;
+    if (Date.now() - entry.timestamp > DIR_CACHE_TTL_MS) {
+      dirCache.delete(key);
+      return null;
+    }
+    return entry.data;
+  }
+
+  function setCachedDir(hostId, dirPath, data) {
+    const key = cacheKey(hostId, dirPath);
+    // 淘汰最旧的缓存
+    if (dirCache.size >= DIR_CACHE_MAX) {
+      const oldest = dirCache.keys().next().value;
+      dirCache.delete(oldest);
+    }
+    dirCache.set(key, { data, timestamp: Date.now() });
+  }
+
+  function invalidateHostCache(hostId) {
+    for (const key of dirCache.keys()) {
+      if (key.startsWith(`${hostId}:`)) dirCache.delete(key);
+    }
+  }
 
   function formatSize(bytes) {
     if (bytes === 0) return '--';
@@ -214,14 +251,24 @@ window.createFileBrowserModule = function ({ escapeHtml, getActiveHost, requestJ
   }
 
   /**
-   * 加载并显示指定目录
+   * 加载并显示指定目录（带缓存）
    */
-  async function loadDir(dirPath) {
+  async function loadDir(dirPath, { skipCache = false } = {}) {
     const host = getActiveHost();
     if (!host) return;
 
     const hostId = host.id || 'local';
     currentHostId = hostId;
+
+    // 尝试命中缓存（跳过 __drives__ 虚拟路径）
+    if (!skipCache && dirPath !== '__drives__') {
+      const cached = getCachedDir(hostId, dirPath);
+      if (cached) {
+        renderItems(fileTreeEl, cached);
+        return;
+      }
+    }
+
     renderLoading();
 
     try {
@@ -230,6 +277,7 @@ window.createFileBrowserModule = function ({ escapeHtml, getActiveHost, requestJ
 
       const data = await requestJson(`/api/files/list?${params}`);
       if (currentHostId !== hostId) return;
+      setCachedDir(hostId, dirPath, data);
       renderItems(fileTreeEl, data);
     } catch (err) {
       if (currentHostId !== hostId) return;
@@ -295,7 +343,8 @@ window.createFileBrowserModule = function ({ escapeHtml, getActiveHost, requestJ
           window.appShared?.showToast?.(`${file.name} 上传失败: ${err.message}`, 'error', 3000);
         }
       }
-      // 刷新目录
+      // 上传后清除该目录缓存并刷新
+      dirCache.delete(cacheKey(hostId, dirPath));
       loadDir(dirPath);
     });
     input.click();
@@ -412,6 +461,8 @@ window.createFileBrowserModule = function ({ escapeHtml, getActiveHost, requestJ
                 body: JSON.stringify({ hostId, path: filePath, content: textarea.value }),
               });
               fileContent = textarea.value;
+              // 文件内容变更后，清除所在目录的缓存（文件大小等可能变化）
+              if (lastData?.path) dirCache.delete(cacheKey(hostId, lastData.path));
               window.appShared?.showToast?.('保存成功', 'success', 2000);
               // 恢复预览模式
               contentEl2.innerHTML = `<pre class="text-xs text-slate-600 dark:text-slate-300 whitespace-pre-wrap break-all font-mono leading-relaxed">${escapeHtml(fileContent)}</pre>`;
@@ -507,6 +558,7 @@ window.createFileBrowserModule = function ({ escapeHtml, getActiveHost, requestJ
     if (!host) return;
     const hostId = host.id || 'local';
     if (hostId !== currentHostId) {
+      invalidateHostCache(currentHostId);
       loadDir('');
     }
   }

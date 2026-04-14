@@ -107,6 +107,32 @@ function createDatabase(dbPath) {
     CREATE INDEX IF NOT EXISTS idx_runs_script_id ON script_runs(script_id);
     CREATE INDEX IF NOT EXISTS idx_runs_started_at ON script_runs(started_at);
     CREATE INDEX IF NOT EXISTS idx_runs_status ON script_runs(status);
+
+    CREATE TABLE IF NOT EXISTS playbooks (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      icon TEXT,
+      description TEXT,
+      steps TEXT NOT NULL DEFAULT '[]',
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
+    CREATE TABLE IF NOT EXISTS playbook_runs (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      playbook_id TEXT NOT NULL,
+      playbook_name TEXT,
+      status TEXT NOT NULL DEFAULT 'running',
+      total_steps INTEGER NOT NULL DEFAULT 0,
+      completed_steps INTEGER NOT NULL DEFAULT 0,
+      results TEXT,
+      error TEXT,
+      started_at TEXT NOT NULL DEFAULT (datetime('now')),
+      finished_at TEXT
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_playbook_runs_playbook_id ON playbook_runs(playbook_id);
+    CREATE INDEX IF NOT EXISTS idx_playbook_runs_started_at ON playbook_runs(started_at);
   `);
 
   return db;
