@@ -1,0 +1,62 @@
+goal: 列出两台 VPS（香港、US）上 1Panel openresty 的所有网站域名、监听端口及 HTTPS 状态
+
+budget:
+  max_rescues: 1
+
+steps:
+  # ── 香港主机 ────────────────────────────────────────────
+  - id: hk_sites
+    label: 香港 VPS 网站列表
+    host_id: host_c2a3c6e3-6cff-4bc0-bd69-1a7c3dd8e6e7
+    run: |
+      CONF_DIR=/opt/1panel/apps/openresty/openresty/conf/conf.d
+      for f in "$CONF_DIR"/*.conf; do
+        name=$(basename "$f" .conf)
+        # 跳过默认/内部配置
+        case "$name" in 00.default|default) continue ;; esac
+        domain=$(grep -m1 'server_name' "$f" | awk '{print $2}' | tr -d ';')
+        https=$(grep -q 'listen 443' "$f" && echo "✅" || echo "❌")
+        port=$(grep -oP 'listen\s+\K[0-9]+' "$f" | grep -v '443' | head -1)
+        [ -z "$port" ] && port="80"
+        printf "%s\t%s\t%s\n" "$domain" "$port" "$https"
+      done
+    verify:
+      exit_code: 0
+    capture_stdout: true
+    on_error_hint: 确认 1Panel openresty 容器正在运行，配置目录路径为 /opt/1panel/apps/openresty/openresty/conf/conf.d/
+
+  # ── US 主机 ──────────────────────────────────────────────
+  - id: us_sites
+    label: US VPS 网站列表
+    host_id: host_86c589ef-d2d6-47bc-b985-147c1c02f1e9
+    run: |
+      CONF_DIR=/opt/1panel/apps/openresty/openresty/conf/conf.d
+      for f in "$CONF_DIR"/*.conf; do
+        name=$(basename "$f" .conf)
+        case "$name" in 00.default|default) continue ;; esac
+        domain=$(grep -m1 'server_name' "$f" | awk '{print $2}' | tr -d ';')
+        https=$(grep -q 'listen 443' "$f" && echo "✅" || echo "❌")
+        port=$(grep -oP 'listen\s+\K[0-9]+' "$f" | grep -v '443' | head -1)
+        [ -z "$port" ] && port="80"
+        printf "%s\t%s\t%s\n" "$domain" "$port" "$https"
+      done
+    verify:
+      exit_code: 0
+    capture_stdout: true
+    on_error_hint: 确认 1Panel openresty 容器正在运行，配置目录路径为 /opt/1panel/apps/openresty/openresty/conf/conf.d/
+
+  # ── 渲染：香港 ───────────────────────────────────────────
+  - id: render_hk
+    type: render
+    format: table
+    title: 🇭🇰 香港 VPS 网站列表 (82.158.226.220)
+    columns: ["域名", "HTTP 端口", "HTTPS"]
+    rows_from_step: hk_sites
+
+  # ── 渲染：US ─────────────────────────────────────────────
+  - id: render_us
+    type: render
+    format: table
+    title: 🇺🇸 US VPS 网站列表 (38.165.40.135)
+    columns: ["域名", "HTTP 端口", "HTTPS"]
+    rows_from_step: us_sites

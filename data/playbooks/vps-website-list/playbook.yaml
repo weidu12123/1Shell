@@ -1,0 +1,51 @@
+goal: 列出 VPS 上 OpenResty/1Panel 管理的所有网站，展示域名、端口、HTTPS 状态和站点目录，并提供删除操作入口
+
+budget:
+  max_rescues: 1
+
+steps:
+  - id: list_sites
+    label: 扫描网站配置
+    run: |
+      CONF_DIR="/opt/1panel/apps/openresty/openresty/conf/conf.d"
+      if [ ! -d "$CONF_DIR" ]; then
+        CONF_DIR="/etc/nginx/conf.d"
+      fi
+      for f in "$CONF_DIR"/*.conf; do
+        basename_f=$(basename "$f" .conf)
+        # 跳过默认配置
+        case "$basename_f" in
+          default|00.default) continue ;;
+        esac
+        domain=$(grep -m1 'server_name' "$f" 2>/dev/null | awk '{print $2}' | tr -d ';' | tr -d ' ')
+        # 跳过内部/无效域名
+        case "$domain" in
+          _|127.0.0.1|localhost|"") continue ;;
+        esac
+        # 端口
+        port=$(grep -m1 'listen' "$f" 2>/dev/null | awk '{print $2}' | tr -d ';' | grep -oE '[0-9]+' | head -1)
+        [ -z "$port" ] && port="-"
+        # HTTPS
+        if grep -q 'ssl_certificate' "$f" 2>/dev/null; then https="是"; else https="否"; fi
+        # 站点目录
+        root_dir=$(grep -m1 'root ' "$f" 2>/dev/null | awk '{print $2}' | tr -d ';')
+        [ -z "$root_dir" ] && root_dir="-"
+        printf "%s\t%s\t%s\t%s\n" "$domain" "$port" "$https" "$root_dir"
+      done
+    verify:
+      exit_code: 0
+    capture_stdout: true
+    on_error_hint: 检查 /opt/1panel/apps/openresty/openresty/conf/conf.d/ 目录是否存在，或确认 OpenResty 容器是否运行
+
+  - id: render_sites
+    type: render
+    format: table
+    title: VPS 网站列表
+    subtitle: 数据来源：OpenResty conf.d 配置目录
+    columns: ["域名", "端口", "HTTPS", "站点目录"]
+    rows_from_step: list_sites
+    rowActions:
+      - label: "删除"
+        value: "delete"
+    rowActionSkill: vps-website-delete
+    rowInputKey: domain

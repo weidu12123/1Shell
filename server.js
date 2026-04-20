@@ -29,7 +29,7 @@ const { createHealthRouter } = require('./src/routes/health.routes');
 const { createHostRouter } = require('./src/routes/host.routes');
 const { createProbeRouter } = require('./src/routes/probe.routes');
 const { createScriptRouter } = require('./src/routes/script.routes');
-const { createPlaybookRouter } = require('./src/routes/playbook.routes');
+const { createWorkflowRouter } = require('./src/routes/playbook.routes');
 const { createCliSandbox } = require('./src/agents/cli-sandbox');
 const { createAgentProviders } = require('./src/agents/providers');
 const { createAgentPtyService } = require('./src/agents/agent-pty.service');
@@ -54,8 +54,27 @@ const { createProbeService } = require('./src/services/probe.service');
 const { createSessionService } = require('./src/services/session.service');
 const { createFileService } = require('./src/services/file.service');
 const { createIpFilterService } = require('./src/services/ip-filter.service');
+const { createSiteScanService } = require('./src/services/site-scan.service');
+const { createSiteDeleteService } = require('./src/services/site-delete.service');
 const { createIpFilterRouter } = require('./src/routes/ip-filter.routes');
 const { createProxyRouter, createProxyConfigStore } = require('./src/routes/proxy.routes');
+const { createSkillRegistry } = require('./src/skills/registry');
+const { createLibraryService } = require('./src/skills/library.service');
+const { createSkillRunner } = require('./src/skills/runner');
+const { createSkillRouter } = require('./src/routes/skill.routes');
+const { createSkillStudioRouter } = require('./src/routes/skill-studio.routes');
+const { createMcpRegistry } = require('./src/services/mcp-registry.service');
+const { createMcpRegistryRouter } = require('./src/routes/mcp-registry.routes');
+const { createExecRouter } = require('./src/routes/exec.routes');
+const { createDnsProviderRouter } = require('./src/routes/dns-provider.routes');
+const { createSitesRouter } = require('./src/routes/sites.routes');
+const { createProgramRegistry } = require('./src/programs/registry');
+const { createProgramStateService } = require('./src/programs/state.service');
+const { createProgramEngine } = require('./src/programs/engine');
+const { createProgramRouter } = require('./src/routes/program.routes');
+const { createGuardianService } = require('./src/guardian/guardian.service');
+const { registerGuardianSocketHandlers } = require('./src/sockets/registerGuardianSocketHandlers');
+const { registerSkillSocketHandlers } = require('./src/sockets/registerSkillSocketHandlers');
 
 // ─── 初始化核心服务 ─────────────────────────────────────────────────────
 const dataDir = path.join(ROOT_DIR, 'data');
@@ -80,9 +99,51 @@ const probeService = createProbeService({ hostRepository, hostService, sshShellP
 const bridgeService = createBridgeService({ hostService, auditService, sshPool, sshShellPool });
 const fileService = createFileService({ hostService });
 const ipFilterService = createIpFilterService({ db });
-const mcpService = createMcpService({ bridgeService, hostService, auditService, bridgeToken: BRIDGE_TOKEN });
 const scriptService = createScriptService({ scriptRepository, hostService, bridgeService, auditService });
 const playbookService = createPlaybookService({ playbookRepository, scriptService, auditService });
+const skillRegistry = createSkillRegistry(path.join(dataDir, 'skills'), { kind: 'skill' });
+const playbookRegistry = createSkillRegistry(path.join(dataDir, 'playbooks'), { kind: 'playbook' });
+const libraryService = createLibraryService({ skillRegistry, playbookRegistry });
+const mcpRegistry = createMcpRegistry({ dataDir });
+const skillRunner = createSkillRunner({
+  bridgeService,
+  hostService,
+  skillRegistry: libraryService,  // runner 通过 library 统一查找 Skill/Playbook
+  proxyConfigStore,
+  port: PORT,
+  auditService,
+  logger: log,
+  onFileWritten: () => {
+    try { libraryService.reload(); } catch { /* ignore */ }
+  },
+});
+const mcpService = createMcpService({ bridgeService, hostService, auditService, bridgeToken: BRIDGE_TOKEN });
+const siteScanService = createSiteScanService({ bridgeService, hostService });
+const siteDeleteService = createSiteDeleteService({ bridgeService });
+
+// ─── Program Engine (长驻程序) + Guardian AI ───────────────────────────
+const programRegistry = createProgramRegistry(path.join(dataDir, 'programs'));
+const programStateService = createProgramStateService({ db });
+const guardianService = createGuardianService({
+  bridgeService,
+  hostService,
+  proxyConfigStore,
+  port: PORT,
+  auditService,
+  logger: log,
+  skillRegistry: libraryService,  // 用 libraryService 便于 getSkill 兼容 Skill/Playbook
+  io,
+});
+const programEngine = createProgramEngine({
+  registry: programRegistry,
+  stateService: programStateService,
+  bridgeService,
+  hostService,
+  auditService,
+  logger: log,
+  io,
+  guardianService,
+});
 
 // ─── 路由挂载 ───────────────────────────────────────────────────────────
 app.use('/api/auth', createAuthRouter(authService));
@@ -116,12 +177,21 @@ app.use('/api', createAgentSetupRouter({ proxyConfigStore, cliSandbox }));
 app.use('/api', createFileRouter({ fileService }));
 app.use('/api', createIpFilterRouter({ ipFilterService }));
 app.use('/api', createScriptRouter({ scriptService, aiService }));
-app.use('/api', createPlaybookRouter({ playbookService }));
+app.use('/api', createWorkflowRouter({ playbookService }));
+app.use('/api', createSkillRouter({ libraryService, skillRunner }));
+app.use('/api', createSkillStudioRouter({ hostService, libraryService, mcpRegistry }));
+app.use('/api', createMcpRegistryRouter({ mcpRegistry }));
+app.use('/api', createExecRouter({ bridgeService, hostService }));
+app.use('/api', createSitesRouter({ siteScanService, siteDeleteService, hostService }));
+app.use('/api', createDnsProviderRouter({ dataDir }));
+app.use('/api', createProgramRouter({ registry: programRegistry, stateService: programStateService, engine: programEngine, hostService }));
 
 // ─── Socket.IO ──────────────────────────────────────────────────────────
 io.use(authService.authenticateSocket);
 registerSessionSocketHandlers(io, { sessionService });
-registerAgentSocketHandlers(io, { agentPtyService });
+registerAgentSocketHandlers(io, { agentPtyService, skillRegistry });
+registerSkillSocketHandlers(io, { skillRunner });
+registerGuardianSocketHandlers(io, { guardianService });
 
 // ─── 定时任务 ───────────────────────────────────────────────────────────
 probeService.startScheduler({
@@ -129,6 +199,9 @@ probeService.startScheduler({
     io.emit('probe:update', snapshot);
   },
 });
+
+// ─── Program Engine 启动（所有服务就位后再启）─────────────────────────
+programEngine.start();
 
 // ─── 启动 ───────────────────────────────────────────────────────────────
 hostRepository.ensureHostsFile();
@@ -147,6 +220,7 @@ server.listen(PORT, () => {
 // ─── 优雅退出 ───────────────────────────────────────────────────────────
 function shutdown() {
   log.info('1Shell 正在关闭...');
+  programEngine.stop();
   sshPool.closeAll();
   sshShellPool.closeAll();
   if (db) db.close();

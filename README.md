@@ -6,7 +6,7 @@
 
 零侵入式多机管理中枢 · AI 自动化运维总台
 
-[![version](https://img.shields.io/badge/version-1.0.0-4f8cff?style=flat-square)](https://github.com/weidu12123/1shell/releases)
+[![version](https://img.shields.io/badge/version-3.0.0-4f8cff?style=flat-square)](https://github.com/weidu12123/1shell/releases)
 [![node](https://img.shields.io/badge/node-%3E%3D18-43a047?style=flat-square&logo=node.js)](https://nodejs.org)
 [![license](https://img.shields.io/badge/license-MIT-f9a825?style=flat-square)](LICENSE)
 [![docker](https://img.shields.io/badge/docker-ready-2496ed?style=flat-square&logo=docker)](https://hub.docker.com)
@@ -253,17 +253,52 @@ PORT=3301
 
 ## Roadmap
 
+- [x] 3.0 Agent Skill：声明式自动化运维（一键建站、容器管理）
 - [ ] 前端 Vite 构建工具链
 - [ ] TypeScript 迁移
-- [ ] 文件上传 / 下载
 - [ ] 主机组批量操作
-- [ ] MCP 权限控制（限制 AI 只能操作指定主机）
-- [ ] HTTPS / TLS 证书自动管理
+- [x] MCP 权限控制（限制 AI 只能操作指定主机）
+- [x] HTTPS / TLS 证书自动管理（3.0 已通过 Skill 实现 Let’s Encrypt 自动申请/续期）
 - [ ] 国际化（i18n）
 
 ---
 
 ## 更新日志
+
+### 3.0.0 更新
+
+1Shell 3.0 从「多机运维平台」升级为「约束可控的自维护 AI 运维代理系统」。核心目标：让大模型代理在真实运维场景中既可控、又可持续学习。
+
+#### 三层分级执行架构
+
+- 新增 **L1 Playbook Executor**：声明式 YAML 定义步骤，按 verify 规则自动判定，零 token 消耗，毫秒级完成，全程可审计
+- 新增 **L2 AI Rescuer**：L1 步骤失败时激活，硬性预算（3 条命令 / 8 轮对话 / 2048 tokens），输出 retry_ok / patch_plan / give_up 三选一
+- 新增 **L3 Guardian**：长驻 Program 的守护者 AI，滑动窗口配额控制每小时介入次数，危险命令强制 ask_user
+
+#### Skill 能力包系统
+
+- rules/ 目录：人类写、AI 不可修改的硬约束（路径沙箱、命令红线、救援预算）
+- workflows/ + references/ 目录：AI 可根据执行历史自我演进的软过程
+- 新增 Skill 创作台：用户自然语言描述需求 → AI 生成完整 Playbook 目录 → 立即可运行
+- 内置 skill-authoring / program-authoring 元 Skill，具备系统自扩展能力
+
+#### 长驻 Program 与守护者
+
+- 新增 Program 模块：cron 触发的持续运行任务
+- on_fail=escalate 失败时自动唤醒 Guardian 自愈
+- 危险命令模式拦截：rm -rf、dd if=、mkfs、shutdown、reboot 等强制人工确认
+
+#### 已内置生产 Playbook
+
+- HTTPS 证书管理（acme.sh + Let’s Encrypt，Standalone / Cloudflare DNS-01）
+- Docker 容器生命周期管理与巡检
+- 网站列表侦察
+- Docker Rescue：镜像拉取失败 / 端口冲突 / 容器崩溃救援
+
+#### 版本发布
+
+- 当前版本升级为 3.0.0 正式版
+- 3.0 对应定位为「让 AI 自动化运维既可控又可持续」的分层智能代理系统
 
 ### 2.0.0 更新
 

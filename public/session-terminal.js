@@ -13,6 +13,32 @@
     terminalHintEl,
     updateActiveHostUI,
   }) {
+    const isDark = document.documentElement.classList.contains('dark');
+
+    const DARK_THEME = {
+      background: '#0f1729',
+      foreground: '#dbeafe',
+      cursor: '#4f8cff',
+      selectionBackground: 'rgba(79, 140, 255, 0.28)',
+      black: '#1f2937',   red: '#f87171',   green: '#4ade80',  yellow: '#fbbf24',
+      blue: '#60a5fa',    magenta: '#c084fc', cyan: '#22d3ee',  white: '#e5eefc',
+      brightBlack: '#4b5563',   brightRed: '#fca5a5',    brightGreen: '#86efac',
+      brightYellow: '#fcd34d',  brightBlue: '#93c5fd',   brightMagenta: '#d8b4fe',
+      brightCyan: '#67e8f9',    brightWhite: '#f8fafc',
+    };
+
+    const LIGHT_THEME = {
+      background: '#ffffff',
+      foreground: '#1e293b',
+      cursor: '#3b82f6',
+      selectionBackground: 'rgba(59, 130, 246, 0.18)',
+      black: '#374151',   red: '#dc2626',   green: '#16a34a',  yellow: '#ca8a04',
+      blue: '#2563eb',    magenta: '#7c3aed', cyan: '#0891b2',  white: '#f8fafc',
+      brightBlack: '#6b7280',   brightRed: '#ef4444',   brightGreen: '#22c55e',
+      brightYellow: '#eab308',  brightBlue: '#3b82f6',  brightMagenta: '#a855f7',
+      brightCyan: '#06b6d4',    brightWhite: '#ffffff',
+    };
+
     const term = new Terminal({
       cursorBlink: true,
       cursorStyle: 'bar',
@@ -20,29 +46,15 @@
       fontFamily: '"Cascadia Code", "JetBrains Mono", Consolas, monospace',
       lineHeight: 1.25,
       scrollback: 5000,
-      theme: {
-        background: '#0f1729',
-        foreground: '#dbeafe',
-        cursor: '#4f8cff',
-        selectionBackground: 'rgba(79, 140, 255, 0.28)',
-        black: '#1f2937',
-        red: '#f87171',
-        green: '#4ade80',
-        yellow: '#fbbf24',
-        blue: '#60a5fa',
-        magenta: '#c084fc',
-        cyan: '#22d3ee',
-        white: '#e5eefc',
-        brightBlack: '#4b5563',
-        brightRed: '#fca5a5',
-        brightGreen: '#86efac',
-        brightYellow: '#fcd34d',
-        brightBlue: '#93c5fd',
-        brightMagenta: '#d8b4fe',
-        brightCyan: '#67e8f9',
-        brightWhite: '#f8fafc',
-      },
+      theme: isDark ? DARK_THEME : LIGHT_THEME,
     });
+
+    // 监听主题切换，实时更新终端配色
+    const themeObserver = new MutationObserver(() => {
+      const nowDark = document.documentElement.classList.contains('dark');
+      term.options.theme = nowDark ? DARK_THEME : LIGHT_THEME;
+    });
+    themeObserver.observe(document.documentElement, { attributeFilter: ['class'] });
     const fitAddon = new FitAddon.FitAddon();
     const inputListeners = new Set();
     const outputListeners = new Set();

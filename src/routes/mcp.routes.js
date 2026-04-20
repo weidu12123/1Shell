@@ -15,15 +15,13 @@ function createMcpRouter({ mcpService }) {
   const router = Router();
 
   function requireToken(req, res, next) {
+    // 只接受 header 传 token，禁止 query param（防止进 access log / 浏览器历史）
     let token = req.headers['x-bridge-token'];
     if (!token) {
       const authHeader = req.headers['authorization'] || '';
       if (authHeader.startsWith('Bearer ')) {
         token = authHeader.slice(7);
       }
-    }
-    if (!token) {
-      token = req.query.token;
     }
     if (!mcpService.validateToken(token)) {
       return res.status(401).json({

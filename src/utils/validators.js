@@ -271,6 +271,13 @@ function validateAgentStartPayload(payload) {
   }
   ensureOptionalIntegerInRange(body.cols, { field: 'cols', min: 20, max: 400 });
   ensureOptionalIntegerInRange(body.rows, { field: 'rows', min: 10, max: 200 });
+  // Skill 相关（可选）
+  if (hasOwn(body, 'skillId')) {
+    ensureOptionalString(body.skillId, 'skillId 必须是字符串');
+  }
+  if (hasOwn(body, 'skillInputs') && body.skillInputs != null) {
+    ensureObject(body.skillInputs, 'skillInputs 必须是对象');
+  }
   return body;
 }
 
@@ -301,6 +308,38 @@ function validateAgentFocusPayload(payload) {
   const body = ensureObject(payload, 'agent:focus-host 参数必须是对象');
   ensureNonEmptyString(body.agentSessionId, 'agentSessionId 不能为空');
   ensureNonEmptyString(body.hostId, 'hostId 不能为空');
+  return body;
+}
+
+// ─── Skill Runner（3.0 新增） ─────────────────────────────────────────────
+
+function validateSkillRunPayload(payload) {
+  const body = ensureObject(payload, 'skill:run 参数必须是对象');
+  ensureNonEmptyString(body.runId, 'runId 不能为空');
+  ensureNonEmptyString(body.skillId, 'skillId 不能为空');
+  ensureNonEmptyString(body.hostId, 'hostId 不能为空');
+  if (hasOwn(body, 'inputs') && body.inputs != null) {
+    ensureObject(body.inputs, 'inputs 必须是对象');
+  }
+  if (hasOwn(body, 'rescuerSkillId') && body.rescuerSkillId != null && body.rescuerSkillId !== '') {
+    if (typeof body.rescuerSkillId !== 'string') {
+      throw createValidationError('rescuerSkillId 必须是字符串');
+    }
+  }
+  return body;
+}
+
+function validateSkillContinuePayload(payload) {
+  const body = ensureObject(payload, 'skill:continue 参数必须是对象');
+  ensureNonEmptyString(body.runId, 'runId 不能为空');
+  ensureNonEmptyString(body.toolUseId, 'toolUseId 不能为空');
+  // answer 可以是任意 JSON 值
+  return body;
+}
+
+function validateSkillStopPayload(payload) {
+  const body = ensureObject(payload, 'skill:stop 参数必须是对象');
+  ensureNonEmptyString(body.runId, 'runId 不能为空');
   return body;
 }
 
@@ -452,6 +491,9 @@ module.exports = {
   validateSessionCreatePayload,
   validateSessionInputPayload,
   validateSessionResizePayload,
+  validateSkillContinuePayload,
+  validateSkillRunPayload,
+  validateSkillStopPayload,
   validateTerminalInlineCompletionBody,
   validateAnalyzeSelectionBody,
 };

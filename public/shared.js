@@ -22,13 +22,15 @@
         ? { 'x-csrf-token': getCsrfToken() }
         : {};
 
+      // ⚠️ headers 必须放在 `...options` 之后合并，
+      // 否则调用方传入 options.headers 时会整块覆盖 csrfHeaders，导致 CSRF 失败。
       const response = await fetch(url, {
+        ...options,
         headers: {
           'Content-Type': 'application/json',
-          ...csrfHeaders,
           ...(options.headers || {}),
+          ...csrfHeaders,
         },
-        ...options,
       });
 
       const data = await response.json().catch(() => ({}));
@@ -106,11 +108,162 @@
     showToast(message, 'error', 5000);
   }
 
+  // ─── render_result 共享渲染器 ────────────────────────────────────────
+  // 把 AI 的 render_result payload 渲染成一个 HTMLElement，可插入任何容器。
+  // 使用方：skill-studio.js、skills-page.js、programs-page.js
+
+  function renderResultCard(payload, { onRowAction } = {}) {
+    const p = payload || {};
+    const level  = p.level  || 'info';
+    const format = p.format || 'message';
+
+    const el = document.createElement('div');
+    el.className = `render-card level-${escapeHtml(level)}`;
+
+    // ── 标题区 ──────────────────────────────────────────────────────
+    let html = '';
+    if (p.title) {
+      html += `<div class="render-card-title">${escapeHtml(p.title)}</div>`;
+    }
+    if (p.subtitle) {
+      html += `<div class="render-card-subtitle">${escapeHtml(p.subtitle)}</div>`;
+    }
+
+    // ── 内容区 ──────────────────────────────────────────────────────
+    if (format === 'table') {
+      html += _renderTable(p);
+    } else if (format === 'keyvalue') {
+      html += _renderKeyValue(p);
+    } else if (format === 'list') {
+      html += _renderList(p);
+    } else if (format === 'code') {
+      html += _renderCode(p);
+    } else {
+      // message（默认）
+      html += _renderMessage(p);
+    }
+
+    el.innerHTML = html;
+
+    // ── 行操作按钮事件 ────────────────────────────────────────────
+    if (format === 'table' && typeof onRowAction === 'function') {
+      el.querySelectorAll('[data-row-action]').forEach((btn) => {
+        btn.addEventListener('click', () => {
+          const rowIndex = parseInt(btn.dataset.rowIndex, 10);
+          onRowAction(rowIndex, btn.dataset.rowAction, p);
+        });
+      });
+    }
+
+    return el;
+  }
+
+  // ── 内部渲染函数 ─────────────────────────────────────────────────────
+
+  function _renderTable(p) {
+    const cols    = Array.isArray(p.columns)    ? p.columns    : [];
+    const rows    = Array.isArray(p.rows)       ? p.rows       : [];
+    const actions = Array.isArray(p.rowActions) ? p.rowActions : [];
+
+    if (rows.length === 0) {
+      return '<div class="render-empty">（空）</div>';
+    }
+
+    const thead = cols.map((c) => `<th>${escapeHtml(c)}</th>`).join('') +
+      (actions.length ? '<th class="text-right">操作</th>' : '');
+
+    const tbody = rows.map((row, rowIndex) => {
+      const cells = Array.isArray(row)
+        ? row.map((c) => `<td class="align-middle">${escapeHtml(String(c == null ? '' : c))}</td>`).join('')
+        : `<td colspan="${cols.length}" class="text-slate-400">${escapeHtml(String(row))}</td>`;
+
+      const name = Array.isArray(row) ? String(row[0] || '') : '';
+      const isProtected = /1shell/i.test(name);
+
+      const actionCell = actions.length
+        ? `<td class="text-right align-middle whitespace-nowrap">${
+            isProtected
+              ? '<span class="text-[10px] text-slate-400 italic">受保护</span>'
+              : actions.map((a) =>
+                  `<button class="row-action-btn text-[10px] px-2 py-1 rounded border border-slate-200 dark:border-slate-600 hover:bg-blue-50 dark:hover:bg-blue-500/10 hover:border-blue-400 text-slate-600 dark:text-slate-300 mr-1 transition-all"
+                     data-row-index="${rowIndex}" data-row-action="${escapeHtml(a.value || '')}">${escapeHtml(a.label || a.value || '执行')}</button>`
+                ).join('')
+          }</td>`
+        : '';
+
+      return `<tr>${cells}${actionCell}</tr>`;
+    }).join('');
+
+    return `
+      <div class="overflow-x-auto mt-2">
+        <table class="result-table w-full text-xs border-collapse">
+          <thead><tr>${thead}</tr></thead>
+          <tbody>${tbody}</tbody>
+        </table>
+      </div>
+    `;
+  }
+
+  function _renderKeyValue(p) {
+    // 支持两种格式：items:[{key,value}] 或 data:{key:value}
+    let items = [];
+    if (Array.isArray(p.items) && p.items.length > 0) {
+      items = p.items;
+    } else if (p.data && typeof p.data === 'object') {
+      items = Object.entries(p.data).map(([key, value]) => ({ key, value }));
+    }
+    if (items.length === 0) return '<div class="render-empty">（无内容）</div>';
+
+    return `
+      <div class="grid grid-cols-1 gap-1.5 mt-2">
+        ${items.map((item) => `
+          <div class="flex items-start gap-3 text-xs">
+            <div class="w-28 shrink-0 text-slate-500 dark:text-slate-400 font-medium">${escapeHtml(item.key || '')}</div>
+            <div class="flex-1 text-slate-700 dark:text-slate-200 font-mono whitespace-pre-wrap break-all">${escapeHtml(String(item.value == null ? '' : item.value))}</div>
+          </div>
+        `).join('')}
+      </div>
+    `;
+  }
+
+  function _renderList(p) {
+    const items = Array.isArray(p.listItems) ? p.listItems : [];
+    if (items.length === 0) return '<div class="render-empty">（空）</div>';
+    return `
+      <div class="flex flex-col gap-2 mt-2">
+        ${items.map((item) => `
+          <div class="border-l-2 border-blue-300 dark:border-blue-500/60 pl-3">
+            <div class="text-xs font-semibold text-slate-700 dark:text-slate-200">${escapeHtml(item.title || '')}</div>
+            ${item.description ? `<div class="text-[11px] text-slate-400 mt-0.5">${escapeHtml(item.description)}</div>` : ''}
+          </div>
+        `).join('')}
+      </div>
+    `;
+  }
+
+  function _renderCode(p) {
+    return `
+      <pre class="render-code mt-2 text-xs bg-slate-900 text-green-300 rounded-lg p-3 overflow-x-auto whitespace-pre-wrap break-all"><code>${escapeHtml(p.content || '')}</code></pre>
+    `;
+  }
+
+  function _renderMessage(p) {
+    const icons = { success: '✓', error: '✗', warn: '⚠', info: 'ℹ' };
+    const icon = icons[p.level] || '';
+    return `
+      <div class="flex items-start gap-2 mt-1 text-xs text-slate-600 dark:text-slate-300">
+        ${icon ? `<span class="shrink-0 font-bold">${icon}</span>` : ''}
+        <div class="whitespace-pre-wrap">${escapeHtml(p.content || '')}</div>
+      </div>
+    `;
+  }
+
   window.appShared = Object.freeze({
     createRequestJson,
     escapeHtml,
     getCsrfToken,
     showErrorMessage,
     showToast,
+    renderResultCard,
   });
 })();

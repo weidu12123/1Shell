@@ -1016,8 +1016,8 @@
   async function loadPlaybooks() {
     playbookListView.innerHTML = '<div class="text-center text-slate-400 text-xs py-8">加载中...</div>';
     try {
-      const resp = await requestJson('/api/playbooks');
-      state.playbooks = resp.playbooks || [];
+      const resp = await requestJson('/api/workflows');
+      state.playbooks = resp.workflows || [];
       renderPlaybookList();
     } catch (err) {
       playbookListView.innerHTML = `<div class="text-center text-red-400 text-xs py-8">加载失败: ${escapeHtml(err.message)}</div>`;
@@ -1181,14 +1181,14 @@
     pbSaveBtn.textContent = '保存中...';
     try {
       if (state.isNewPlaybook) {
-        const resp = await requestJson('/api/playbooks', { method: 'POST', body: JSON.stringify(draft) });
-        state.currentPlaybookId = resp.playbook.id;
+        const resp = await requestJson('/api/workflows', { method: 'POST', body: JSON.stringify(draft) });
+        state.currentPlaybookId = resp.workflow.id;
         state.isNewPlaybook = false;
-        state.currentPlaybookDraft = deepClone(resp.playbook);
+        state.currentPlaybookDraft = deepClone(resp.workflow);
         showToast('Playbook 已创建', 'success');
       } else {
-        const resp = await requestJson(`/api/playbooks/${encodeURIComponent(state.currentPlaybookId)}`, { method: 'PUT', body: JSON.stringify(draft) });
-        state.currentPlaybookDraft = deepClone(resp.playbook);
+        const resp = await requestJson(`/api/workflows/${encodeURIComponent(state.currentPlaybookId)}`, { method: 'PUT', body: JSON.stringify(draft) });
+        state.currentPlaybookDraft = deepClone(resp.workflow);
         showToast('Playbook 已保存', 'success');
       }
       pbDeleteBtn.classList.remove('hidden');
@@ -1209,7 +1209,7 @@
     pbRunBtn.disabled = true;
     pbRunBtn.textContent = '执行中...';
     try {
-      const resp = await requestJson(`/api/playbooks/${encodeURIComponent(state.currentPlaybookId)}/run`, { method: 'POST' });
+      const resp = await requestJson(`/api/workflows/${encodeURIComponent(state.currentPlaybookId)}/run`, { method: 'POST' });
       const run = resp.run;
       if (run.status === 'success') {
         showToast(`Playbook 执行成功，完成 ${run.completedSteps}/${run.totalSteps} 步`, 'success');
@@ -1234,7 +1234,7 @@
     const handler = async () => {
       confirmOk.removeEventListener('click', handler);
       try {
-        await requestJson(`/api/playbooks/${encodeURIComponent(state.currentPlaybookId)}`, { method: 'DELETE' });
+        await requestJson(`/api/workflows/${encodeURIComponent(state.currentPlaybookId)}`, { method: 'DELETE' });
         showToast('Playbook 已删除', 'success');
         state.currentPlaybookId = null;
         state.currentPlaybookDraft = null;

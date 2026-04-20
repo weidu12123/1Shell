@@ -11,7 +11,7 @@ const {
   AGENT_DEFAULT_PROVIDER,
 } = require('../config/env');
 
-function registerAgentSocketHandlers(io, { agentPtyService }) {
+function registerAgentSocketHandlers(io, { agentPtyService, skillRegistry }) {
   io.on('connection', (socket) => {
     socket.on('agent:providers', (reply = () => {}) => {
       try {
@@ -28,7 +28,22 @@ function registerAgentSocketHandlers(io, { agentPtyService }) {
     socket.on('agent:start', (payload = {}, reply = () => {}) => {
       try {
         const validated = validateAgentStartPayload(payload);
-        const session = agentPtyService.createAgentSession(socket, validated);
+
+        // Skill 解析：拿到完整 skill 对象 + 渲染参数摘要
+        let skill = null;
+        let inputsSummary = null;
+        if (validated.skillId && skillRegistry) {
+          skill = skillRegistry.getSkill(validated.skillId);
+          if (skill) {
+            inputsSummary = skillRegistry.renderInputsSummary(skill, validated.skillInputs || {});
+          }
+        }
+
+        const session = agentPtyService.createAgentSession(socket, {
+          ...validated,
+          skill,
+          inputsSummary,
+        });
         reply({ ok: true, session: agentPtyService.serializeAgentSession(session) });
       } catch (error) {
         reply({ ok: false, error: error.message });

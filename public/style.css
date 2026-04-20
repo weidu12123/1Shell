@@ -13,9 +13,19 @@ button { cursor: pointer; font-family: inherit; }
 #lp-vps-section, #lp-file-section, #terminal-tabs { position: relative; }
 
 /* ── 状态点动态颜色（JS 动态设置 class） ─────────────────── */
+.status-dot {
+  display: inline-block;
+  width: 8px; height: 8px;
+  border-radius: 50%;
+  background: #94a3b8;   /* 默认灰色（未连接/初始化） */
+  flex-shrink: 0;
+}
 .status-dot.connecting { background: #d97706 !important; }
 .status-dot.ready, .status-dot.online { background: #059669 !important; }
 .status-dot.error, .status-dot.closed, .status-dot.offline { background: #dc2626 !important; }
+
+/* terminal-hint：内容为空时自动隐藏，防止空 div 渲染成灰色残影 */
+.terminal-hint:empty { display: none !important; }
 
 /* ── xterm 覆盖 ──────────────────────────────────────────── */
 .xterm, .xterm-viewport { height: 100% !important; }
@@ -355,6 +365,41 @@ button { cursor: pointer; font-family: inherit; }
    ══════════════════════════════════════════════════════════ */
 
 /* ── 1. body 背景：光晕 + 科技点阵 ─────────────────────── */
+/* 预设背景色防止页面切换时白色闪烁 */
+html { background: #f1f5f9; }
+.dark html, html.dark { background: #0a0f1c; }
+
+/* ── 侧边栏 Light Mode 覆盖 ──────────────────────────── */
+/* 默认（深色）在各页面内联 style 里定义；这里用 :not(.dark) 覆盖为浅色 */
+html:not(.dark) .app-sidebar {
+  background: linear-gradient(180deg, #f0f4ff 0%, #e8eef8 100%) !important;
+  box-shadow: 2px 0 10px rgba(0,0,0,0.07);
+  border-right: 1px solid #dde5f0;
+}
+html:not(.dark) .app-sidebar .side-nav-item {
+  color: #64748b;
+}
+html:not(.dark) .app-sidebar .side-nav-item:hover {
+  background: rgba(79,140,255,0.08);
+  color: #2563eb;
+}
+html:not(.dark) .app-sidebar .side-nav-item.active {
+  background: linear-gradient(135deg, rgba(79,140,255,0.15), rgba(139,92,246,0.12));
+  color: #2563eb;
+}
+html:not(.dark) .app-sidebar .side-nav-item.active::before {
+  background: linear-gradient(180deg, #4f8cff, #7c3aed);
+  box-shadow: 0 0 8px rgba(79,140,255,0.4);
+}
+/* logo 1S 按钮在浅色侧边栏下保持深色不变（蓝紫渐变本身已足够对比） */
+html:not(.dark) .app-sidebar > a:first-child {
+  box-shadow: 0 4px 12px rgba(79,140,255,0.25);
+}
+/* 分隔线颜色 */
+html:not(.dark) .app-sidebar .mx-3.h-px {
+  background: rgba(79,140,255,0.15) !important;
+}
+
 body {
   background-image:
     radial-gradient(ellipse 80% 50% at 50% -5%, rgba(99,149,255,0.22) 0%, transparent 60%),

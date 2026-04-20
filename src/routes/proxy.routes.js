@@ -55,16 +55,22 @@ async function callOpenAIResponsesUpstream(base, apiKey, body) {
   });
 }
 
-async function callAnthropicUpstream(base, apiKey, body) {
+async function callAnthropicUpstream(base, apiKey, body, extraHeaders) {
   let url = base.replace(/\/$/, '');
   if (!/\/v1$/.test(url)) url += '/v1';
+  const headers = {
+    'Content-Type': 'application/json',
+    'x-api-key': apiKey,
+    'anthropic-version': '2023-06-01',
+  };
+  if (extraHeaders && typeof extraHeaders === 'object') {
+    for (const [k, v] of Object.entries(extraHeaders)) {
+      if (v != null && v !== '') headers[k] = String(v);
+    }
+  }
   return fetch(`${url}/messages`, {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'x-api-key': apiKey,
-      'anthropic-version': '2023-06-01',
-    },
+    headers,
     body: JSON.stringify(body),
   });
 }
@@ -509,6 +515,75 @@ function createProxyRouter({ proxyConfigStore }) {
   }
 
   router.post('/claude/v1/messages', (req, res) => handleAnthropicClient('claude-code', 'Claude Code', req, res));
+
+  // ─── Skill Runner 专用端点 ─────────────────────────────────────────
+  //   Skill SDK 模式下的内部回环调用。读 'skills' 槽位的 provider，
+  //   未配置时回退到 'claude-code' 的 provider，实现"零配置开箱可用"。
+  async function handleSkillsClient(req, res) {
+    const active = proxyConfigStore.getActiveProvider('skills')
+                || proxyConfigStore.getActiveProvider('claude-code');
+    if (!active || !active.apiBase || !active.apiKey) {
+      return errResponse(res, 503, '1Shell Skill Runner 未配置 Provider，请在"接入"页给 Claude Code 或 Skills 添加 Provider', 'anthropic');
+    }
+
+    const body = req.body || {};
+    const isStream = body.stream === true;
+    const upstream = active.upstreamProtocol || 'openai';
+
+    if (upstream === 'anthropic') {
+      try {
+        // 若请求体包含 mcp_servers，自动附带 mcp-client beta header
+        const extra = {};
+        if (Array.isArray(body.mcp_servers) && body.mcp_servers.length > 0) {
+          extra['anthropic-beta'] = 'mcp-client-2025-04-04';
+        }
+        const upResp = await callAnthropicUpstream(active.apiBase, active.apiKey, body, extra);
+        if (isStream) {
+          streamPassthrough(res, upResp.body, 'text/event-stream');
+        } else {
+          const data = await upResp.json();
+          res.status(upResp.status).json(data);
+        }
+      } catch (err) {
+        log.error('Skill Runner Anthropic 透传失败', { error: err.message });
+        errResponse(res, 502, `代理请求失败: ${err.message}`, 'anthropic');
+      }
+    } else {
+      const targetModel = active.model || 'gpt-4o';
+      const openaiTools = convertAnthropicToolsToOpenAI(body.tools);
+      const openaiBody = {
+        model: targetModel,
+        messages: anthropicToOpenAIMessages(body.system, body.messages),
+        max_tokens: body.max_tokens || 4096,
+        stream: isStream,
+      };
+      if (body.temperature != null) openaiBody.temperature = body.temperature;
+      if (body.top_p != null) openaiBody.top_p = body.top_p;
+      if (openaiTools && openaiTools.length > 0) {
+        openaiBody.tools = openaiTools;
+        openaiBody.tool_choice = 'auto';
+      }
+      try {
+        const upResp = await callOpenAIUpstream(active.apiBase, active.apiKey, openaiBody);
+        if (!upResp.ok) {
+          const errText = await upResp.text().catch(() => '');
+          return errResponse(res, upResp.status, `上游 API 返回 ${upResp.status}: ${errText.substring(0, 500)}`, 'anthropic');
+        }
+        if (isStream) {
+          streamOpenAIToAnthropic(res, upResp.body, body.model || targetModel);
+        } else {
+          const data = await upResp.json();
+          res.json(openaiToAnthropicResponse(data, body.model || targetModel));
+        }
+      } catch (err) {
+        log.error('Skill Runner 代理请求失败', { error: err.message });
+        errResponse(res, 502, `代理请求失败: ${err.message}`, 'anthropic');
+      }
+    }
+  }
+
+  router.post('/skills/v1/messages', handleSkillsClient);
+
   router.get('/claude/v1/models', (_req, res) => {
     res.json({ data: [
       { id: 'claude-sonnet-4-20250514', display_name: 'Claude Sonnet 4', created_at: '2025-05-14' },

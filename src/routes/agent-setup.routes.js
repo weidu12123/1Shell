@@ -104,8 +104,19 @@ function createAgentSetupRouter({ proxyConfigStore, cliSandbox } = {}) {
     return true;
   }
 
+  // 允许 CLI manifest 中的 ID + 'skills'（Skill 专用 API 槽位）
+  const EXTRA_PROVIDER_SLOTS = ['skills'];
+
+  // Skill 引擎（'skills' 槽位）不是 CLI，没有 manifest，但仍需要上游协议约束。
+  // Rescuer 走 /api/proxy/skills/v1/messages 调 Anthropic Messages API，因此支持 anthropic；
+  // 同时允许 openai 以便用户复用已有的 OpenAI 兼容端点。
+  const EXTRA_MANIFESTS = {
+    skills: { id: 'skills', name: 'Skill 引擎', supportedUpstream: ['anthropic', 'openai'] },
+  };
+  const resolveManifest = (cliId) => getManifest(cliId) || EXTRA_MANIFESTS[cliId] || null;
+
   function validateCli(cliId, res) {
-    if (!getManifest(cliId)) {
+    if (!getManifest(cliId) && !EXTRA_PROVIDER_SLOTS.includes(cliId)) {
       res.status(400).json({ ok: false, error: `未知 CLI: ${cliId}` });
       return false;
     }
@@ -182,11 +193,12 @@ function createAgentSetupRouter({ proxyConfigStore, cliSandbox } = {}) {
     if (!body.apiBase || !body.apiKey) {
       return res.status(400).json({ ok: false, error: 'apiBase 和 apiKey 不能为空' });
     }
-    const cli = getManifest(req.params.cliId);
+    const cli = resolveManifest(req.params.cliId);
     const allowed = cli?.supportedUpstream || ['openai'];
     const upstream = body.upstreamProtocol || 'openai';
     if (!allowed.includes(upstream)) {
-      return res.status(400).json({ ok: false, error: `${cli.name} 不支持 ${upstream} 上游协议，可选: ${allowed.join(', ')}` });
+      const label = cli?.name || req.params.cliId;
+      return res.status(400).json({ ok: false, error: `${label} 不支持 ${upstream} 上游协议，可选: ${allowed.join(', ')}` });
     }
     const id = proxyConfigStore.addProvider(req.params.cliId, body);
     return res.json({ ok: true, id });

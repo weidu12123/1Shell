@@ -109,6 +109,54 @@
       else if (action === 'config') openModal(id);
       else if (action === 'copy-cmd') copyLaunchCommand(id);
     });
+
+    // ─── Skill 专用 API 配置 ──────────────────
+    const skillApiStatus = $('skill-api-status');
+    const skillApiBtn = $('skill-api-config-btn');
+    if (skillApiBtn) {
+      skillApiBtn.addEventListener('click', () => openSkillApiModal());
+    }
+    // 初始检查 Skill API 状态
+    loadSkillApiStatus();
+  }
+
+  async function loadSkillApiStatus() {
+    const statusEl = $('skill-api-status');
+    if (!statusEl) return;
+    try {
+      const resp = await requestJson('/api/agent/providers/skills');
+      const providers = resp.providers || [];
+      const active = providers.find(p => p.id === resp.activeProviderId) || providers[0];
+      if (active && active.apiKeySet) {
+        statusEl.innerHTML = `<span class="text-emerald-600 dark:text-emerald-400">● 已配置</span> · ${escapeHtml(active.name || 'default')} · ${escapeHtml(active.model || '')}`;
+      } else if (providers.length > 0) {
+        statusEl.innerHTML = '<span class="text-amber-500">● API Key 未设置</span>';
+      } else {
+        statusEl.innerHTML = '<span class="text-slate-400">未配置（回退到 Claude Code 渠道）</span>';
+      }
+    } catch {
+      statusEl.innerHTML = '<span class="text-slate-400">未配置（回退到 Claude Code 渠道）</span>';
+    }
+  }
+
+  async function openSkillApiModal() {
+    editingCliId = 'skills';
+    editingPid = null;
+
+    proxyModalTitle.textContent = '配置 Skill 专用 API';
+    proxyModalSubtitle.textContent = 'Skill 执行引擎使用的 Provider（支持 OpenAI 兼容 / Anthropic）';
+
+    Array.from(pmUpstream.options).forEach((opt) => {
+      opt.disabled = false;
+      opt.hidden = false;
+    });
+    pmUpstream.value = 'openai';
+    pmEnvHint.classList.add('hidden');
+
+    proxyModal.classList.remove('hidden');
+    proxyModal.classList.add('flex');
+    await loadProviders();
+    resetFormToAdd();
   }
 
   async function rescan() {
@@ -543,6 +591,7 @@
       showToast(editingPid ? '渠道已更新' : '渠道已添加', 'success');
       await loadProviders();
       await loadScan();
+      loadSkillApiStatus();
       resetFormToAdd();
     } catch (err) {
       pmStatus.textContent = `✗ 保存失败: ${err.message}`;

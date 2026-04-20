@@ -22,13 +22,13 @@ function createCliSandbox({ dataDir, bridgeToken, port, proxyConfigStore }) {
     if (cliId === 'opencode') {
       return {
         type: 'remote',
-        url: `${serverOrigin}/mcp/sse?token=${bridgeToken}`,
+        url: `${serverOrigin}/mcp/sse`,
         headers: { 'X-Bridge-Token': bridgeToken },
       };
     }
     return {
       type: 'sse',
-      url: `${serverOrigin}/mcp/sse?token=${bridgeToken}`,
+      url: `${serverOrigin}/mcp/sse`,
       headers: { 'X-Bridge-Token': bridgeToken },
     };
   }

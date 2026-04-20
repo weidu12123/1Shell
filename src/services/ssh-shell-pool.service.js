@@ -41,6 +41,10 @@ function createSshShellPool({ hostService }) {
       entry.pendingCmd.reject(new Error('shell connection closed'));
       entry.pendingCmd = null;
     }
+    for (const q of (entry.queue || [])) {
+      q.reject(new Error('shell connection closed'));
+    }
+    entry.queue = [];
     try { entry.shell?.close(); } catch { /* ignore */ }
     try { entry.client?.end(); } catch { /* ignore */ }
     try { entry.proxyClient?.end(); } catch { /* ignore */ }
@@ -96,6 +100,19 @@ function createSshShellPool({ hostService }) {
     resetIdleTimer(hostId);
 
     resolveFn({ stdout: output, stderr: '', exitCode });
+
+    // 处理队列中等待的下一条命令
+    processQueue(hostId);
+  }
+
+  function processQueue(hostId) {
+    const entry = pool.get(hostId);
+    if (!entry || entry.busy || !entry.queue || entry.queue.length === 0) return;
+    const next = entry.queue.shift();
+    // 通过 exec 调度，但跳过排队（shell 已就绪）
+    _execOnEntry(hostId, entry, next.command, next.timeoutMs, next.startAt)
+      .then(next.resolve)
+      .catch(next.reject);
   }
 
   // ─── 建立持久 shell ─────────────────────────────────────────────────────
@@ -125,6 +142,7 @@ function createSshShellPool({ hostService }) {
       busy: false,
       buffer: '',
       pendingCmd: null,
+      queue: [],    // 并发请求排队
     };
 
     pool.set(hostId, entry);
@@ -137,15 +155,15 @@ function createSshShellPool({ hostService }) {
     client.on('error', () => destroyEntry(hostId));
     client.on('close', () => destroyEntry(hostId));
 
-    // 等待初始 shell prompt 输出（给 shell 一点初始化时间）
-    await new Promise((r) => setTimeout(r, 500));
+    // 等待初始 shell prompt 输出
+    await new Promise((r) => setTimeout(r, 200));
     // 清空初始 banner/prompt
     entry.buffer = '';
 
     // 设置 shell 环境：关闭 prompt、echo，让输出更干净
     shell.write('export PS1="" PS2="" PROMPT_COMMAND=""\n');
     shell.write('stty -echo 2>/dev/null\n');
-    await new Promise((r) => setTimeout(r, 300));
+    await new Promise((r) => setTimeout(r, 100));
     entry.buffer = '';
 
     resetIdleTimer(hostId);
@@ -167,10 +185,11 @@ function createSshShellPool({ hostService }) {
 
     let entry = pool.get(hostId);
 
-    // 如果已有 shell 但正忙，等它完成或超时后销毁重建
+    // shell 正忙 → 排队等待，不销毁正在运行的命令
     if (entry && entry.busy) {
-      destroyEntry(hostId);
-      entry = null;
+      return new Promise((resolve, reject) => {
+        entry.queue.push({ command, timeoutMs, startAt, resolve, reject });
+      });
     }
 
     // 没有可用 shell，新建
@@ -178,8 +197,12 @@ function createSshShellPool({ hostService }) {
       entry = await createShellEntry(hostId);
     }
 
+    return _execOnEntry(hostId, entry, command, timeoutMs, startAt);
+  }
+
+  function _execOnEntry(hostId, entry, command, timeoutMs, startAt) {
     const startMarker = makeMarker();
-    const endMarker = makeMarker();
+    const endMarker   = makeMarker();
 
     return new Promise((resolve, reject) => {
       entry.busy = true;

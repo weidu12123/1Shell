@@ -14,8 +14,51 @@ test-results/
 *.pyc
 __pycache__/
 
+# Debug / 临时文件
+_debug*.txt
+_debug*.js
+_rescue_logs*.txt
+_logs*.txt
+_full_logs*.txt
+conf_raw_*.txt
+*.tmp
+
 # 部署脚本（含服务器凭据，仅本地使用）
 deploy.js
+deploy_*.py
+hot_deploy.py
+remote_deploy.py
+rebuild*.py
+patch_env.py
+probe_*.py
+upload_data.py
+
+# 一次性测试脚本
+e2e_test.py
+smoke_test.py
+smoke-test.sh
+test_rescue_e2e.py
+test_parse*.js
+test-*-wrapper.cmd
+test-skill-*.js
+
+# PPT / 演示产物
+*.pptx
+make_ppt.py
+ppt-assets/
 
 # 内部规格/设计文档（不对外发布）
 .spec-workflow/
+
+# CLI 沙箱（首次运行自动生成；含用户会话记录与本地 Bridge Token，不进仓库）
+data/cli-sandbox/
+
+# Skill 运行时工作目录（每次运行自动生成）
+data/skill-workspaces/
+
+# 数据迁移产物
+data/*.json.migrated
+
+# 本地 AI 工具工作目录（含本机 Bridge Token、会话快照等）
+.claude/
+.gemini/

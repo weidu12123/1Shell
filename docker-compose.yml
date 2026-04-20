@@ -9,8 +9,23 @@ services:
       - "${PORT:-3301}:3301"
     volumes:
       - ./data:/app/data
+      # 开发态：挂载前端 + 后端源码，改动 restart 即生效（重建镜像时可去掉）
+      - ./public:/app/public
+      - ./server.js:/app/server.js:ro
+      - ./src:/app/src:ro
+      # 本机管理：宿主 docker socket + CLI + 1Panel 目录
+      - /var/run/docker.sock:/var/run/docker.sock
+      - /usr/bin/docker:/usr/bin/docker:ro
+      - /opt/1panel:/opt/1panel:ro
+      # 常见 Web 服务/证书路径（存在则挂载；不存在也不影响启动）
+      - /etc/nginx:/etc/nginx:ro
+      - /etc/letsencrypt:/etc/letsencrypt:ro
+      - /etc/caddy:/etc/caddy:ro
+      - /root/.acme.sh:/root/.acme.sh:ro
+      - /www:/www:ro
       # 将宿主机的 AI CLI 工具挂载进容器（只读），无需在镜像内安装
       - /root/.claude:/root/.claude
+      - /root/.claude.json:/root/.claude.json
       - /usr/local/bin/claude:/usr/local/bin/claude:ro
       - /usr/local/lib/node_modules/@anthropic-ai:/usr/local/lib/node_modules/@anthropic-ai:ro
       - /usr/bin/opencode:/usr/bin/opencode:ro

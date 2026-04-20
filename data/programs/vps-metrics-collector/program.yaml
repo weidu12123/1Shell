@@ -1,0 +1,136 @@
+name: VPS 系统指标采集
+description: |
+  每 30 秒采集一次 VPS 的 CPU 使用率、系统负载、内存、磁盘使用情况，
+  并统计各进程和 Docker 容器的内存占用，写入审计日志。
+  支持手动触发查看实时快照。
+
+enabled: false
+
+hosts:
+  - host_86c589ef-d2d6-47bc-b985-147c1c02f1e9
+  - host_c2a3c6e3-6cff-4bc0-bd69-1a7c3dd8e6e7
+
+triggers:
+  - id: every_30s
+    type: cron
+    schedule: "*/30 * * * * *"
+    action: collect_metrics
+  - id: manual_run
+    type: manual
+    action: collect_metrics
+
+actions:
+  collect_metrics:
+    on_fail: escalate
+    steps:
+      # ── Step 1: CPU 使用率（两次采样 diff，精度更高）──────────────────
+      - id: cpu_usage
+        label: CPU 使用率
+        run: |
+          r1=$(awk '/^cpu /{print $2+$4, $2+$3+$4+$5+$6+$7+$8}' /proc/stat)
+          sleep 1
+          r2=$(awk '/^cpu /{print $2+$4, $2+$3+$4+$5+$6+$7+$8}' /proc/stat)
+          awk -v r1="$r1" -v r2="$r2" 'BEGIN{
+            split(r1,a," "); split(r2,b," ");
+            printf "%.1f", (b[1]-a[1])/(b[2]-a[2])*100}'
+        verify:
+          exit_code: 0
+          stdout_match: '^[0-9]'
+        capture_stdout: true
+        on_error_hint: /proc/stat 无法读取，检查内核版本或权限
+
+      # ── Step 2: 系统负载 ──────────────────────────────────────────────
+      - id: sys_load
+        label: 系统负载 (1/5/15min)
+        run: awk '{printf "%s / %s / %s", $1, $2, $3}' /proc/loadavg
+        verify:
+          exit_code: 0
+          stdout_match: '^[0-9]'
+        capture_stdout: true
+        on_error_hint: /proc/loadavg 无法读取
+
+      # ── Step 3: 内存使用 ──────────────────────────────────────────────
+      - id: mem_usage
+        label: 内存使用情况
+        run: |
+          pct=$(awk '/MemTotal/{t=$2}/MemAvailable/{a=$2}END{printf "%.1f",(t-a)/t*100}' /proc/meminfo)
+          detail=$(free -m | awk 'NR==2{printf "%dMB used / %dMB total", $3, $2}')
+          echo "${pct}% | ${detail}"
+        verify:
+          exit_code: 0
+          stdout_match: '^[0-9]'
+        capture_stdout: true
+        on_error_hint: /proc/meminfo 无法读取，检查内存子系统
+
+      # ── Step 4: 磁盘使用 ──────────────────────────────────────────────
+      - id: disk_usage
+        label: 磁盘使用情况 (根分区)
+        run: df -Ph / | awk 'NR==2{printf "%s used / %s total (%s)", $3, $2, $5}'
+        verify:
+          exit_code: 0
+          stdout_match: '^[0-9]'
+        capture_stdout: true
+        on_error_hint: df 命令失败，检查文件系统挂载
+
+      # ── Step 5: 进程内存 TOP10 ────────────────────────────────────────
+      - id: top_processes
+        label: 进程内存占用 TOP10
+        run: |
+          ps -eo comm,rss --sort=-rss --no-headers | head -10 \
+            | awk '{printf "%s\t%s MB\n", $1, int($2/1024)}'
+        verify:
+          exit_code: 0
+        capture_stdout: true
+        on_error_hint: ps 命令失败
+
+      # ── Step 6: Docker 容器内存占用 ───────────────────────────────────
+      - id: docker_stats
+        label: Docker 容器内存占用
+        run: |
+          if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then
+            docker stats --no-stream --format "{{.Name}}\t{{.MemUsage}}\t{{.MemPerc}}" 2>/dev/null \
+              || echo "no-containers"
+          else
+            echo "docker-unavailable"
+          fi
+        verify:
+          exit_code: 0
+        capture_stdout: true
+        optional: true
+        on_error_hint: Docker 未运行或无容器，可忽略
+
+      # ── Render 1: 系统概览 keyvalue ───────────────────────────────────
+      - id: render_overview
+        type: render
+        format: keyvalue
+        title: VPS 系统指标快照
+        level: info
+        items_from_steps:
+          - key: "⚡ CPU 使用率"
+            value_from: cpu_usage
+            suffix: "%"
+          - key: "📊 系统负载 (1/5/15m)"
+            value_from: sys_load
+          - key: "🧠 内存使用"
+            value_from: mem_usage
+          - key: "💽 磁盘 (/)"
+            value_from: disk_usage
+
+      # ── Render 2: 进程 & 容器内存 table ──────────────────────────────
+      - id: render_proc_table
+        type: render
+        format: table
+        title: 进程内存 TOP10
+        columns: ["进程名", "内存占用"]
+        rows_from_step: top_processes
+
+      - id: render_docker_table
+        type: render
+        format: table
+        title: Docker 容器内存占用
+        columns: ["容器名", "内存用量", "内存占比"]
+        rows_from_step: docker_stats
+
+guardian:
+  skills: []
+  max_actions_per_hour: 10

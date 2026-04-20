@@ -158,8 +158,9 @@ function createMcpService({ bridgeService, hostService, auditService, bridgeToke
     const sessionId = createId('mcp');
     sessions.set(sessionId, { res, initialized: false });
 
-    const tokenParam = bridgeToken ? `&token=${bridgeToken}` : '';
-    sseWrite(res, 'endpoint', `${baseUrl}/mcp/message?sessionId=${sessionId}${tokenParam}`);
+    // 不把 token 拼进 URL（防止进 access log / 浏览器历史）
+    // 客户端应通过 X-Bridge-Token header 或 Authorization: Bearer 传递 token
+    sseWrite(res, 'endpoint', `${baseUrl}/mcp/message?sessionId=${sessionId}`);
 
     return sessionId;
   }

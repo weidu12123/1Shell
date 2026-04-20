@@ -1,9 +1,10 @@
 <!DOCTYPE html>
 <html lang="zh-CN">
 <head>
+  <script>if(localStorage.getItem("1shell-theme")==="dark"||(window.matchMedia&&!localStorage.getItem("1shell-theme")&&window.matchMedia("(prefers-color-scheme:dark)").matches)){document.documentElement.classList.add("dark")}</script><!-- theme-flash-prevent -->
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>1Shell 脚本库 · 2.0.0</title>
+  <title>1Shell 脚本库 · 3.0.0</title>
   <link rel="stylesheet" href="style.css" />
   <script src="https://cdn.tailwindcss.com"></script>
   <script>
@@ -121,13 +122,31 @@
           <span class="text-lg">🖥</span>
           <span>主控</span>
         </a>
+        <a href="programs.html" class="side-nav-item flex flex-col items-center gap-0.5 py-2.5 rounded-lg text-slate-400 text-[10px] font-medium" title="长驻程序"><span class="text-lg">&#9881;</span><span>程序</span></a>
+        <a href="containers.html" class="side-nav-item flex flex-col items-center gap-0.5 py-2.5 rounded-lg text-slate-400 text-[10px] font-medium" title="容器">
+          <span class="text-lg">&#128051;</span>
+          <span>容器</span>
+        </a>
+        <a href="sites.html" class="side-nav-item flex flex-col items-center gap-0.5 py-2.5 rounded-lg text-slate-400 text-[10px] font-medium" title="网站"><span class="text-lg">&#127760;</span><span>网站</span></a>
         <a href="scripts.html" class="side-nav-item active flex flex-col items-center gap-0.5 py-2.5 rounded-lg text-slate-400 text-[10px] font-medium" title="脚本库">
           <span class="text-lg">📜</span>
           <span>脚本</span>
         </a>
-        <a href="cli-setup.html" class="side-nav-item flex flex-col items-center gap-0.5 py-2.5 rounded-lg text-slate-400 text-[10px] font-medium" title="AI CLI 接入">
-          <span class="text-lg">⚡</span>
-          <span>接入</span>
+        <a href="skills.html" class="side-nav-item flex flex-col items-center gap-0.5 py-2.5 rounded-lg text-slate-400 text-[10px] font-medium" title="仓库">
+          <span class="text-lg">&#129520;</span>
+          <span>仓库</span>
+        </a>
+        <a href="playbooks.html" class="side-nav-item flex flex-col items-center gap-0.5 py-2.5 rounded-lg text-slate-400 text-[10px] font-medium" title="剧本库">
+          <span class="text-lg">&#128214;</span>
+          <span>剧本</span>
+        </a>
+        <a href="skill-studio.html" class="side-nav-item flex flex-col items-center gap-0.5 py-2.5 rounded-lg text-slate-400 text-[10px] font-medium" title="创作台">
+          <span class="text-lg">&#9997;</span>
+          <span>创作</span>
+        </a>
+        <a href="cli-setup.html" class="side-nav-item flex flex-col items-center gap-0.5 py-2.5 rounded-lg text-slate-400 text-[10px] font-medium" title="AI 配置">
+          <span class="text-lg">⚙</span>
+          <span>AI</span>
         </a>
         <a href="probe.html" class="side-nav-item flex flex-col items-center gap-0.5 py-2.5 rounded-lg text-slate-400 text-[10px] font-medium" title="探针">
           <span class="text-lg">📡</span>

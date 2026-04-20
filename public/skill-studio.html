@@ -1,0 +1,539 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <script>if(localStorage.getItem("1shell-theme")==="dark"||(window.matchMedia&&!localStorage.getItem("1shell-theme")&&window.matchMedia("(prefers-color-scheme:dark)").matches)){document.documentElement.classList.add("dark")}</script><!-- theme-flash-prevent -->
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Skill 创作台 · 1Shell 3.0</title>
+  <link rel="stylesheet" href="style.css" />
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.jsdelivr.net/npm/socket.io-client@4.7.5/dist/socket.io.min.js"></script>
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          colors: {
+            shell: {
+              panel: '#f8fafc',
+              'panel-dark': '#111827',
+              accent: '#4f8cff',
+              purple: '#7c3aed',
+            },
+          },
+          fontFamily: {
+            mono: ['"Cascadia Code"', '"JetBrains Mono"', '"Fira Code"', 'Consolas', 'monospace'],
+          },
+        },
+      },
+    }
+  </script>
+  <style type="text/tailwindcss">
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, sans-serif; }
+    .hidden { display: none !important; }
+    ::-webkit-scrollbar { width: 6px; height: 6px; }
+    ::-webkit-scrollbar-thumb { background: rgba(0,0,0,0.15); border-radius: 3px; }
+    .dark ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.12); }
+
+    .app-sidebar {
+      background: linear-gradient(180deg, #1e293b 0%, #0f172a 100%);
+      border-right: 1px solid rgba(255,255,255,0.05);
+    }
+    .side-nav-item { transition: all .2s; }
+    .side-nav-item:hover { background: rgba(79,140,255,0.08); color: #e2e8f0; }
+    .side-nav-item.active {
+      background: linear-gradient(135deg, rgba(79,140,255,0.18), rgba(124,58,237,0.16));
+      color: #fff;
+      box-shadow: inset 2px 0 0 #4f8cff;
+    }
+
+    /* ── 列头 ── */
+    .col-header {
+      padding: 8px 12px;
+      border-bottom: 1px solid #e2e8f0;
+      font-size: 11px;
+      font-weight: 600;
+      color: #64748b;
+      text-transform: uppercase;
+      letter-spacing: .05em;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    .dark .col-header { border-color: #1e293b; }
+
+    /* ── 列表项 ── */
+    .item-row {
+      padding: 7px 10px;
+      border-radius: 8px;
+      cursor: pointer;
+      transition: all .15s;
+      font-size: 12px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      border: 1px solid transparent;
+    }
+    .item-row:hover { background: rgba(79,140,255,0.07); }
+    .item-row.selected {
+      background: rgba(79,140,255,0.12);
+      border-color: rgba(79,140,255,0.35);
+      color: #2563eb;
+    }
+    .dark .item-row.selected { color: #93c5fd; }
+    .item-row .meta { font-size: 10px; color: #94a3b8; margin-left: auto; }
+
+    /* ── 输入 ── */
+    .studio-input {
+      width: 100%; padding: 8px 10px; font-size: 12px;
+      border: 1px solid #e2e8f0; border-radius: 8px;
+      background: #fff; color: #0f172a;
+    }
+    .dark .studio-input { background: #020617; border-color: #1e293b; color: #e2e8f0; }
+    .studio-input:focus { outline: none; border-color: #4f8cff; box-shadow: 0 0 0 2px rgba(79,140,255,0.2); }
+
+    /* ── render_result 卡片（Studio 聊天气泡内） */
+    .render-card { border-radius: 10px; border: 1px solid #e2e8f0; background: #fff; padding: 12px; margin-top: 6px; }
+    .dark .render-card { background: #0b1324; border-color: #1e293b; }
+    .render-card.level-success { border-color: #6ee7b7; background: rgba(236,253,245,0.5); }
+    .dark .render-card.level-success { border-color: rgba(52,211,153,0.3); background: rgba(52,211,153,0.05); }
+    .render-card.level-error { border-color: #fca5a5; background: rgba(254,242,242,0.5); }
+    .dark .render-card.level-error { border-color: rgba(248,113,113,0.3); background: rgba(248,113,113,0.05); }
+    .render-card.level-warn { border-color: #fcd34d; background: rgba(255,251,235,0.5); }
+    .dark .render-card.level-warn { border-color: rgba(251,191,36,0.3); background: rgba(251,191,36,0.05); }
+    .render-card-title { font-size: 12px; font-weight: 700; color: #334155; margin-bottom: 2px; }
+    .dark .render-card-title { color: #e2e8f0; }
+    .render-card-subtitle { font-size: 11px; color: #94a3b8; margin-bottom: 8px; }
+    .render-empty { font-size: 11px; color: #94a3b8; font-style: italic; }
+    .result-table { width: 100%; font-size: 11px; border-collapse: collapse; }
+    .result-table th, .result-table td { padding: 5px 8px; border-bottom: 1px solid #e2e8f0; text-align: left; }
+    .dark .result-table th, .dark .result-table td { border-color: #1e293b; }
+    .result-table th { background: #f8fafc; font-size: 10px; text-transform: uppercase; letter-spacing: 0.05em; color: #64748b; font-weight: 600; }
+    .dark .result-table th { background: #0d1629; color: #94a3b8; }
+    .result-table tbody tr:hover { background: rgba(248,250,252,0.8); }
+    .dark .result-table tbody tr:hover { background: rgba(30,41,59,0.3); }
+    .render-code { font-family: "Cascadia Code","JetBrains Mono",Consolas,monospace; }
+
+    /* ── ask_user 交互卡片 */
+    .ask-card-studio {
+      border: 1px solid #bfdbfe; border-radius: 10px;
+      padding: 12px 14px; margin: 6px 0;
+      background: #eff6ff;
+    }
+    .dark .ask-card-studio { background: #0f172a; border-color: #1e3a5f; }
+    .ask-card-studio-question {
+      font-size: 12px; font-weight: 600; color: #1e40af; margin-bottom: 10px;
+    }
+    .dark .ask-card-studio-question { color: #93c5fd; }
+    .ask-card-studio-row { display: flex; gap: 6px; flex-wrap: wrap; }
+    .ask-card-studio-options { display: flex; flex-direction: column; gap: 6px; }
+    .ask-option-btn {
+      text-align: left; padding: 8px 12px; border-radius: 8px; font-size: 12px;
+      cursor: pointer; border: 1px solid #bfdbfe;
+      background: #fff; color: #1e3a8a;
+      transition: all .15s;
+    }
+    .ask-option-btn:hover { background: #dbeafe; border-color: #60a5fa; color: #1d4ed8; }
+    .dark .ask-option-btn { background: #0b1324; border-color: #1e3a5f; color: #93c5fd; }
+    .dark .ask-option-btn:hover { background: #172554; border-color: #3b82f6; color: #bfdbfe; }
+    .ask-option-desc { font-size: 10px; color: #64748b; margin-top: 2px; font-weight: 400; }
+    .dark .ask-option-desc { color: #94a3b8; }
+    .ask-input {
+      flex: 1; padding: 6px 8px; border: 1px solid #bfdbfe; border-radius: 6px;
+      font-size: 12px; background: #fff; color: #0f172a;
+    }
+    .dark .ask-input { background: #020617; border-color: #1e3a5f; color: #e2e8f0; }
+    .ask-btn {
+      padding: 5px 14px; border-radius: 6px; font-size: 11px;
+      font-weight: 600; cursor: pointer; border: none; transition: all .15s;
+    }
+    .ask-btn-primary { background: #3b82f6; color: #fff; }
+    .ask-btn-primary:hover { background: #2563eb; }
+    .ask-btn-danger { background: #ef4444; color: #fff; }
+    .ask-btn-danger:hover { background: #dc2626; }
+    .ask-btn-cancel {
+      background: #fff; color: #475569;
+      border: 1px solid #e2e8f0 !important;
+    }
+    .dark .ask-btn-cancel { background: #0b1324; color: #94a3b8; border-color: #1e293b !important; }
+
+    /* ── 执行流 ── */
+    .run-line { font-family: "Cascadia Code","JetBrains Mono",Consolas,monospace; font-size: 11px; line-height: 1.55; white-space: pre-wrap; word-break: break-word; }
+    .run-line.stdout { color: #334155; }
+    .dark .run-line.stdout { color: #cbd5e1; }
+    .run-line.stderr { color: #dc2626; }
+    .run-line.info { color: #2563eb; }
+    .run-line.thought { color: #7c3aed; font-style: italic; }
+    .run-line.error { color: #dc2626; font-weight: 600; }
+    .run-line.success { color: #059669; font-weight: 600; }
+
+    /* ── 对话气泡 ── */
+    .chat-bubble-user {
+      align-self: flex-end;
+      max-width: 80%;
+      background: linear-gradient(135deg, #3b82f6, #6366f1);
+      color: #fff;
+      border-radius: 16px 16px 4px 16px;
+      padding: 9px 14px;
+      font-size: 13px;
+      line-height: 1.55;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+    .chat-turn-ai {
+      align-self: flex-start;
+      width: 100%;
+      background: transparent;
+    }
+    .chat-turn-ai .turn-header {
+      font-size: 10px;
+      color: #94a3b8;
+      margin-bottom: 4px;
+      display: flex;
+      align-items: center;
+      gap: 4px;
+    }
+    .chat-turn-ai .turn-body {
+      background: #f1f5f9;
+      border-radius: 4px 16px 16px 16px;
+      padding: 8px 10px;
+      display: flex;
+      flex-direction: column;
+      gap: 1px;
+    }
+    .dark .chat-turn-ai .turn-body {
+      background: #0f172a;
+      border: 1px solid #1e293b;
+    }
+
+    /* ── 历史记录条目 ── */
+    .history-item {
+      padding: 8px 10px;
+      border-radius: 8px;
+      cursor: pointer;
+      font-size: 11px;
+      border: 1px solid transparent;
+      transition: all .15s;
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+    }
+    .history-item:hover { background: rgba(79,140,255,0.07); }
+    .history-item.active {
+      background: rgba(79,140,255,0.12);
+      border-color: rgba(79,140,255,0.3);
+    }
+    .history-item .hi-title { color: #334155; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .dark .history-item .hi-title { color: #e2e8f0; }
+    .history-item .hi-meta { color: #94a3b8; font-size: 10px; }
+
+    /* ── MCP 条目 ── */
+    .mcp-item {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 6px;
+      align-items: start;
+      padding: 8px;
+      border: 1px solid #e2e8f0;
+      border-radius: 10px;
+    }
+    .dark .mcp-item { border-color: #1e293b; }
+
+    /* ── 文件树 ── */
+    .file-node {
+      padding: 4px 8px;
+      font-size: 12px;
+      cursor: pointer;
+      border-radius: 6px;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .file-node:hover { background: rgba(79,140,255,0.07); }
+    .file-node.selected { background: rgba(79,140,255,0.15); color: #2563eb; }
+    .dark .file-node.selected { color: #93c5fd; }
+  </style>
+</head>
+<body class="bg-slate-700 dark:bg-[#0b0e18] w-screen h-screen overflow-hidden text-sm text-slate-700 dark:text-slate-200">
+  <div class="flex w-full h-full">
+
+    <!-- 侧边活动栏 -->
+    <aside class="app-sidebar shrink-0 w-16 flex flex-col items-stretch py-3">
+      <a href="index.html" class="shrink-0 mx-auto mb-3 w-10 h-10 rounded-xl bg-gradient-to-br from-blue-500 to-purple-500 flex items-center justify-center text-white font-extrabold text-sm shadow-lg" title="1Shell">1S</a>
+      <div class="mx-3 h-px bg-slate-700/60 mb-2"></div>
+      <nav class="flex flex-col flex-1 gap-1 px-1">
+        <a href="index.html" class="side-nav-item flex flex-col items-center gap-0.5 py-2.5 rounded-lg text-slate-400 text-[10px] font-medium" title="主控台"><span class="text-lg">&#128421;</span><span>主控</span></a>
+        <a href="programs.html" class="side-nav-item flex flex-col items-center gap-0.5 py-2.5 rounded-lg text-slate-400 text-[10px] font-medium" title="长驻程序"><span class="text-lg">&#9881;</span><span>程序</span></a>
+        <a href="containers.html" class="side-nav-item flex flex-col items-center gap-0.5 py-2.5 rounded-lg text-slate-400 text-[10px] font-medium" title="容器"><span class="text-lg">&#128051;</span><span>容器</span></a>
+        <a href="sites.html" class="side-nav-item flex flex-col items-center gap-0.5 py-2.5 rounded-lg text-slate-400 text-[10px] font-medium" title="网站"><span class="text-lg">&#127760;</span><span>网站</span></a>
+        <a href="scripts.html" class="side-nav-item flex flex-col items-center gap-0.5 py-2.5 rounded-lg text-slate-400 text-[10px] font-medium" title="脚本"><span class="text-lg">&#128220;</span><span>脚本</span></a>
+        <a href="skills.html" class="side-nav-item flex flex-col items-center gap-0.5 py-2.5 rounded-lg text-slate-400 text-[10px] font-medium" title="仓库"><span class="text-lg">&#129520;</span><span>仓库</span></a>
+        <a href="playbooks.html" class="side-nav-item flex flex-col items-center gap-0.5 py-2.5 rounded-lg text-slate-400 text-[10px] font-medium" title="剧本库"><span class="text-lg">&#128214;</span><span>剧本</span></a>
+        <a href="skill-studio.html" class="side-nav-item active flex flex-col items-center gap-0.5 py-2.5 rounded-lg text-slate-400 text-[10px] font-medium" title="创作台"><span class="text-lg">&#9997;</span><span>创作</span></a>
+        <a href="cli-setup.html" class="side-nav-item flex flex-col items-center gap-0.5 py-2.5 rounded-lg text-slate-400 text-[10px] font-medium" title="AI 配置"><span class="text-lg">&#9881;</span><span>AI</span></a>
+        <a href="probe.html" class="side-nav-item flex flex-col items-center gap-0.5 py-2.5 rounded-lg text-slate-400 text-[10px] font-medium" title="探针"><span class="text-lg">&#128225;</span><span>探针</span></a>
+        <a href="audit.html" class="side-nav-item flex flex-col items-center gap-0.5 py-2.5 rounded-lg text-slate-400 text-[10px] font-medium" title="审计日志"><span class="text-lg">&#128203;</span><span>审计</span></a>
+      </nav>
+      <div class="shrink-0 flex flex-col gap-1 px-1">
+        <div class="mx-3 h-px bg-slate-700/60 mb-1"></div>
+        <button class="side-nav-item flex flex-col items-center gap-0.5 py-2.5 rounded-lg text-slate-400 text-[10px] font-medium" title="主题" id="theme-toggle-btn">
+          <span class="text-base" id="theme-icon">&#9728;</span><span>主题</span>
+        </button>
+      </div>
+    </aside>
+
+    <!-- 历史记录抽屉（可折叠，初始 w-0 收起） -->
+    <div id="history-drawer" class="shrink-0 flex flex-col bg-[#f8fafc] dark:bg-[#0f172a] border-r border-slate-200 dark:border-[#1e293b] overflow-hidden transition-all duration-200" style="width:0">
+      <div class="col-header shrink-0" style="min-width:192px">
+        <span>创作历史</span>
+        <button id="btn-new-session" class="text-[10px] normal-case font-normal text-blue-500 hover:text-blue-700">+ 新建</button>
+      </div>
+      <div id="history-list" class="flex-1 overflow-auto p-2 flex flex-col gap-1" style="min-width:192px"></div>
+    </div>
+
+    <!-- 主区域 -->
+    <div class="flex flex-col flex-1 min-w-0 p-2 gap-2">
+
+      <!-- 顶栏 -->
+      <header class="relative shrink-0 h-14 flex items-center px-5 bg-shell-panel rounded-2xl border border-slate-200 dark:border-[#1e293b] dark:bg-[#0f172a] shadow-sm">
+        <div class="flex items-center gap-3 shrink-0">
+          <span class="text-2xl">&#9997;</span>
+          <div>
+            <div class="text-base font-bold text-slate-700 dark:text-slate-200 flex items-center gap-1.5">
+              Skill 创作台
+              <span class="text-[9px] px-1.5 py-0.5 rounded bg-purple-100 text-purple-600 dark:bg-purple-500/20 dark:text-purple-300 font-semibold">Studio</span>
+            </div>
+            <div id="studio-subtitle" class="text-[11px] text-slate-400">选主机文件 · 选项目/MCP · 自然语言描述 → AI 生成 Playbook</div>
+          </div>
+        </div>
+        <div class="absolute left-1/2 -translate-x-1/2 flex items-center gap-1">
+          <button id="btn-mode-classify"  class="studio-mode-tab active px-2.5 py-1.5 rounded-lg text-xs font-medium bg-gradient-to-r from-blue-500 to-purple-500 text-white">🤖 AI 推荐</button>
+          <button id="btn-mode-skill"     class="studio-mode-tab px-2.5 py-1.5 rounded-lg text-xs font-medium bg-slate-100 dark:bg-[#1e293b] text-slate-500 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-[#2a3a4d]">🧰 AI 工具</button>
+          <button id="btn-mode-program"   class="studio-mode-tab px-2.5 py-1.5 rounded-lg text-xs font-medium bg-slate-100 dark:bg-[#1e293b] text-slate-500 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-[#2a3a4d]">⚙️ Program</button>
+          <button id="btn-mode-bundle"    class="studio-mode-tab px-2.5 py-1.5 rounded-lg text-xs font-medium bg-slate-100 dark:bg-[#1e293b] text-slate-500 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-[#2a3a4d]">📦 Bundle</button>
+          <button id="btn-mode-playbook"  class="studio-mode-tab px-2.5 py-1.5 rounded-lg text-xs font-medium bg-slate-100 dark:bg-[#1e293b] text-slate-500 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-[#2a3a4d]">📜 Playbook</button>
+          <button id="btn-mode-improve"   class="studio-mode-tab px-2.5 py-1.5 rounded-lg text-xs font-medium bg-slate-100 dark:bg-[#1e293b] text-slate-500 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-[#2a3a4d]">✏️ 改进</button>
+        </div>
+        <div class="flex-1"></div>
+        <div class="flex items-center gap-2">
+          <button id="btn-toggle-history" class="text-[11px] px-3 py-1.5 rounded-lg border border-slate-200 dark:border-[#1e293b] hover:bg-slate-100 dark:hover:bg-[#1e293b] flex items-center gap-1" title="创作历史">📋 历史</button>
+          <a href="skills.html" class="text-[11px] px-3 py-1.5 rounded-lg border border-slate-200 dark:border-[#1e293b] hover:bg-slate-100 dark:hover:bg-[#1e293b]">← 仓库</a>
+        </div>
+      </header>
+
+      <!-- 三栏主内容 -->
+      <div class="flex flex-1 gap-2 min-h-0">
+
+        <!-- ═══ 左栏：VPS + 文件夹 ═══ -->
+        <aside class="w-[22%] shrink-0 flex flex-col gap-2 min-h-0">
+
+          <!-- 目标 Playbook（仅 Rescue Skill 模式显示） -->
+          <div id="target-playbook-card" class="hidden bg-shell-panel rounded-2xl border border-purple-200 dark:border-purple-900/40 dark:bg-[#0f172a] flex flex-col overflow-hidden shrink-0">
+            <div class="col-header">
+              <span>🛟 目标 Playbook</span>
+              <span class="text-[10px] text-purple-500 dark:text-purple-300 normal-case font-normal">为它配救援策略</span>
+            </div>
+            <div class="p-2">
+              <select id="target-playbook-select" class="studio-input">
+                <option value="">-- 选择要救援的 Playbook --</option>
+              </select>
+              <div class="text-[10px] text-slate-400 mt-1.5 px-1" id="target-playbook-hint">选中后，AI 会读该 Playbook 的步骤与 on_error_hint，为其定制 Rescue Skill</div>
+            </div>
+          </div>
+
+          <!-- 改进目标（仅改进模式显示） -->
+          <div id="improve-target-card" class="hidden bg-shell-panel rounded-2xl border border-amber-200 dark:border-amber-900/40 dark:bg-[#0f172a] flex flex-col overflow-hidden shrink-0">
+            <div class="col-header">
+              <span>✏️ 改进目标</span>
+              <span class="text-[10px] text-amber-500 dark:text-amber-300 normal-case font-normal">可多选</span>
+            </div>
+            <div class="p-2 flex flex-col gap-1">
+              <input id="improve-search" type="text" placeholder="搜索…" class="studio-input text-xs py-1" />
+              <div id="improve-target-list" class="overflow-y-auto max-h-48 flex flex-col gap-0.5 mt-1"></div>
+              <div class="text-[10px] text-slate-400 mt-1 px-1">AI 会读取所选文件，按描述做最小必要修改</div>
+            </div>
+          </div>
+
+          <!-- Program 配置（仅 Program / Bundle 模式显示） -->
+          <div id="program-config-card" class="hidden bg-shell-panel rounded-2xl border border-green-200 dark:border-green-900/40 dark:bg-[#0f172a] flex flex-col overflow-hidden shrink-0">
+            <div class="col-header">
+              <span>⚙️ Program 配置</span>
+              <span class="text-[10px] text-green-500 dark:text-green-300 normal-case font-normal">可选填</span>
+            </div>
+            <div class="p-2 flex flex-col gap-2">
+              <div>
+                <div class="text-[10px] text-slate-500 mb-0.5">Cron 表达式</div>
+                <input id="cron-input" type="text" placeholder="例如：0 */5 * * * *（每 5 分钟）" class="studio-input text-xs" />
+              </div>
+              <div>
+                <div class="text-[10px] text-slate-500 mb-0.5">Guardian 允许的 Rescue Skill</div>
+                <div id="guardian-skill-list" class="overflow-y-auto max-h-28 flex flex-col gap-0.5"></div>
+                <div class="text-[10px] text-slate-400 mt-1 px-1">勾选后写入 guardian.skills</div>
+              </div>
+            </div>
+          </div>
+
+          <!-- VPS -->
+          <div class="bg-shell-panel rounded-2xl border border-slate-200 dark:border-[#1e293b] dark:bg-[#0f172a] flex flex-col overflow-hidden" style="flex:1 1 0">
+            <div class="col-header">
+              <span>主机（VPS）</span>
+              <span id="host-count" class="text-[10px] text-slate-400 font-normal normal-case">0</span>
+            </div>
+            <div class="flex-1 overflow-auto p-2 flex flex-col gap-1" id="host-list">
+              <div class="text-[11px] text-slate-400 text-center py-4">加载中...</div>
+            </div>
+          </div>
+
+          <!-- 文件浏览 -->
+          <div class="bg-shell-panel rounded-2xl border border-slate-200 dark:border-[#1e293b] dark:bg-[#0f172a] flex flex-col overflow-hidden" style="flex:1 1 0">
+            <div class="col-header">
+              <span>文件 / 路径</span>
+              <div class="flex gap-1">
+                <button id="btn-browse-path" class="text-[10px] px-2 py-0.5 rounded bg-slate-200 dark:bg-[#1e293b] normal-case font-normal hover:bg-slate-300" title="从远程主机浏览文件">📁 浏览</button>
+                <button id="btn-add-path" class="text-[10px] px-2 py-0.5 rounded bg-blue-500 text-white normal-case font-normal hover:bg-blue-600">+ 添加</button>
+              </div>
+            </div>
+            <div class="px-2 pt-2">
+              <input id="path-input" class="studio-input" placeholder="输入路径，如 /etc/nginx/nginx.conf 或 /data/app/" />
+            </div>
+            <div class="flex-1 overflow-auto p-2 flex flex-col gap-1" id="path-list">
+              <div class="text-[11px] text-slate-400 text-center py-4">暂未添加路径</div>
+            </div>
+          </div>
+        </aside>
+
+        <!-- ═══ 中栏：对话区（上） + 输入框（下） ═══ -->
+        <main class="flex-1 min-w-0 flex flex-col gap-2 min-h-0">
+
+          <!-- 对话气泡区 -->
+          <div class="flex-1 min-h-0 bg-shell-panel rounded-2xl border border-slate-200 dark:border-[#1e293b] dark:bg-[#0f172a] flex flex-col overflow-hidden">
+            <div class="col-header">
+              <div class="flex items-center gap-2">
+                <span>创作对话</span>
+                <span id="run-status" class="text-[10px] text-slate-400 font-normal normal-case">待命</span>
+              </div>
+              <button id="btn-clear-chat" class="text-[10px] normal-case font-normal text-slate-400 hover:text-red-500 hidden">清空</button>
+            </div>
+            <!-- chat-area: flex flex-col, messages stacked top-to-bottom, scroll at bottom -->
+            <div id="chat-area" class="flex-1 overflow-auto p-4 flex flex-col gap-3">
+              <div id="chat-placeholder" class="text-[11px] text-slate-400 text-center py-10 flex flex-col items-center gap-2">
+                <span class="text-3xl">✍️</span>
+                <span>在下方输入框描述你想要的 Playbook<br/>AI 会逐步生成，支持后续对话修改</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- 输入框 -->
+          <div class="shrink-0 bg-shell-panel rounded-2xl border border-slate-200 dark:border-[#1e293b] dark:bg-[#0f172a] p-3 flex flex-col gap-2">
+            <!-- 当前正在修改的 Playbook 标签（follow-up 模式时显示） -->
+            <div id="refine-badge" class="hidden flex items-center gap-2 px-3 py-1.5 bg-purple-50 dark:bg-purple-900/20 rounded-lg border border-purple-100 dark:border-purple-800/40">
+              <span class="text-[10px] text-purple-600 dark:text-purple-300 font-medium">✏️ 修改模式：</span>
+              <span id="refine-badge-name" class="text-[10px] text-purple-700 dark:text-purple-200 truncate"></span>
+              <button id="btn-exit-refine" class="ml-auto text-[10px] text-purple-400 hover:text-red-500" title="退出修改，重新创作">✕</button>
+            </div>
+            <textarea id="task-input" class="studio-input" rows="3"
+              placeholder="用自然语言描述你想要的 Playbook。例如：每晚 3 点把 /data 目录打包到 S3，保留 7 天；磁盘不足 10% 时先清理旧备份再告警。"></textarea>
+            <div class="flex items-center gap-2">
+              <div class="text-[10px] text-slate-400 flex-1">
+                <span id="summary-chip">主机: 0 · 路径: 0 · 容器: 0 · 工具: 0</span>
+              </div>
+              <button id="btn-create" class="px-5 py-2 rounded-lg bg-gradient-to-r from-blue-500 to-purple-500 text-white text-xs font-semibold hover:opacity-90">开始创作 →</button>
+              <button id="btn-stop"   class="hidden px-4 py-2 rounded-lg bg-red-500 text-white text-xs font-semibold hover:bg-red-600">停止</button>
+            </div>
+          </div>
+        </main>
+
+        <!-- ═══ 右栏：项目（容器 / Skill） + MCP Server ═══ -->
+        <aside class="w-[24%] shrink-0 flex flex-col gap-2 min-h-0">
+
+          <!-- 项目 / 容器 -->
+          <div class="bg-shell-panel rounded-2xl border border-slate-200 dark:border-[#1e293b] dark:bg-[#0f172a] flex flex-col overflow-hidden" style="flex:1 1 0">
+            <div class="col-header">
+              <span>项目（容器）<span id="container-selected-count" class="ml-1 text-[9px] px-1 py-0.5 rounded bg-blue-100 text-blue-600 dark:bg-blue-500/20 dark:text-blue-300 font-normal normal-case hidden">已选 0</span></span>
+              <div class="flex items-center gap-1">
+                <select id="scan-host-select" class="text-[10px] py-0.5 px-1 rounded border border-slate-200 dark:border-[#1e293b] bg-white dark:bg-[#0a0f1c] normal-case font-normal max-w-[90px] truncate" title="选择要扫描的主机"></select>
+                <button id="btn-refresh-containers" class="text-[10px] normal-case font-normal text-slate-400 hover:text-blue-500" title="扫描选中主机的容器">↻ 扫描</button>
+              </div>
+            </div>
+            <!-- 已选容器固定区 -->
+            <div id="container-pinned" class="hidden px-2 pt-2 flex flex-col gap-1 border-b border-slate-100 dark:border-[#1e293b] pb-2"></div>
+            <!-- 扫描结果区 -->
+            <div class="flex-1 overflow-auto p-2 flex flex-col gap-1" id="container-scan-list">
+              <div class="text-[11px] text-slate-400 text-center py-4">
+                在头部下拉选主机，点"↻ 扫描"
+              </div>
+            </div>
+          </div>
+
+          <!-- 工具（Skill + MCP） -->
+          <div class="bg-shell-panel rounded-2xl border border-slate-200 dark:border-[#1e293b] dark:bg-[#0f172a] flex flex-col overflow-hidden" style="flex:1 1 0">
+            <div class="col-header">
+              <span>工具（Skill + MCP）</span>
+              <div class="flex items-center gap-1">
+                <span id="tool-count" class="text-[10px] text-slate-400 font-normal normal-case">0 / 0</span>
+                <a href="skills.html" class="text-[10px] normal-case font-normal text-slate-400 hover:text-blue-500" title="去仓库管理">↗ 管理</a>
+              </div>
+            </div>
+            <div class="px-3 pt-2 flex gap-1 text-[10px]">
+              <button id="tool-filter-all"   class="tool-filter-btn px-2 py-0.5 rounded bg-blue-500 text-white">全部</button>
+              <button id="tool-filter-skill" class="tool-filter-btn px-2 py-0.5 rounded bg-slate-100 dark:bg-[#1e293b]">🧰 Skill</button>
+              <button id="tool-filter-mcp"   class="tool-filter-btn px-2 py-0.5 rounded bg-slate-100 dark:bg-[#1e293b]">🔌 MCP</button>
+            </div>
+            <div class="flex-1 overflow-auto p-2 flex flex-col gap-1" id="tool-list">
+              <div class="text-[11px] text-slate-400 text-center py-4">加载中...</div>
+            </div>
+            <div class="px-3 py-2 border-t border-slate-100 dark:border-[#1e293b] text-[10px] text-amber-600 dark:text-amber-400">
+              使用 MCP 需 Provider 上游为 Anthropic 直连
+            </div>
+          </div>
+        </aside>
+
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══ 文件浏览器模态 ═══ -->
+  <div id="fp-modal" class="hidden fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4">
+    <div class="bg-white dark:bg-[#0f172a] rounded-2xl border border-slate-200 dark:border-[#1e293b] w-[720px] max-h-[80vh] flex flex-col overflow-hidden shadow-2xl">
+      <div class="px-4 py-3 border-b border-slate-100 dark:border-[#1e293b] flex items-center gap-2">
+        <span class="text-sm font-semibold">远程文件浏览</span>
+        <select id="fp-host-select" class="studio-input" style="width:auto;min-width:180px;"></select>
+        <div class="flex-1 font-mono text-[11px] text-slate-500 truncate px-2" id="fp-path-breadcrumb">/</div>
+        <button id="fp-up" class="text-[11px] px-2 py-1 rounded border border-slate-200 dark:border-[#1e293b] hover:bg-slate-100 dark:hover:bg-[#1e293b]" title="上级">⬆</button>
+        <button id="fp-close" class="text-xl text-slate-400 hover:text-red-500 px-1" title="关闭">✕</button>
+      </div>
+      <div class="px-4 py-2 border-b border-slate-100 dark:border-[#1e293b] flex items-center gap-2">
+        <input id="fp-path-input" class="studio-input flex-1" placeholder="直接输入路径回车跳转，如 /etc/nginx" />
+      </div>
+      <div id="fp-list" class="flex-1 overflow-auto p-2 flex flex-col gap-0.5 text-[12px]">
+        <div class="text-[11px] text-slate-400 text-center py-10">加载中...</div>
+      </div>
+      <div class="px-4 py-3 border-t border-slate-100 dark:border-[#1e293b] flex items-center gap-2">
+        <span class="text-[11px] text-slate-400 flex-1" id="fp-hint">点击目录进入 · 点击文件/目录右侧的 ➕ 加入已选</span>
+        <button id="fp-done" class="px-3 py-1.5 rounded-lg bg-blue-500 text-white text-xs font-semibold">完成</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- hidden select for playbook list (used by JS internally) -->
+  <select id="refine-target" class="hidden"></select>
+  <script src="shared.js"></script>
+  <script src="skill-studio.js"></script>
+  <script>
+    const themeBtn = document.getElementById('theme-toggle-btn');
+    const themeIcon = document.getElementById('theme-icon');
+    const htmlEl = document.documentElement;
+    if (localStorage.getItem('1shell-theme') === 'dark') {
+      htmlEl.classList.add('dark');
+      themeIcon.textContent = '\u2600';
+    } else {
+      themeIcon.textContent = '\uD83C\uDF19';
+    }
+    themeBtn.addEventListener('click', () => {
+      const isDark = htmlEl.classList.toggle('dark');
+      themeIcon.textContent = isDark ? '\u2600' : '\uD83C\uDF19';
+      localStorage.setItem('1shell-theme', isDark ? 'dark' : 'light');
+    });
+  </script>
+</body>
+</html>
