@@ -1,0 +1,214 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <script>if(localStorage.getItem("1shell-theme")==="dark"||(window.matchMedia&&!localStorage.getItem("1shell-theme")&&window.matchMedia("(prefers-color-scheme:dark)").matches)){document.documentElement.classList.add("dark")}</script><!-- theme-flash-prevent -->
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>网站管理 · 1Shell</title>
+  <link rel="stylesheet" href="style.css" />
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.jsdelivr.net/npm/socket.io-client@4.7.5/dist/socket.io.min.js"></script>
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: { extend: {
+        colors: { shell: { panel: '#f8fafc', accent: '#4f8cff', purple: '#7c3aed', success: '#059669', warn: '#d97706', danger: '#dc2626' } },
+        fontFamily: { mono: ['"Cascadia Code"', '"JetBrains Mono"', '"Fira Code"', 'Consolas', 'monospace'] },
+      }},
+    }
+  </script>
+  <style type="text/tailwindcss">
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, sans-serif; }
+    .hidden { display: none !important; }
+    ::-webkit-scrollbar { width: 6px; height: 6px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: rgba(0,0,0,0.15); border-radius: 3px; }
+    .dark ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.12); }
+
+    .app-sidebar { background: linear-gradient(180deg, #1e293b 0%, #0f172a 100%); box-shadow: 2px 0 12px rgba(0,0,0,0.15); }
+    .dark .app-sidebar { background: linear-gradient(180deg, #0b0e18 0%, #050810 100%); }
+    .side-nav-item { position: relative; transition: all 0.2s cubic-bezier(0.4,0,0.2,1); }
+    .side-nav-item:hover { background: rgba(255,255,255,0.06); color: #e2e8f0; }
+    .side-nav-item.active { background: linear-gradient(135deg, rgba(79,140,255,0.22), rgba(139,92,246,0.22)); color: #93c5fd; }
+    .side-nav-item.active::before { content:''; position:absolute; left:0; top:10px; bottom:10px; width:3px; background:linear-gradient(180deg,#4f8cff,#7c3aed); border-radius:0 3px 3px 0; box-shadow:0 0 8px rgba(79,140,255,0.5); }
+
+    .dark body { color: #e2e8f0; }
+    .dark .topbar, .dark .main-panel { @apply bg-[#111827] border-[#1e293b]; }
+    .dark input, .dark select { @apply bg-[#0b1324] border-[#1e293b] text-slate-200; }
+
+    .ct-table { @apply w-full text-xs border-collapse; }
+    .ct-table th, .ct-table td { @apply px-3 py-2.5 text-left border-b border-slate-100 dark:border-[#1e293b]; }
+    .ct-table th { @apply bg-slate-50 dark:bg-[#0d1629] text-[10px] uppercase tracking-wide text-slate-500 dark:text-slate-400 font-semibold sticky top-0 z-10; }
+    .ct-table tbody tr { @apply transition-colors; }
+    .ct-table tbody tr:hover { @apply bg-blue-50/40 dark:bg-blue-500/5; }
+
+    .badge { @apply inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-full; }
+    .badge-ok     { @apply bg-emerald-100 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-400; }
+    .badge-warn   { @apply bg-amber-100 text-amber-700 dark:bg-amber-500/15 dark:text-amber-400; }
+    .badge-err    { @apply bg-red-100 text-red-600 dark:bg-red-500/15 dark:text-red-400; }
+    .badge-none   { @apply bg-slate-100 text-slate-500 dark:bg-slate-700 dark:text-slate-400; }
+    .badge-loading { @apply bg-blue-100 text-blue-600 dark:bg-blue-500/15 dark:text-blue-400; }
+
+    @keyframes shimmer { 0% { background-position: -400px 0; } 100% { background-position: 400px 0; } }
+    .skeleton { background: linear-gradient(90deg, #e2e8f0 25%, #f1f5f9 50%, #e2e8f0 75%); background-size: 800px 100%; animation: shimmer 1.5s infinite linear; border-radius: 6px; }
+    .dark .skeleton { background: linear-gradient(90deg, #1e293b 25%, #263348 50%, #1e293b 75%); background-size: 800px 100%; }
+
+    .act-btn { @apply inline-flex items-center gap-1 text-[10px] px-2.5 py-1.5 rounded-lg border transition-all cursor-pointer select-none; }
+    .act-btn:hover { @apply shadow-sm; transform: translateY(-1px); }
+    .act-btn:active { transform: translateY(0); }
+    .act-btn-default { @apply border-slate-200 dark:border-slate-600 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 hover:border-blue-400; }
+    .act-btn-danger { @apply border-red-200 dark:border-red-500/30 text-red-500 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-500/10 hover:border-red-400; }
+    .act-btn-primary { @apply border-blue-200 dark:border-blue-500/30 bg-blue-50 dark:bg-blue-500/10 text-blue-600 dark:text-blue-400 hover:bg-blue-100 dark:hover:bg-blue-500/20; }
+    .act-btn-success { @apply border-emerald-200 dark:border-emerald-500/30 bg-emerald-50 dark:bg-emerald-500/10 text-emerald-600 dark:text-emerald-400; }
+
+    .modal-backdrop { @apply fixed inset-0 z-50 bg-black/40 backdrop-blur-sm flex items-center justify-center; animation: fadein 0.15s ease; }
+    .modal-box { @apply bg-white dark:bg-[#111827] rounded-2xl border border-slate-200 dark:border-[#1e293b] shadow-2xl w-full max-w-lg mx-4; animation: slideup 0.2s ease; }
+    @keyframes fadein { from { opacity: 0; } to { opacity: 1; } }
+    @keyframes slideup { from { opacity: 0; transform: translateY(16px); } to { opacity: 1; transform: translateY(0); } }
+
+    .stat-card { @apply rounded-xl border border-slate-200 dark:border-[#1e293b] bg-white dark:bg-[#0b1324] px-4 py-3 min-w-0; }
+
+    /* tabs */
+    .tab-btn { @apply px-4 py-2 text-xs font-semibold rounded-t-lg border-b-2 transition-all cursor-pointer; }
+    .tab-btn.active { @apply border-blue-500 text-blue-600 dark:text-blue-400; }
+    .tab-btn:not(.active) { @apply border-transparent text-slate-400 hover:text-slate-600 dark:hover:text-slate-300; }
+
+    /* expiry bar */
+    .expiry-bar { @apply h-1.5 rounded-full; }
+  </style>
+</head>
+<body class="bg-slate-700 dark:bg-[#0b0e18] w-screen h-screen overflow-hidden text-sm text-slate-700 dark:text-slate-200">
+  <div class="flex w-full h-full">
+
+    <!-- 侧栏 -->
+    <aside class="app-sidebar shrink-0 w-16 flex flex-col items-stretch py-3">
+      <a href="index.html" class="shrink-0 mx-auto mb-3 w-10 h-10 rounded-xl bg-gradient-to-br from-blue-500 to-purple-500 flex items-center justify-center text-white font-extrabold text-sm shadow-lg hover:shadow-blue-500/40 transition-all" title="1Shell">1S</a>
+      <div class="mx-3 h-px bg-slate-700/60 mb-2"></div>
+      <nav class="flex flex-col flex-1 gap-1 px-1">
+        <a href="index.html" class="side-nav-item flex flex-col items-center gap-0.5 py-2.5 rounded-lg text-slate-400 text-[10px] font-medium" title="主控台"><span class="text-lg">&#128421;</span><span>主控</span></a>
+        <a href="programs.html" class="side-nav-item flex flex-col items-center gap-0.5 py-2.5 rounded-lg text-slate-400 text-[10px] font-medium" title="长驻程序"><span class="text-lg">&#9881;</span><span>程序</span></a>
+        <a href="containers.html" class="side-nav-item flex flex-col items-center gap-0.5 py-2.5 rounded-lg text-slate-400 text-[10px] font-medium" title="容器"><span class="text-lg">&#128051;</span><span>容器</span></a>
+        <a href="sites.html" class="side-nav-item active flex flex-col items-center gap-0.5 py-2.5 rounded-lg text-slate-400 text-[10px] font-medium" title="网站"><span class="text-lg">&#127760;</span><span>网站</span></a>
+        <a href="scripts.html" class="side-nav-item flex flex-col items-center gap-0.5 py-2.5 rounded-lg text-slate-400 text-[10px] font-medium" title="脚本库"><span class="text-lg">&#128220;</span><span>脚本</span></a>
+        <a href="skills.html" class="side-nav-item flex flex-col items-center gap-0.5 py-2.5 rounded-lg text-slate-400 text-[10px] font-medium" title="仓库"><span class="text-lg">&#129520;</span><span>仓库</span></a>
+        <a href="playbooks.html" class="side-nav-item flex flex-col items-center gap-0.5 py-2.5 rounded-lg text-slate-400 text-[10px] font-medium" title="剧本库"><span class="text-lg">&#128214;</span><span>剧本</span></a>
+        <a href="skill-studio.html" class="side-nav-item flex flex-col items-center gap-0.5 py-2.5 rounded-lg text-slate-400 text-[10px] font-medium" title="创作台"><span class="text-lg">&#9997;</span><span>创作</span></a>
+        <a href="cli-setup.html" class="side-nav-item flex flex-col items-center gap-0.5 py-2.5 rounded-lg text-slate-400 text-[10px] font-medium" title="AI 配置"><span class="text-lg">&#9881;</span><span>AI</span></a>
+        <a href="probe.html" class="side-nav-item flex flex-col items-center gap-0.5 py-2.5 rounded-lg text-slate-400 text-[10px] font-medium" title="探针"><span class="text-lg">&#128225;</span><span>探针</span></a>
+        <a href="audit.html" class="side-nav-item flex flex-col items-center gap-0.5 py-2.5 rounded-lg text-slate-400 text-[10px] font-medium" title="审计日志"><span class="text-lg">&#128203;</span><span>审计</span></a>
+      </nav>
+      <div class="shrink-0 flex flex-col gap-1 px-1">
+        <div class="mx-3 h-px bg-slate-700/60 mb-1"></div>
+        <button class="side-nav-item flex flex-col items-center gap-0.5 py-2.5 rounded-lg text-slate-400 text-[10px] font-medium" title="主题" id="theme-toggle-btn"><span class="text-base" id="theme-icon">&#9728;</span><span>主题</span></button>
+      </div>
+    </aside>
+
+    <!-- 主区域 -->
+    <div class="flex flex-col flex-1 min-w-0 p-2 gap-2">
+
+      <!-- 顶栏 -->
+      <header class="topbar shrink-0 h-14 flex items-center px-5 bg-shell-panel rounded-2xl border border-slate-200 shadow-sm gap-4">
+        <span class="text-2xl">&#127760;</span>
+        <div class="min-w-0">
+          <div class="text-base font-bold text-slate-700 dark:text-slate-200">网站管理</div>
+          <div class="text-[11px] text-slate-400" id="header-subtitle">站点 · SSL 证书</div>
+        </div>
+        <div class="flex-1"></div>
+        <select id="host-select" class="h-8 px-2 rounded-lg border border-slate-200 bg-slate-50 text-xs outline-none focus:border-blue-400 min-w-[140px]">
+          <option value="local">&#128421; 本机</option>
+        </select>
+        <button id="btn-refresh" class="act-btn act-btn-primary">&#8635; 刷新</button>
+      </header>
+
+      <!-- 统计条 -->
+      <div class="shrink-0 grid grid-cols-4 gap-2" id="stats-bar">
+        <div class="stat-card"><div class="text-[10px] text-slate-400 uppercase tracking-wide mb-0.5">站点</div><div class="text-lg font-bold text-blue-600 dark:text-blue-400" id="stat-sites">-</div></div>
+        <div class="stat-card"><div class="text-[10px] text-slate-400 uppercase tracking-wide mb-0.5">启用 SSL</div><div class="text-lg font-bold text-emerald-600 dark:text-emerald-400" id="stat-ssl">-</div></div>
+        <div class="stat-card"><div class="text-[10px] text-slate-400 uppercase tracking-wide mb-0.5">即将过期</div><div class="text-lg font-bold text-amber-600 dark:text-amber-400" id="stat-expiring">-</div></div>
+        <div class="stat-card"><div class="text-[10px] text-slate-400 uppercase tracking-wide mb-0.5" id="stat-server-label">Web 服务</div><div class="text-lg font-bold text-slate-700 dark:text-slate-200" id="stat-nginx">-</div></div>
+      </div>
+
+      <!-- 主面板 -->
+      <main class="main-panel flex-1 flex flex-col min-h-0 bg-shell-panel rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+
+        <!-- Tab 栏 -->
+        <div class="shrink-0 px-5 pt-2 flex items-center gap-0 border-b border-slate-100 dark:border-[#1e293b]">
+          <button class="tab-btn active" data-tab="sites">&#127760; 站点</button>
+          <button class="tab-btn" data-tab="certs">&#128274; 证书</button>
+          <button class="tab-btn" data-tab="dns">&#128273; DNS 凭据</button>
+          <div class="flex-1"></div>
+          <button id="btn-add-site" class="act-btn act-btn-primary mb-1">+ 添加站点</button>
+          <button id="btn-apply-cert" class="act-btn act-btn-success mb-1 ml-1 hidden">&#128274; 申请证书</button>
+          <button id="btn-add-dns" class="act-btn act-btn-primary mb-1 ml-1 hidden">+ 添加凭据</button>
+          <div class="text-[10px] text-slate-400 ml-3 mb-1" id="tab-status"></div>
+        </div>
+
+        <!-- 站点 Tab -->
+        <div id="panel-sites" class="flex-1 overflow-auto">
+          <table class="ct-table">
+            <thead><tr>
+              <th>域名</th>
+              <th>上游</th>
+              <th>SSL</th>
+              <th>证书到期</th>
+              <th>配置文件</th>
+              <th class="text-right">操作</th>
+            </tr></thead>
+            <tbody id="sites-body">
+              <tr><td colspan="6" class="text-center text-slate-400 py-8">选择主机后点击"刷新"加载</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <!-- 证书 Tab -->
+        <div id="panel-certs" class="flex-1 overflow-auto hidden">
+          <table class="ct-table">
+            <thead><tr>
+              <th>域名</th>
+              <th>签发者</th>
+              <th>到期日期</th>
+              <th>剩余天数</th>
+              <th>自动续期</th>
+              <th>管理工具</th>
+              <th class="text-right">操作</th>
+            </tr></thead>
+            <tbody id="certs-body">
+              <tr><td colspan="7" class="text-center text-slate-400 py-8">选择主机后点击"刷新"加载</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <!-- DNS 凭据 Tab -->
+        <div id="panel-dns" class="flex-1 overflow-auto hidden">
+          <table class="ct-table">
+            <thead><tr>
+              <th>域名</th>
+              <th>DNS 提供商</th>
+              <th>API Token</th>
+              <th>备注</th>
+              <th>添加时间</th>
+              <th class="text-right">操作</th>
+            </tr></thead>
+            <tbody id="dns-body">
+              <tr><td colspan="6" class="text-center text-slate-400 py-8">加载中…</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </main>
+    </div>
+  </div>
+
+  <div id="modal-root"></div>
+
+  <script src="shared.js"></script>
+  <script src="skill-client.js"></script>
+  <script src="sites-page.js"></script>
+  <script>
+    const themeBtn = document.getElementById('theme-toggle-btn');
+    const themeIcon = document.getElementById('theme-icon');
+    const htmlEl = document.documentElement;
+    if (localStorage.getItem('1shell-theme') === 'dark') { htmlEl.classList.add('dark'); themeIcon.textContent = '\u2600'; } else { themeIcon.textContent = '\uD83C\uDF19'; }
+    themeBtn.addEventListener('click', () => { const d = htmlEl.classList.toggle('dark'); themeIcon.textContent = d ? '\u2600' : '\uD83C\uDF19'; localStorage.setItem('1shell-theme', d ? 'dark' : 'light'); });
+  </script>
+</body>
+</html>

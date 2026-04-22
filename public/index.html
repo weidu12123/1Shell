@@ -1,0 +1,853 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <script>if(localStorage.getItem("1shell-theme")==="dark"||(window.matchMedia&&!localStorage.getItem("1shell-theme")&&window.matchMedia("(prefers-color-scheme:dark)").matches)){document.documentElement.classList.add("dark")}</script><!-- theme-flash-prevent -->
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>1Shell 3.1.0</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/xterm@5.3.0/css/xterm.min.css" />
+  <link rel="stylesheet" href="style.css" />
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          colors: {
+            shell: {
+              outer: '#334155',       /* 外壳深蓝灰 */
+              'outer-dark': '#0b0e18',
+              panel: '#f8fafc',       /* 面板亮白 */
+              'panel-dark': '#111827',
+              term: '#F5F2E9',        /* 终端奶油色 */
+              'term-dark': '#0d1117',
+              accent: '#4f8cff',      /* 品牌蓝 */
+              'accent-soft': 'rgba(79,140,255,0.12)',
+              purple: '#7c3aed',
+              success: '#059669',
+              warn: '#d97706',
+              danger: '#dc2626',
+            },
+          },
+          fontFamily: {
+            mono: ['"Cascadia Code"', '"JetBrains Mono"', '"Fira Code"', 'Consolas', 'monospace'],
+          },
+        },
+      },
+    }
+  </script>
+  <style type="text/tailwindcss">
+    /* Tailwind 层：防 FOUC fallback + 全局 utility */
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, sans-serif; }
+    .hidden { display: none !important; }
+
+    /* 极细滚动条 */
+    ::-webkit-scrollbar { width: 4px; height: 4px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: rgba(0,0,0,0.15); border-radius: 2px; }
+    .dark ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.12); }
+
+    /* xterm 覆盖 */
+    #terminal-container .xterm, #terminal-container .xterm-viewport { height: 100% !important; }
+
+    /* ── 暗色主题：整体覆盖 ─────────────────────────────── */
+    /* 登录页 */
+    .dark .login-screen { background-color: rgba(11, 18, 32, 0.6); backdrop-filter: blur(24px); }
+    .dark .login-screen > div { background-color: rgba(17, 24, 39, 0.8); backdrop-filter: blur(40px); border-color: rgba(30, 41, 59, 0.8); color: #e2e8f0; box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25); }
+    .dark .login-screen input { @apply bg-[#0b1324] border-[#1e293b] text-slate-200; }
+    .dark .login-screen label { @apply text-slate-400; }
+
+    /* 顶栏 */
+    .dark .topbar { @apply bg-[#111827] border-[#1e293b]; }
+    .dark .topbar-actions button { @apply bg-[#1a2332] border-[#1e293b] text-slate-300; }
+    .dark .topbar-actions button:hover { @apply border-blue-500/40 text-blue-400; }
+    .dark #topbar-probe-info { @apply text-slate-400; }
+    .dark #topbar-probe-info b { @apply text-slate-200 !important; }
+
+    /* 左栏 */
+    .dark .left-panel > div { @apply bg-[#111827] border-[#1e293b]; }
+    .dark .left-panel input { @apply bg-[#0b1324] border-[#1e293b] text-slate-200; }
+    .dark .left-panel .border-b { @apply border-[#1e293b]; }
+    .dark #file-tree { @apply text-slate-400; }
+    .dark #file-tree li:hover { @apply bg-[#1a2332]; }
+
+    /* 终端区 */
+    .dark .terminal-area { @apply bg-[#111827] border-[#1e293b]; }
+    .dark #terminal-tabs { @apply bg-[#0d1117]/50 border-[#1e293b]; }
+    .dark #terminal-tabs .tab-active,
+    .dark #terminal-tabs [data-tab-host] { @apply text-slate-300; }
+    .dark .terminal-area .border-b { @apply border-[#1e293b]; }
+    .dark .terminal-area .bg-shell-term { @apply bg-[#0d1117]; }
+    .dark .terminal-area .icon-btn { @apply border-[#1e293b] text-slate-400; }
+    .dark .terminal-area .icon-btn:hover { @apply border-blue-500/40 text-blue-400; }
+
+    /* AI 面板 */
+    .dark .ai-panel { @apply bg-[#111827] border-[#1e293b]; }
+    .dark .ai-panel .border-b, .dark .ai-panel .border-t { @apply border-[#1e293b]; }
+    .dark .ai-panel .border-slate-100 { @apply border-[#1e293b]; }
+    .dark .ai-panel .panel-title { @apply text-slate-200; }
+    .dark .ai-panel .icon-btn { @apply border-[#1e293b] text-slate-400; }
+    .dark .ai-panel textarea { @apply bg-[#0b1324] border-[#1e293b] text-slate-200; }
+
+    /* 弹窗 */
+    .dark .modal-box, .dark .drawer { @apply bg-[#111827] border-[#1e293b]; }
+    .dark .modal-header, .dark .drawer-header { @apply border-[#1e293b]; }
+    .dark .modal-title, .dark .drawer-title { @apply text-slate-200; }
+    .dark .modal-box input, .dark .modal-box textarea, .dark .modal-box select { @apply bg-[#0b1324] border-[#1e293b] text-slate-200; }
+    .dark .modal-box label { @apply text-slate-400; }
+    .dark .modal-box .border-t, .dark .modal-box .border-b { @apply border-[#1e293b]; }
+    .dark .modal-box .icon-btn { @apply bg-[#1a2332] border-[#1e293b] text-slate-300; }
+    .dark .drawer .icon-btn { @apply bg-[#1a2332] border-[#1e293b] text-slate-300; }
+    .dark .drawer .btn-secondary { @apply bg-[#1a2332] border-[#1e293b] text-slate-300; }
+
+    /* Agent 面板 */
+    .dark .agent-side-panel { @apply bg-[#111827] border-[#1e293b]; }
+    .dark .agent-side-panel .border-b, .dark .agent-side-panel .border-t { @apply border-[#1e293b]; }
+    .dark .agent-side-panel select { @apply bg-[#0b1324] border-[#1e293b] text-slate-200; }
+    .dark .agent-side-panel .icon-btn { @apply border-[#1e293b] text-slate-400; }
+    .dark .agent-side-panel .btn-secondary { @apply bg-[#1a2332] border-[#1e293b] text-slate-300; }
+
+    /* ── 全局左侧活动栏（类 1Panel） ─────────────────────── */
+    .app-sidebar {
+      background: linear-gradient(180deg, #1e293b 0%, #0f172a 100%);
+      box-shadow: 2px 0 12px rgba(0,0,0,0.15);
+    }
+    .dark .app-sidebar {
+      background: linear-gradient(180deg, #0b0e18 0%, #050810 100%);
+    }
+    .side-nav-item {
+      position: relative;
+      transition: all 0.2s cubic-bezier(0.4,0,0.2,1);
+    }
+    .side-nav-item:hover {
+      background: rgba(255,255,255,0.06);
+      color: #e2e8f0;
+    }
+    .side-nav-item.active {
+      background: linear-gradient(135deg, rgba(59,130,246,0.22), rgba(139,92,246,0.22));
+      color: #93c5fd;
+    }
+    .side-nav-item.active::before {
+      content: '';
+      position: absolute;
+      left: 0; top: 10px; bottom: 10px; width: 3px;
+      background: linear-gradient(180deg, #3b82f6, #8b5cf6);
+      border-radius: 0 3px 3px 0;
+      box-shadow: 0 0 8px rgba(139,92,246,0.5);
+    }
+  </style>
+</head>
+<body class="bg-slate-700 dark:bg-[#0b0e18] w-screen h-screen overflow-hidden text-sm text-slate-700 dark:text-slate-200">
+
+  <!-- ════════════════════════════════════════════════════════
+       登录页（默认显示，JS 加载成功后由 auth.js 控制显隐）
+       ════════════════════════════════════════════════════════ -->
+  <div class="login-screen fixed inset-0 z-[9000] flex items-center justify-center bg-slate-100/40 backdrop-blur-md p-6" id="login-screen">
+    <div class="w-full max-w-sm p-8 bg-white/80 backdrop-blur-2xl rounded-3xl shadow-2xl border border-white/60 dark:border-[#1e293b]/60">
+      <div class="text-3xl font-extrabold bg-gradient-to-r from-blue-500 to-purple-500 bg-clip-text text-transparent">1Shell 3.1.0</div>
+      <div class="mt-0.5 text-[11px] text-slate-400 italic font-medium tracking-wide">One Shell to rule them all.</div>
+      <div class="mt-1 text-slate-500 text-sm">请输入账号和密码后进入多 VPS 控制台</div>
+      <form id="login-form" class="mt-6 flex flex-col gap-4" autocomplete="off">
+        <!-- HTTP 访问警告（JS 动态显隐） -->
+        <div id="http-warning" class="hidden px-3 py-2.5 rounded-xl bg-amber-50 border border-amber-200 text-xs text-amber-700 leading-relaxed dark:bg-amber-900/20 dark:border-amber-700/40 dark:text-amber-300">
+          <span class="font-semibold">⚠ 非 HTTPS 访问</span><br>
+          当前通过 <code class="font-mono bg-amber-100 dark:bg-amber-900/40 px-1 rounded">http://</code> 访问，部分浏览器（Safari / iOS / 隐私模式）会拦截 Cookie，导致登录后无法跳转。<br>
+          建议配置域名 + SSL 证书后通过 <code class="font-mono bg-amber-100 dark:bg-amber-900/40 px-1 rounded">https://</code> 访问。
+        </div>
+        <div class="flex flex-col gap-1.5">
+          <label for="login-username" class="text-xs font-semibold text-slate-500">用户名</label>
+          <input id="login-username" type="text" autocomplete="username" placeholder="admin" required
+            class="w-full h-9 px-3 rounded-lg border border-slate-300 bg-white text-slate-700 text-sm outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100" />
+        </div>
+        <div class="flex flex-col gap-1.5">
+          <label for="login-password" class="text-xs font-semibold text-slate-500">访问口令</label>
+          <input id="login-password" type="password" autocomplete="current-password" placeholder="输入访问口令" required
+            class="w-full h-9 px-3 rounded-lg border border-slate-300 bg-white text-slate-700 text-sm outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100" />
+        </div>
+        <div class="text-red-500 text-xs" id="login-error"></div>
+        <button class="h-9 rounded-lg bg-gradient-to-r from-blue-500 to-blue-600 text-white font-semibold text-sm shadow-md hover:shadow-lg transition-all" id="login-submit-btn" type="submit">登录</button>
+      </form>
+    </div>
+  </div>
+
+  <!-- ════════════════════════════════════════════════════════
+       应用主壳
+       ════════════════════════════════════════════════════════ -->
+  <div class="app-shell hidden flex w-full h-full" id="app-shell">
+
+    <!-- ════════════════════════════════════════════════════
+         全局左侧活动栏（类 1Panel）
+         ════════════════════════════════════════════════════ -->
+    <aside class="app-sidebar shrink-0 w-16 flex flex-col items-stretch py-3">
+      <!-- Logo -->
+      <a href="index.html" class="shrink-0 mx-auto mb-3 w-10 h-10 rounded-xl bg-gradient-to-br from-blue-500 to-purple-500 flex items-center justify-center text-white font-extrabold text-sm shadow-lg hover:shadow-blue-500/40 transition-all" title="1Shell 2.0">1S</a>
+
+      <div class="mx-3 h-px bg-slate-700/60 mb-2"></div>
+
+      <!-- 主导航 -->
+      <nav class="flex flex-col flex-1 gap-1 px-1">
+        <a href="index.html" class="side-nav-item active flex flex-col items-center gap-0.5 py-2.5 rounded-lg text-slate-400 text-[10px] font-medium" title="主控台">
+          <span class="text-lg">🖥</span>
+          <span>主控</span>
+        </a>
+        <a href="programs.html" class="side-nav-item flex flex-col items-center gap-0.5 py-2.5 rounded-lg text-slate-400 text-[10px] font-medium" title="长驻程序"><span class="text-lg">&#9881;</span><span>程序</span></a>
+        <a href="containers.html" class="side-nav-item flex flex-col items-center gap-0.5 py-2.5 rounded-lg text-slate-400 text-[10px] font-medium" title="容器">
+          <span class="text-lg">&#128051;</span>
+          <span>容器</span>
+        </a>
+        <a href="sites.html" class="side-nav-item flex flex-col items-center gap-0.5 py-2.5 rounded-lg text-slate-400 text-[10px] font-medium" title="网站"><span class="text-lg">&#127760;</span><span>网站</span></a>
+        <a href="scripts.html" class="side-nav-item flex flex-col items-center gap-0.5 py-2.5 rounded-lg text-slate-400 text-[10px] font-medium" title="脚本库">
+          <span class="text-lg">📜</span>
+          <span>脚本</span>
+        </a>
+        <a href="skills.html" class="side-nav-item flex flex-col items-center gap-0.5 py-2.5 rounded-lg text-slate-400 text-[10px] font-medium" title="仓库">
+          <span class="text-lg">&#129520;</span>
+          <span>仓库</span>
+        </a>
+        <a href="playbooks.html" class="side-nav-item flex flex-col items-center gap-0.5 py-2.5 rounded-lg text-slate-400 text-[10px] font-medium" title="剧本库">
+          <span class="text-lg">&#128214;</span>
+          <span>剧本</span>
+        </a>
+        <a href="skill-studio.html" class="side-nav-item flex flex-col items-center gap-0.5 py-2.5 rounded-lg text-slate-400 text-[10px] font-medium" title="创作台">
+          <span class="text-lg">&#9997;</span>
+          <span>创作</span>
+        </a>
+        <a href="cli-setup.html" class="side-nav-item flex flex-col items-center gap-0.5 py-2.5 rounded-lg text-slate-400 text-[10px] font-medium" title="AI 配置">
+          <span class="text-lg">⚙</span>
+          <span>AI</span>
+        </a>
+        <a href="probe.html" class="side-nav-item flex flex-col items-center gap-0.5 py-2.5 rounded-lg text-slate-400 text-[10px] font-medium" title="探针">
+          <span class="text-lg">📡</span>
+          <span>探针</span>
+        </a>
+        <a href="audit.html" class="side-nav-item flex flex-col items-center gap-0.5 py-2.5 rounded-lg text-slate-400 text-[10px] font-medium" title="审计日志">
+          <span class="text-lg">📋</span>
+          <span>审计</span>
+        </a>
+      </nav>
+
+      <!-- 底部：设置 / 主题 -->
+      <div class="shrink-0 flex flex-col gap-1 px-1">
+        <div class="mx-3 h-px bg-slate-700/60 mb-1"></div>
+        <button class="side-nav-item flex flex-col items-center gap-0.5 py-2.5 rounded-lg text-slate-400 text-[10px] font-medium" title="退出登录" id="logout-btn-side">
+          <span class="text-base">⎋</span>
+          <span>退出</span>
+        </button>
+      </div>
+    </aside>
+
+    <!-- ════════════════════════════════════════════════════
+         右侧主区域（顶栏 + 内容）
+         ════════════════════════════════════════════════════ -->
+    <div class="flex flex-col flex-1 min-w-0 p-2 gap-2">
+
+    <!-- ── 顶栏 ─────────────────────────────────────────── -->
+    <header class="topbar shrink-0 h-14 flex items-center px-5 bg-shell-panel rounded-2xl border border-slate-200 shadow-sm">
+      <!-- 左：侧栏操作 + 页面标题 -->
+      <div class="flex items-center gap-3 shrink-0">
+        <button class="mobile-menu-btn md:hidden h-8 w-8 flex items-center justify-center rounded-lg border border-slate-200 dark:border-[#1e293b] text-lg" id="mobile-menu-btn" type="button">☰</button>
+        <span class="text-2xl">🖥</span>
+        <div>
+          <div class="text-base font-bold text-slate-700 dark:text-slate-200">主控台</div>
+          <div class="text-[11px] text-slate-400 italic">One Shell to rule them all.</div>
+        </div>
+        <button class="h-8 px-3 rounded-lg border border-slate-200 bg-white text-xs font-semibold text-slate-600 hover:border-blue-300 hover:text-blue-500 transition-all ml-2" id="add-host-btn" type="button">+ 添加主机</button>
+        <button class="h-8 px-3 rounded-lg border border-slate-200 bg-white text-xs font-semibold text-slate-600 hover:border-blue-300 hover:text-blue-500 transition-all" id="sidebar-toggle-btn" type="button" title="折叠/展开左侧栏">侧栏折叠</button>
+      </div>
+
+      <!-- 中：当前主机探针 -->
+      <div id="topbar-probe-info" class="flex-1 flex items-center justify-center gap-4 text-xs text-slate-500 font-mono min-w-0">
+        <span class="topbar-slogan" style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Inter,sans-serif;font-style:italic;font-size:10px;letter-spacing:0.05em;color:#94a3b8">One Shell to rule them all.</span>
+        <span class="w-px h-3 bg-slate-300"></span>
+        <span>CPU <b class="text-slate-700">15%</b></span>
+        <span class="w-px h-3 bg-slate-300"></span>
+        <span>内存 <b class="text-slate-700">42%</b></span>
+        <span class="w-px h-3 bg-slate-300"></span>
+        <span>负载 <b class="text-slate-700">0.5</b></span>
+        <span class="w-px h-3 bg-slate-300"></span>
+        <span>硬盘 <b class="text-slate-700">28%</b></span>
+      </div>
+
+      <!-- 右：操作按钮 -->
+      <div class="topbar-actions flex items-center gap-2 shrink-0">
+        <button class="h-8 px-3 rounded-lg border border-slate-200 bg-white text-xs font-semibold text-slate-600 hover:border-blue-300 hover:text-blue-500 transition-all hidden" id="refresh-hosts-btn" type="button">刷新</button>
+        <button class="h-8 px-3 rounded-lg bg-gradient-to-r from-purple-500 to-blue-500 text-white text-xs font-semibold shadow-md hover:shadow-lg transition-all" id="agent-panel-btn" type="button">1Shell AI</button>
+        <button class="h-8 px-3 rounded-lg bg-gradient-to-r from-purple-500 to-blue-500 text-white text-xs font-semibold shadow-md hover:shadow-lg transition-all" id="ai-api-config-btn" type="button" title="AI API 配置">⚙ AI 配置</button>
+        <button class="h-8 px-3 rounded-lg border border-slate-200 bg-white text-xs font-semibold text-slate-600 hover:border-blue-300 hover:text-blue-500 transition-all" id="ai-panel-toggle-btn" type="button" title="折叠/展开 AI 面板">AI 折叠</button>
+        <button class="h-8 px-3 rounded-lg border border-slate-200 bg-white text-xs font-semibold text-slate-600 hover:border-slate-400 transition-all" id="settings-btn" type="button" title="系统设置">⚙ 设置</button>
+        <button class="h-8 px-3 rounded-lg border border-slate-200 bg-white text-xs font-semibold text-slate-600 hover:border-red-300 hover:text-red-500 transition-all hidden" id="logout-btn" type="button">退出</button>
+        <button class="h-8 px-3 rounded-lg border border-slate-200 bg-white text-xs font-semibold text-slate-600 hover:border-slate-400 transition-all" id="theme-toggle-btn" type="button" title="切换主题">☀</button>
+      </div>
+    </header>
+
+    <!-- ── 主内容三栏 ───────────────────────────────────── -->
+    <div class="main-content flex flex-1 gap-2 min-h-0">
+
+      <!-- ── 左侧栏 ─────────────────────────────────────── -->
+      <aside class="sidebar left-panel w-[20%] shrink-0 flex flex-col gap-2 min-h-0 relative">
+
+        <!-- 移动端关闭按钮 -->
+        <button class="md:hidden absolute top-2 right-2 z-50 h-7 w-7 flex items-center justify-center rounded-lg bg-slate-100 dark:bg-slate-700 text-slate-500 hover:text-red-500 transition-colors" id="mobile-sidebar-close-btn" type="button">✕</button>
+
+        <!-- VPS 列表区（上） -->
+        <div id="lp-vps-section" class="bg-shell-panel rounded-2xl border border-slate-200 shadow-sm flex flex-col overflow-hidden transition-all duration-300" style="flex: 5;">
+          <!-- 搜索 + 缩放按钮 -->
+          <div class="flex items-center gap-1.5 p-2 border-b border-slate-100">
+            <input id="host-search" type="text" placeholder="搜索主机…" autocomplete="off"
+              class="flex-1 h-7 px-2.5 rounded-lg border border-slate-200 bg-slate-50 text-xs outline-none focus:border-blue-400 focus:ring-1 focus:ring-blue-100" />
+            <button id="lp-vps-toggle" class="shrink-0 h-6 w-6 flex items-center justify-center rounded-md border border-slate-200 text-slate-400 hover:text-blue-500 hover:border-blue-300 text-[10px] transition-all" title="最小化/最大化">⇕</button>
+          </div>
+          <div class="banner hidden text-xs text-amber-600 bg-amber-50 px-3 py-2 border-b border-amber-100" id="secret-warning">
+            当前使用默认 APP_SECRET，上线前请配置强随机密钥。
+          </div>
+          <!-- 主机卡片列表 -->
+          <div class="host-list flex-1 overflow-y-auto p-2 flex flex-col gap-1.5" id="host-list">
+            <!-- JS 动态渲染 -->
+          </div>
+        </div>
+
+        <!-- 文件树区（下） -->
+        <div id="lp-file-section" class="bg-shell-panel rounded-2xl border border-slate-200 shadow-sm flex flex-col overflow-hidden transition-all duration-300" style="flex: 5;">
+          <div class="px-3 py-2 text-[11px] font-semibold text-slate-400 uppercase tracking-wide border-b border-slate-100 flex items-center justify-between">
+            <span>文件浏览</span>
+            <div class="flex items-center gap-1.5">
+              <button id="file-upload-btn" class="shrink-0 h-5 px-1.5 flex items-center justify-center rounded border border-slate-200 text-slate-400 hover:text-blue-500 hover:border-blue-300 text-[10px] transition-all" title="上传文件">↑ 上传</button>
+              <button id="lp-file-toggle" class="shrink-0 h-5 w-5 flex items-center justify-center rounded border border-slate-200 text-slate-400 hover:text-blue-500 hover:border-blue-300 text-[10px] transition-all" title="最小化/最大化">⇕</button>
+            </div>
+          </div>
+          <div id="file-tree" class="flex-1 overflow-y-auto p-2 text-xs text-slate-500">
+            <div class="flex items-center justify-center py-8 text-slate-400 text-xs">等待登录...</div>
+          </div>
+        </div>
+      </aside>
+
+      <!-- ── 中间终端区 ─────��────────────���───────────────── -->
+      <main class="terminal-area flex-1 flex flex-col min-w-0 bg-shell-panel rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+
+        <!-- 终端标签页 -->
+        <div id="terminal-tabs" class="shrink-0 flex items-center gap-1 px-3 h-9 border-b border-slate-100 bg-slate-50/50">
+          <div class="tab-active flex items-center gap-1.5 h-7 px-3 rounded-lg bg-white border border-slate-200 text-xs font-semibold text-slate-700 shadow-sm cursor-pointer">
+            <span class="w-1.5 h-1.5 rounded-full bg-green-400"></span>
+            <span id="active-host-name">本机</span>
+            <span class="text-slate-400 text-[10px] ml-1" id="active-host-meta">本地 Shell</span>
+          </div>
+          <button class="h-7 px-2.5 rounded-lg border border-dashed border-slate-300 text-xs text-slate-400 hover:border-blue-300 hover:text-blue-500 transition-all">+ 新终端</button>
+        </div>
+
+        <!-- 终端状态栏 -->
+        <div class="shrink-0 flex items-center justify-between px-3 h-8 border-b border-slate-100 text-xs">
+          <div class="session-status flex items-center gap-2">
+            <span class="status-dot w-2 h-2 rounded-full bg-slate-300" id="session-status-dot"></span>
+            <span class="text-slate-500" id="session-status-text">未连接</span>
+            <span class="hidden text-[11px] font-mono text-blue-500 dark:text-blue-300" id="terminal-inline-preview"></span>
+            <span class="panel-subtitle text-slate-400 hidden" id="ai-context-text">当前上下文：本机</span>
+          </div>
+          <div class="panel-actions flex items-center gap-1.5">
+            <button class="icon-btn h-6 px-2 rounded-md border border-slate-200 text-[11px] text-purple-500 hover:text-purple-600 hover:border-purple-300 transition-all" id="inject-script-btn" type="button" title="快捷执行脚本库中的脚本">脚本</button>
+            <button class="icon-btn h-6 px-2 rounded-md border border-slate-200 text-[11px] text-purple-500 hover:text-purple-600 hover:border-purple-300 transition-all" id="inject-playbook-btn" type="button" title="快捷执行 Playbook 编排">Playbook</button>
+            <button class="icon-btn h-6 px-2 rounded-md border border-slate-200 text-[11px] text-slate-500 hover:text-blue-500 hover:border-blue-300 transition-all" id="reconnect-btn" type="button">重连</button>
+            <button class="icon-btn h-6 px-2 rounded-md border border-slate-200 text-[11px] text-slate-500 hover:text-blue-500 hover:border-blue-300 transition-all" id="cmd-suggest-btn" type="button">AI 命令</button>
+            <button class="icon-btn h-6 px-2 rounded-md border border-slate-200 text-[11px] text-slate-500 hover:text-blue-500 hover:border-blue-300 transition-all" id="clear-term-btn" type="button">清屏</button>
+            <button class="icon-btn h-6 px-2 rounded-md border border-slate-200 text-[11px] text-slate-500 hover:text-green-500 hover:border-green-300 transition-all" id="fullscreen-btn" type="button" title="全屏终端">全屏</button>
+          </div>
+        </div>
+
+        <div id="terminal-inline-suggestion-box" class="shrink-0 mx-3 mt-2 px-3 py-2 rounded-xl border border-blue-200 bg-blue-50 text-xs shadow-sm dark:border-blue-500/30 dark:bg-blue-500/10 min-h-[48px]">
+          <div class="flex items-center gap-2">
+            <span class="font-semibold text-blue-600 dark:text-blue-300 shrink-0">补全建议：</span>
+            <span id="terminal-inline-suggestion-text" class="flex-1 font-mono text-[13px] text-slate-700 dark:text-slate-100 break-all">等待输入…</span>
+            <button id="suggestion-close-btn" class="shrink-0 h-5 w-5 flex items-center justify-center rounded border border-blue-200 dark:border-blue-500/30 text-blue-400 hover:text-red-500 hover:border-red-200 transition-all text-[11px]" type="button" title="关闭补全建议">✕</button>
+          </div>
+          <div class="mt-1 text-[11px] text-slate-500 dark:text-slate-400">按 Tab 或 → 采纳，按 Esc 拒绝</div>
+        </div>
+
+        <!-- AI 命令建议内嵌面板（点击"AI 命令"后展开，在终端上方） -->
+        <div id="cmd-inline-panel" class="hidden shrink-0 border-b border-slate-100 bg-slate-50 dark:bg-[#0d1117]">
+          <div class="flex items-center gap-2 px-3 py-2">
+            <span class="text-xs font-semibold text-blue-600 dark:text-blue-400 shrink-0">AI 命令</span>
+            <input id="cmd-prompt" type="text" placeholder="描述目标，例如：查看占用磁盘最多的目录" autocomplete="off"
+              class="flex-1 h-7 px-2.5 rounded-lg border border-slate-200 bg-white dark:bg-[#0b1324] dark:border-[#1e293b] dark:text-slate-200 text-xs outline-none focus:border-blue-400 focus:ring-1 focus:ring-blue-100" />
+            <button id="cmd-generate-btn" class="shrink-0 h-7 px-3 rounded-lg bg-gradient-to-r from-blue-500 to-blue-600 text-white text-xs font-semibold shadow-sm hover:shadow-md transition-all" type="button">生成命令</button>
+            <button id="cmd-close-btn" class="shrink-0 h-7 w-7 flex items-center justify-center rounded-lg border border-slate-200 dark:border-[#1e293b] text-slate-400 hover:text-red-500 hover:border-red-200 transition-all text-xs" type="button">✕</button>
+          </div>
+          <div id="cmd-result" class="hidden flex items-center gap-2 px-3 pb-2">
+            <pre id="cmd-result-code" class="flex-1 px-3 py-1.5 rounded-lg bg-slate-800 text-slate-200 font-mono text-xs overflow-x-auto whitespace-pre-wrap break-all"></pre>
+            <div class="flex flex-col gap-1 shrink-0">
+              <button id="cmd-copy-btn" class="h-7 px-2.5 rounded-lg border border-slate-200 dark:border-[#1e293b] text-xs text-slate-600 dark:text-slate-300 hover:border-blue-300 hover:text-blue-500 transition-all" type="button">复制</button>
+              <button id="cmd-insert-btn" class="h-7 px-2.5 rounded-lg bg-blue-500 text-white text-xs font-semibold hover:bg-blue-600 transition-all" type="button">注入终端</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- 脚本快捷注入面板 -->
+        <div id="script-inject-panel" class="hidden shrink-0 border-b border-slate-100 bg-slate-50 dark:bg-[#0d1117]">
+          <div class="flex items-center gap-2 px-3 py-2">
+            <span class="text-xs font-semibold text-purple-600 dark:text-purple-400 shrink-0">📜 脚本注入</span>
+            <select id="si-script-select" class="flex-1 h-7 px-2 rounded-lg border border-slate-200 bg-white dark:bg-[#0b1324] dark:border-[#1e293b] dark:text-slate-200 text-xs outline-none focus:border-purple-400">
+              <option value="">选择脚本…</option>
+            </select>
+            <button id="si-close-btn" class="shrink-0 h-7 w-7 flex items-center justify-center rounded-lg border border-slate-200 dark:border-[#1e293b] text-slate-400 hover:text-red-500 hover:border-red-200 transition-all text-xs" type="button">✕</button>
+          </div>
+          <div id="si-params-form" class="hidden px-3 pb-2 flex flex-wrap gap-2"></div>
+          <div id="si-preview-row" class="hidden flex items-center gap-2 px-3 pb-2">
+            <pre id="si-preview-code" class="flex-1 px-3 py-1.5 rounded-lg bg-slate-800 text-slate-200 font-mono text-xs overflow-x-auto whitespace-pre-wrap break-all max-h-24 overflow-y-auto"></pre>
+            <div class="flex flex-col gap-1 shrink-0">
+              <button id="si-inject-btn" class="h-7 px-2.5 rounded-lg bg-purple-500 text-white text-xs font-semibold hover:bg-purple-600 transition-all" type="button">注入终端</button>
+              <button id="si-run-btn" class="h-7 px-2.5 rounded-lg border border-slate-200 dark:border-[#1e293b] text-xs text-slate-600 dark:text-slate-300 hover:border-purple-300 hover:text-purple-500 transition-all" type="button">复制</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Playbook 快捷注入面板 -->
+        <div id="playbook-inject-panel" class="hidden shrink-0 border-b border-slate-100 bg-slate-50 dark:bg-[#0d1117]">
+          <div class="flex items-center gap-2 px-3 py-2">
+            <span class="text-xs font-semibold text-purple-600 dark:text-purple-400 shrink-0">📘 Playbook</span>
+            <select id="pi-playbook-select" class="flex-1 h-7 px-2 rounded-lg border border-slate-200 bg-white dark:bg-[#0b1324] dark:border-[#1e293b] dark:text-slate-200 text-xs outline-none focus:border-purple-400">
+              <option value="">选择 Playbook…</option>
+            </select>
+            <button id="pi-run-btn" class="shrink-0 h-7 px-3 rounded-lg bg-purple-500 text-white text-xs font-semibold hover:bg-purple-600 transition-all disabled:opacity-50" type="button" disabled>执行</button>
+            <button id="pi-close-btn" class="shrink-0 h-7 w-7 flex items-center justify-center rounded-lg border border-slate-200 dark:border-[#1e293b] text-slate-400 hover:text-red-500 hover:border-red-200 transition-all text-xs" type="button">✕</button>
+          </div>
+          <div id="pi-steps-preview" class="hidden px-3 pb-2 text-xs text-slate-500 dark:text-slate-400"></div>
+          <div id="pi-result" class="hidden px-3 pb-2 text-xs"></div>
+        </div>
+
+        <!-- 终端主体 -->
+        <div class="flex-1 min-h-0 relative bg-shell-term">
+          <div class="terminal-hint absolute top-3 left-1/2 -translate-x-1/2 px-3 py-1.5 rounded-lg bg-slate-800/70 text-slate-300 text-xs z-10 pointer-events-none" id="terminal-hint">正在准备本机会话…</div>
+          <div id="terminal-container" class="w-full h-full"></div>
+          <div class="terminal-ai-overlay hidden absolute left-4 right-4 bottom-4 flex flex-col gap-1.5 pointer-events-none z-10" id="terminal-ai-overlay" aria-hidden="true">
+            <span class="terminal-ghost-text self-start max-w-full px-2.5 py-1.5 rounded-lg bg-black/60 border border-white/10 text-white/70 font-mono text-[13px] whitespace-pre-wrap break-words" id="terminal-ghost-text"></span>
+            <span class="terminal-ghost-hint self-start text-slate-400 text-[11px]" id="terminal-ghost-hint"></span>
+          </div>
+          <button class="analyze-fab hidden absolute bottom-4 right-4 z-20 px-3 py-1 text-xs font-semibold text-white bg-purple-600 rounded-md shadow-md hover:bg-purple-700 transition-all" id="analyze-fab" type="button" title="AI 分析选区">分析</button>
+        </div>
+      </main>
+
+      <!-- ── 右侧 AI 面板 ───────────────────────────────── -->
+      <aside class="ai-panel right-panel w-[20%] shrink-0 flex flex-col min-h-0 bg-shell-panel rounded-2xl border border-slate-200 shadow-sm overflow-hidden transition-all duration-300 ease-in-out" data-collapsed="false">
+
+        <!-- AI Chat Header -->
+        <div class="rp-chat-header shrink-0 flex items-center justify-between px-3 h-10 border-b border-slate-100">
+          <div class="panel-title-block flex items-center gap-2">
+            <span class="panel-title text-sm font-bold text-slate-700">AI 运维助手</span>
+          </div>
+        <div class="flex items-center gap-1.5">
+          <button class="icon-btn h-6 px-2 rounded-md border border-slate-200 text-[11px] text-slate-500 hover:text-red-400 hover:border-red-200 transition-all" id="clear-chat-btn" type="button">清空</button>
+        </div>
+        </div>
+
+        <!-- AI Chat Messages -->
+        <div class="chat-messages flex-1 overflow-y-auto p-3 flex flex-col gap-2.5" id="chat-messages">
+          <!-- JS 动态渲染 -->
+        </div>
+
+        <!-- AI Chat Input -->
+        <div class="chat-input-area shrink-0 flex flex-col gap-2 p-3 border-t border-slate-100">
+          <textarea
+            id="chat-input"
+            rows="3"
+            placeholder="输入问题，Ctrl+Enter 发送"
+            autocomplete="off"
+            spellcheck="false"
+            class="w-full px-3 py-2 rounded-lg border border-slate-200 bg-slate-50 text-sm outline-none resize-y min-h-[56px] max-h-[120px] focus:border-blue-400 focus:ring-1 focus:ring-blue-100"
+          ></textarea>
+          <button class="send-btn self-end h-8 px-4 rounded-lg bg-gradient-to-r from-blue-500 to-blue-600 text-white text-xs font-semibold shadow-md hover:shadow-lg transition-all" id="send-btn" type="button">发送</button>
+        </div>
+      </aside>
+      <!-- ── Agent 面板（内嵌右侧，默认隐藏，打开后变为 2:4:4 布局） ─────── -->
+      <aside class="agent-side-panel hidden flex flex-col min-h-0 bg-shell-panel rounded-2xl border border-slate-200 shadow-sm overflow-hidden" id="agent-panel">
+
+        <!-- 标题栏 -->
+        <div class="agent-side-panel-header shrink-0 flex items-center justify-between gap-3 px-4 py-2 border-b border-slate-100">
+          <div class="panel-title-block flex items-center gap-3">
+            <span class="panel-title text-sm font-bold text-slate-700 dark:text-slate-200">1Shell AI</span>
+            <span class="text-[9px] px-1.5 py-0.5 rounded bg-gradient-to-r from-blue-500 to-purple-500 text-white font-semibold">CLI</span>
+          </div>
+          <div class="flex items-center gap-1">
+            <button class="icon-btn h-6 px-2 rounded-md border border-slate-200 text-[11px] text-slate-500 hover:text-blue-500 hover:border-blue-200 transition-all" id="agent-clear-btn" type="button" title="清空对话">清空</button>
+            <button class="icon-btn h-6 px-2 rounded-md border border-slate-200 text-[11px] text-slate-500 hover:text-red-400 hover:border-red-200 transition-all" id="agent-panel-close-btn" type="button">关闭</button>
+          </div>
+        </div>
+
+        <!-- 对话区 -->
+        <div id="agent-chat-area" class="flex-1 overflow-auto p-3 flex flex-col gap-2">
+          <div id="agent-chat-placeholder" class="text-[11px] text-slate-400 text-center py-10 flex flex-col items-center gap-2">
+            <span class="text-2xl">&#128187;</span>
+            <span>1Shell AI 助手<br/>输入需求，AI 会在你的主机上执行操作</span>
+          </div>
+        </div>
+
+        <!-- 输入框 -->
+        <div class="shrink-0 px-3 pb-3 pt-1 border-t border-slate-100 dark:border-[#1e293b] flex flex-col gap-2">
+          <textarea id="agent-input" class="w-full px-3 py-2 text-xs border border-slate-200 dark:border-[#1e293b] dark:bg-[#0a0f1c] dark:text-slate-200 rounded-lg resize-none focus:outline-none focus:border-blue-400 focus:ring-1 focus:ring-blue-200" rows="2" placeholder="描述你的需求，如：查看所有容器状态、检查磁盘占用..."></textarea>
+          <div class="flex items-center gap-2">
+            <span class="text-[10px] text-slate-400 flex-1" id="agent-status-text">待命</span>
+            <button class="h-7 px-4 rounded-lg bg-gradient-to-r from-blue-500 to-purple-500 text-white text-xs font-semibold hover:opacity-90 transition-all" id="agent-send-btn" type="button">发送 →</button>
+            <button class="hidden h-7 px-3 rounded-lg bg-red-500 text-white text-xs font-semibold hover:bg-red-600 transition-all" id="agent-stop-btn" type="button">停止</button>
+          </div>
+        </div>
+      </aside>
+    </div>
+    <div class="mobile-overlay fixed inset-0 bg-black/40 z-[500] hidden" id="mobile-overlay"></div>
+    <div class="mobile-ai-backdrop" id="mobile-ai-backdrop"></div>
+    </div>
+  </div>
+
+  <!-- ════════════════════════════════════════════════════════
+       弹窗层：系统设置
+       ════════════════════════════════════════════════════════ -->
+  <div class="modal-overlay hidden fixed inset-0 z-[2000] flex items-center justify-center bg-black/50 backdrop-blur-sm" id="settings-modal">
+    <div class="modal-box w-full max-w-lg bg-white rounded-2xl shadow-2xl border border-slate-200">
+      <div class="modal-header flex items-center justify-between px-5 py-3.5 border-b border-slate-100">
+        <div class="modal-title text-base font-bold text-slate-700">系统设置</div>
+        <button class="icon-btn h-7 px-2.5 rounded-lg border border-slate-200 text-xs text-slate-500 hover:text-red-500 hover:border-red-200 transition-all" id="settings-modal-close" type="button">关闭</button>
+      </div>
+
+      <!-- 标签页切换 -->
+      <div class="flex gap-1 px-5 pt-4" id="settings-tabs">
+        <button class="settings-tab-btn h-8 px-4 rounded-lg text-xs font-semibold transition-all bg-blue-500 text-white" data-tab="account">账号设置</button>
+        <button class="settings-tab-btn h-8 px-4 rounded-lg text-xs font-semibold transition-all border border-slate-200 text-slate-500 hover:border-blue-300 hover:text-blue-500" data-tab="ipfilter">IP 访问控制</button>
+      </div>
+
+      <!-- 账号设置 -->
+      <div id="settings-tab-account" class="settings-tab-panel">
+        <form id="settings-form" class="p-5 flex flex-col gap-4" autocomplete="off">
+          <div class="form-group flex flex-col gap-1.5">
+            <label for="settings-username" class="text-xs font-semibold text-slate-500">用户名</label>
+            <input id="settings-username" type="text" placeholder="admin"
+              class="w-full h-9 px-3 rounded-lg border border-slate-200 bg-slate-50 text-sm outline-none focus:border-blue-400 focus:ring-1 focus:ring-blue-100" />
+          </div>
+          <div class="form-group flex flex-col gap-1.5">
+            <label for="settings-password" class="text-xs font-semibold text-slate-500">新访问口令</label>
+            <input id="settings-password" type="password" placeholder="留空表示不修改" autocomplete="new-password"
+              class="w-full h-9 px-3 rounded-lg border border-slate-200 bg-slate-50 text-sm outline-none focus:border-blue-400 focus:ring-1 focus:ring-blue-100" />
+          </div>
+          <div class="form-group flex flex-col gap-1.5">
+            <label for="settings-password-confirm" class="text-xs font-semibold text-slate-500">确认新访问口令</label>
+            <input id="settings-password-confirm" type="password" placeholder="再次输入新口令" autocomplete="new-password"
+              class="w-full h-9 px-3 rounded-lg border border-slate-200 bg-slate-50 text-sm outline-none focus:border-blue-400 focus:ring-1 focus:ring-blue-100" />
+          </div>
+          <div class="form-footer flex items-center justify-between pt-2 border-t border-slate-100">
+            <div class="form-error text-red-500 text-xs" id="settings-error"></div>
+            <button class="btn-primary h-9 px-5 rounded-lg bg-gradient-to-r from-blue-500 to-blue-600 text-white text-sm font-semibold shadow-md hover:shadow-lg transition-all" type="submit">保存设置</button>
+          </div>
+        </form>
+      </div>
+
+      <!-- IP 访问控制 -->
+      <div id="settings-tab-ipfilter" class="settings-tab-panel hidden p-5 flex flex-col gap-4">
+        <!-- 开关行 -->
+        <div class="flex items-center justify-between p-3 rounded-xl border border-slate-200 bg-slate-50">
+          <div>
+            <div class="text-xs font-semibold text-slate-700">IP 白名单</div>
+            <div class="text-[11px] text-slate-400 mt-0.5">开启后仅允许名单内的 IP 访问</div>
+          </div>
+          <label class="relative inline-flex items-center cursor-pointer">
+            <input type="checkbox" id="ipf-allowlist-toggle" class="sr-only peer" />
+            <div class="w-10 h-5 bg-slate-300 peer-checked:bg-blue-500 rounded-full transition-colors after:content-[''] after:absolute after:top-0.5 after:left-0.5 after:w-4 after:h-4 after:bg-white after:rounded-full after:transition-all peer-checked:after:translate-x-5"></div>
+          </label>
+        </div>
+        <div class="flex items-center justify-between p-3 rounded-xl border border-slate-200 bg-slate-50">
+          <div>
+            <div class="text-xs font-semibold text-slate-700">IP 黑名单</div>
+            <div class="text-[11px] text-slate-400 mt-0.5">开启后拒绝名单内的 IP 访问</div>
+          </div>
+          <label class="relative inline-flex items-center cursor-pointer">
+            <input type="checkbox" id="ipf-denylist-toggle" class="sr-only peer" />
+            <div class="w-10 h-5 bg-slate-300 peer-checked:bg-red-500 rounded-full transition-colors after:content-[''] after:absolute after:top-0.5 after:left-0.5 after:w-4 after:h-4 after:bg-white after:rounded-full after:transition-all peer-checked:after:translate-x-5"></div>
+          </label>
+        </div>
+
+        <!-- 新增规则行 -->
+        <div class="flex items-center gap-2">
+          <select id="ipf-new-type" class="h-8 px-2 rounded-lg border border-slate-200 bg-slate-50 text-xs outline-none focus:border-blue-400">
+            <option value="allow">白名单</option>
+            <option value="deny">黑名单</option>
+          </select>
+          <input id="ipf-new-cidr" type="text" placeholder="IP 或 CIDR，如 192.168.1.0/24"
+            class="flex-1 h-8 px-3 rounded-lg border border-slate-200 bg-slate-50 text-xs outline-none focus:border-blue-400 focus:ring-1 focus:ring-blue-100" />
+          <input id="ipf-new-note" type="text" placeholder="备注（可选）"
+            class="w-24 h-8 px-2 rounded-lg border border-slate-200 bg-slate-50 text-xs outline-none focus:border-blue-400" />
+          <button id="ipf-add-btn" type="button"
+            class="h-8 px-3 rounded-lg bg-blue-500 text-white text-xs font-semibold hover:bg-blue-600 transition-all shrink-0">添加</button>
+        </div>
+
+        <!-- 规则列表 -->
+        <div class="rounded-xl border border-slate-200 overflow-hidden">
+          <div class="flex items-center px-3 py-2 bg-slate-50 border-b border-slate-100 text-[11px] font-semibold text-slate-400 uppercase tracking-wide">
+            <span class="w-16 shrink-0">类型</span>
+            <span class="flex-1">IP / CIDR</span>
+            <span class="w-24 shrink-0">备注</span>
+            <span class="w-12 shrink-0"></span>
+          </div>
+          <div id="ipf-rules-list" class="max-h-48 overflow-y-auto divide-y divide-slate-100">
+            <div class="px-3 py-4 text-xs text-slate-400 text-center" id="ipf-empty-hint">暂无规则</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ════════════════════════════════════════════════════════
+       弹窗层：AI API 配置
+       ════════════════════════════════════════════════════════ -->
+  <div class="modal-overlay hidden fixed inset-0 z-[2000] flex items-center justify-center bg-black/50 backdrop-blur-sm" id="ai-api-modal">
+    <div class="modal-box w-full max-w-md bg-white rounded-2xl shadow-2xl border border-slate-200">
+      <div class="modal-header flex items-center justify-between px-5 py-3.5 border-b border-slate-100">
+        <div>
+          <div class="modal-title text-base font-bold text-slate-700">AI API 配置</div>
+          <div class="text-xs text-slate-400 mt-0.5">配置 OpenAI 兼容的 API 中转站地址和密钥</div>
+        </div>
+        <button class="icon-btn h-7 px-2.5 rounded-lg border border-slate-200 text-xs text-slate-500 hover:text-red-500 hover:border-red-200 transition-all" id="ai-api-modal-close" type="button">关闭</button>
+      </div>
+      <form id="ai-api-form" class="p-5 flex flex-col gap-4" autocomplete="off">
+        <div class="form-group flex flex-col gap-1.5">
+          <label for="ai-api-base" class="text-xs font-semibold text-slate-500">API 基础地址</label>
+          <input id="ai-api-base" type="text" placeholder="https://api.openai.com/v1" required
+            class="w-full h-9 px-3 rounded-lg border border-slate-200 bg-slate-50 text-sm outline-none focus:border-blue-400 focus:ring-1 focus:ring-blue-100" />
+          <div class="form-help text-[11px] text-slate-400">不含 /chat/completions 的完整地址</div>
+        </div>
+        <div class="form-group flex flex-col gap-1.5">
+          <label for="ai-api-key" class="text-xs font-semibold text-slate-500">API Key</label>
+          <input id="ai-api-key" type="password" placeholder="sk-..." autocomplete="off"
+            class="w-full h-9 px-3 rounded-lg border border-slate-200 bg-slate-50 text-sm outline-none focus:border-blue-400 focus:ring-1 focus:ring-blue-100" />
+        </div>
+        <div class="form-group flex flex-col gap-1.5">
+          <label for="ai-model" class="text-xs font-semibold text-slate-500">模型名称</label>
+          <div class="flex items-center gap-2">
+            <input id="ai-model" type="text" placeholder="gpt-4o" list="ai-model-list"
+              class="flex-1 h-9 px-3 rounded-lg border border-slate-200 bg-slate-50 text-sm outline-none focus:border-blue-400 focus:ring-1 focus:ring-blue-100" />
+            <button class="h-9 px-3 rounded-lg border border-slate-200 bg-slate-50 text-xs font-medium text-slate-500 hover:text-blue-500 hover:border-blue-300 transition-all shrink-0" id="fetch-models-btn" type="button" title="获取模型列表">获取模型</button>
+          </div>
+          <datalist id="ai-model-list"></datalist>
+          <div class="form-help text-[11px] text-slate-400">点击"获取模型"自动填充，也可手动输入</div>
+        </div>
+        <div class="form-footer flex items-center justify-between pt-2 border-t border-slate-100">
+          <div class="form-error text-red-500 text-xs" id="ai-api-error"></div>
+          <button class="btn-primary h-9 px-5 rounded-lg bg-gradient-to-r from-blue-500 to-blue-600 text-white text-sm font-semibold shadow-md hover:shadow-lg transition-all" type="submit">保存配置</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- ════════════════════════════════════════════════════════
+       弹窗层：主机编辑
+       ════════════════════════════════════════════════════════ -->
+  <div class="modal-overlay hidden fixed inset-0 z-[2000] flex items-center justify-center bg-black/50 backdrop-blur-sm" id="host-modal">
+    <div class="modal-box w-full max-w-xl max-h-[calc(100vh-48px)] overflow-y-auto bg-white rounded-2xl shadow-2xl border border-slate-200">
+      <div class="modal-header flex items-center justify-between px-5 py-3.5 border-b border-slate-100">
+        <div>
+          <div class="modal-title text-base font-bold text-slate-700" id="host-form-title">新增主机</div>
+          <div class="text-xs text-slate-400 mt-0.5">保存后可直接从左侧切换到该主机</div>
+        </div>
+        <button class="icon-btn h-7 px-2.5 rounded-lg border border-slate-200 text-xs text-slate-500 hover:text-red-500 hover:border-red-200 transition-all" id="host-modal-close" type="button">关闭</button>
+      </div>
+
+      <form id="host-form" class="form-grid p-5 flex flex-col gap-4" autocomplete="off">
+        <input id="host-id" type="hidden" />
+
+        <div class="form-row flex gap-3">
+          <div class="form-group flex-1 flex flex-col gap-1.5">
+            <label for="host-name" class="text-xs font-semibold text-slate-500">主机名称</label>
+            <input id="host-name" type="text" placeholder="例如：东京节点" required autocomplete="off"
+              class="w-full h-9 px-3 rounded-lg border border-slate-200 bg-slate-50 text-sm outline-none focus:border-blue-400 focus:ring-1 focus:ring-blue-100" />
+          </div>
+          <div class="form-group flex-1 flex flex-col gap-1.5">
+            <label for="host-username" class="text-xs font-semibold text-slate-500">用户名</label>
+            <input id="host-username" type="text" placeholder="root" required autocomplete="username"
+              class="w-full h-9 px-3 rounded-lg border border-slate-200 bg-slate-50 text-sm outline-none focus:border-blue-400 focus:ring-1 focus:ring-blue-100" />
+          </div>
+        </div>
+
+        <div class="form-row flex gap-3">
+          <div class="form-group flex-1 flex flex-col gap-1.5">
+            <label for="host-address" class="text-xs font-semibold text-slate-500">主机地址</label>
+            <input id="host-address" type="text" placeholder="example.com 或 1.2.3.4" required
+              class="w-full h-9 px-3 rounded-lg border border-slate-200 bg-slate-50 text-sm outline-none focus:border-blue-400 focus:ring-1 focus:ring-blue-100" />
+          </div>
+          <div class="form-group flex-1 flex flex-col gap-1.5">
+            <label for="host-port" class="text-xs font-semibold text-slate-500">端口</label>
+            <input id="host-port" type="number" min="1" max="65535" value="22" required
+              class="w-full h-9 px-3 rounded-lg border border-slate-200 bg-slate-50 text-sm outline-none focus:border-blue-400 focus:ring-1 focus:ring-blue-100" />
+          </div>
+        </div>
+
+        <div class="form-group flex flex-col gap-1.5">
+          <label for="host-proxy" class="text-xs font-semibold text-slate-500">中继跳板 (ProxyJump)</label>
+          <select id="host-proxy" class="w-full h-9 px-3 rounded-lg border border-slate-200 bg-slate-50 text-sm outline-none cursor-pointer focus:border-blue-400">
+            <option value="">直连（无跳板）</option>
+          </select>
+          <div class="form-help text-[11px] text-slate-400">如目标机在 NAT 内网，选择一台公网主机作为跳板。</div>
+        </div>
+
+        <div class="form-group flex flex-col gap-1.5">
+          <label class="text-xs font-semibold text-slate-500">认证方式</label>
+          <div class="auth-switch flex gap-2">
+            <button class="auth-tab active h-8 px-3 rounded-lg border text-xs font-semibold transition-all" data-auth="password" type="button">密码</button>
+            <button class="auth-tab h-8 px-3 rounded-lg border border-slate-200 text-xs font-semibold text-slate-500 transition-all" data-auth="privateKey" type="button">私钥</button>
+          </div>
+        </div>
+
+        <div id="auth-password-panel">
+          <div class="form-group flex flex-col gap-1.5">
+            <label for="host-password" class="text-xs font-semibold text-slate-500">密码</label>
+            <input id="host-password" type="password" placeholder="编辑时留空表示保持不变" autocomplete="new-password"
+              class="w-full h-9 px-3 rounded-lg border border-slate-200 bg-slate-50 text-sm outline-none focus:border-blue-400 focus:ring-1 focus:ring-blue-100" />
+          </div>
+        </div>
+
+        <div class="hidden" id="auth-key-panel">
+          <div class="flex flex-col gap-3">
+            <div class="form-group flex flex-col gap-1.5">
+              <label for="host-private-key" class="text-xs font-semibold text-slate-500">私钥内容</label>
+              <textarea id="host-private-key" rows="5" placeholder="编辑时留空表示保持不变"
+                class="w-full px-3 py-2 rounded-lg border border-slate-200 bg-slate-50 text-sm outline-none resize-y font-mono focus:border-blue-400 focus:ring-1 focus:ring-blue-100"></textarea>
+            </div>
+            <div class="form-group flex flex-col gap-1.5">
+              <label for="host-passphrase" class="text-xs font-semibold text-slate-500">私钥口令</label>
+              <input id="host-passphrase" type="password" placeholder="可选，编辑时留空表示保持不变" autocomplete="new-password"
+                class="w-full h-9 px-3 rounded-lg border border-slate-200 bg-slate-50 text-sm outline-none focus:border-blue-400 focus:ring-1 focus:ring-blue-100" />
+            </div>
+          </div>
+        </div>
+
+        <div class="form-group flex flex-col gap-1.5">
+          <label class="text-xs font-semibold text-slate-500">快捷跳转</label>
+          <div class="link-list-editor flex flex-col gap-2" id="host-links-list"></div>
+          <button class="btn-secondary self-start h-7 px-3 rounded-lg border border-slate-200 text-xs text-slate-500 hover:border-blue-300 hover:text-blue-500 transition-all" id="add-link-btn" type="button">新增链接</button>
+          <div class="form-help text-[11px] text-slate-400">仅支持 http:// 或 https://，保存后会显示在主机卡片中。</div>
+        </div>
+
+        <div class="form-footer flex items-center justify-between pt-2 border-t border-slate-100">
+          <div class="form-error text-red-500 text-xs" id="host-form-error"></div>
+          <button class="btn-primary h-9 px-5 rounded-lg bg-gradient-to-r from-blue-500 to-blue-600 text-white text-sm font-semibold shadow-md hover:shadow-lg transition-all" id="host-submit-btn" type="submit">保存主机</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- ════════════════════════════════════════════════════════
+       浮层：选区右键菜单
+       ════════════════════════════════════════════════════════ -->
+  <ul class="analyze-ctx-menu hidden fixed z-[500] min-w-[160px] py-1 bg-white rounded-lg shadow-xl border border-slate-200" id="analyze-ctx-menu" role="menu">
+    <li>
+      <button class="analyze-ctx-item flex items-center gap-2 w-full px-3.5 py-2 text-sm text-slate-700 hover:bg-blue-50 hover:text-blue-600 transition-all rounded" id="analyze-ctx-analyze-btn" type="button">
+        <span class="analyze-ctx-icon text-purple-500">✦</span> AI 分析选区
+      </button>
+    </li>
+  </ul>
+
+  <!-- ════════════════════════════════════════════════════════
+       浮层：选区分析面板
+       ════════════════════════════════════════════════════════ -->
+  <div class="analyze-panel hidden" id="analyze-panel">
+    <div class="analyze-panel-inner">
+      <div class="analyze-panel-header">
+        <span class="analyze-panel-title">AI 选区分析</span>
+        <div class="analyze-panel-header-actions">
+          <button class="btn-secondary" id="analyze-again-btn" type="button">重新分析</button>
+          <button class="icon-btn" id="analyze-panel-close-btn" type="button">关闭</button>
+        </div>
+      </div>
+      <div class="analyze-preview" id="analyze-preview">
+        <div class="analyze-preview-label">选区内容</div>
+        <pre class="analyze-preview-text" id="analyze-preview-text"></pre>
+        <button class="analyze-preview-toggle hidden" id="analyze-preview-toggle" type="button">展开全部</button>
+      </div>
+      <div class="analyze-loading hidden" id="analyze-loading">
+        <span class="analyze-loading-dot"></span>
+        <span>正在分析…</span>
+      </div>
+      <div class="analyze-result hidden" id="analyze-result">
+        <div class="analyze-summary-row">
+          <span class="analyze-label">摘要</span>
+          <span class="analyze-summary" id="analyze-summary"></span>
+        </div>
+        <div class="analyze-errortype-row hidden">
+          <span class="analyze-label">错误类型</span>
+          <span class="analyze-error-type" id="analyze-error-type"></span>
+        </div>
+        <div class="analyze-fix-section hidden" id="analyze-fix-section">
+          <div class="analyze-fix-header">
+            <span class="analyze-label">修复建议</span>
+            <span class="analyze-risk-badge" id="analyze-fix-risk"></span>
+          </div>
+          <pre class="analyze-fix-cmd" id="analyze-fix-cmd"></pre>
+          <div class="analyze-fix-actions">
+            <button class="btn-secondary" id="analyze-fix-copy-btn" type="button">复制命令</button>
+            <button class="btn-primary" id="analyze-fix-insert-btn" type="button">注入终端</button>
+          </div>
+          <div class="analyze-insert-confirm hidden" id="analyze-fix-insert-confirm">
+            <span class="analyze-confirm-text">该命令有一定风险，确认注入？</span>
+            <button class="btn-primary" id="analyze-fix-insert-confirm-yes" type="button">确认注入</button>
+            <button class="btn-secondary" id="analyze-fix-insert-confirm-no" type="button">取消</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ════════════════════════════════════════════════════════
+       Scripts
+       ════════════════════════════════════════════════════════ -->
+  <!-- 全局错误捕获：防止 JS 异常导致白屏 -->
+  <script>
+    window.addEventListener('error', function(e) {
+      console.error('[1Shell] Script error:', e.message, e.filename, e.lineno);
+      var loginEl = document.getElementById('login-screen');
+      var errEl = document.getElementById('login-error');
+      if (loginEl) loginEl.classList.remove('hidden');
+      if (errEl && !errEl.textContent) {
+        errEl.textContent = '前端资源加载异常: ' + (e.message || '未知错误') + ' — 请检查网络或浏览器控制台';
+      }
+    });
+    // 左侧活动栏「退出」代理到顶栏 logout-btn
+    document.addEventListener('DOMContentLoaded', function() {
+      var sideLogout = document.getElementById('logout-btn-side');
+      if (sideLogout) {
+        sideLogout.addEventListener('click', function() {
+          var realBtn = document.getElementById('logout-btn');
+          if (realBtn) realBtn.click();
+        });
+      }
+    });
+  </script>
+  <!-- HTTP 警告：在非 HTTPS + 非 localhost 时显示提示横幅 -->
+  <script>
+    (function() {
+      var proto = window.location.protocol;
+      var host  = window.location.hostname;
+      var isLocalhost = host === 'localhost' || host === '127.0.0.1' || host === '::1';
+      if (proto === 'http:' && !isLocalhost) {
+        var el = document.getElementById('http-warning');
+        if (el) el.classList.remove('hidden');
+      }
+    })();
+  </script>
+  <script src="/socket.io/socket.io.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/xterm@5.3.0/lib/xterm.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/xterm-addon-fit@0.8.0/lib/xterm-addon-fit.min.js"></script>
+  <!-- CDN 加载检查 -->
+  <script>
+    if (typeof io === 'undefined') console.error('[1Shell] socket.io 加载失败，请检查服务端是否正常运行');
+    if (typeof Terminal === 'undefined') console.error('[1Shell] xterm.js 加载失败，请检查 CDN 访问');
+    if (typeof FitAddon === 'undefined') console.error('[1Shell] xterm-addon-fit 加载失败，请检查 CDN 访问');
+  </script>
+  <script src="shared.js"></script>
+  <script src="event-bus.js"></script>
+  <script src="session-terminal.js"></script>
+  <script src="terminal-ai.js"></script>
+  <script src="auth.js"></script>
+  <script src="hosts.js"></script>
+  <script src="probe.js"></script>
+  <script src="ai-chat.js"></script>
+  <script src="agent-panel.js"></script>
+  <script src="command-suggestion.js"></script>
+  <script src="terminal-analyze.js"></script>
+  <script src="file-browser.js"></script>
+  <script src="script-inject.js"></script>
+  <script src="layout.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

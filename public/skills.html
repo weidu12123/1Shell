@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <script>if(localStorage.getItem("1shell-theme")==="dark"||(window.matchMedia&&!localStorage.getItem("1shell-theme")&&window.matchMedia("(prefers-color-scheme:dark)").matches)){document.documentElement.classList.add("dark")}</script><!-- theme-flash-prevent -->
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>1Shell 仓库 · 3.0</title>
+  <link rel="stylesheet" href="style.css" />
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: { extend: {
+        colors: { shell: { panel: '#f8fafc', 'panel-dark': '#111827', accent: '#4f8cff', purple: '#7c3aed' } },
+        fontFamily: { mono: ['"Cascadia Code"','"JetBrains Mono"','Consolas','monospace'] }
+      } }
+    }
+  </script>
+  <style type="text/tailwindcss">
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, sans-serif; }
+    .hidden { display: none !important; }
+    ::-webkit-scrollbar { width: 6px; height: 6px; }
+    ::-webkit-scrollbar-thumb { background: rgba(0,0,0,0.15); border-radius: 3px; }
+    .dark ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.12); }
+
+    .app-sidebar { background: linear-gradient(180deg,#1e293b 0%,#0f172a 100%); box-shadow: 2px 0 12px rgba(0,0,0,0.15); }
+    .side-nav-item { position: relative; transition: all .2s; }
+    .side-nav-item:hover { background: rgba(255,255,255,0.06); color: #e2e8f0; }
+    .side-nav-item.active { background: linear-gradient(135deg, rgba(79,140,255,0.22), rgba(139,92,246,0.22)); color: #93c5fd; }
+    .side-nav-item.active::before { content:''; position:absolute; left:0; top:10px; bottom:10px; width:3px; background:linear-gradient(180deg,#4f8cff,#7c3aed); border-radius:0 3px 3px 0; }
+
+    .tab-btn { padding: 8px 16px; font-size: 12px; font-weight: 600; border-bottom: 2px solid transparent; color: #94a3b8; cursor: pointer; transition: all .15s; }
+    .tab-btn:hover { color: #2563eb; }
+    .tab-btn.active { border-color: #4f8cff; color: #2563eb; }
+    .dark .tab-btn.active { color: #93c5fd; }
+
+    .item-card { border: 1px solid #e2e8f0; border-radius: 12px; padding: 14px; transition: all .15s; background: #fff; }
+    .dark .item-card { background: #0b1324; border-color: #1e293b; }
+    .item-card:hover { border-color: rgba(79,140,255,0.5); box-shadow: 0 4px 12px rgba(79,140,255,0.08); }
+
+    .fld { font-size: 12px; padding: 8px 10px; border: 1px solid #e2e8f0; border-radius: 8px; background: #fff; width: 100%; }
+    .dark .fld { background: #020617; border-color: #1e293b; color: #e2e8f0; }
+    .fld:focus { outline: none; border-color: #4f8cff; box-shadow: 0 0 0 2px rgba(79,140,255,0.2); }
+
+    /* render_result 卡片 */
+    .render-card { border-radius: 12px; border: 1px solid #e2e8f0; background: #fff; padding: 14px; margin-top: 8px; }
+    .dark .render-card { background: #0b1324; border-color: #1e293b; }
+    .render-card.level-success { border-color: #6ee7b7; background: rgba(236,253,245,0.5); }
+    .dark .render-card.level-success { border-color: rgba(52,211,153,0.3); background: rgba(52,211,153,0.05); }
+    .render-card.level-error { border-color: #fca5a5; background: rgba(254,242,242,0.5); }
+    .dark .render-card.level-error { border-color: rgba(248,113,113,0.3); background: rgba(248,113,113,0.05); }
+    .render-card.level-warn { border-color: #fcd34d; background: rgba(255,251,235,0.5); }
+    .dark .render-card.level-warn { border-color: rgba(251,191,36,0.3); background: rgba(251,191,36,0.05); }
+    .render-card-title { font-size: 13px; font-weight: 700; color: #334155; margin-bottom: 2px; }
+    .dark .render-card-title { color: #e2e8f0; }
+    .render-card-subtitle { font-size: 11px; color: #94a3b8; margin-bottom: 10px; }
+    .render-empty { font-size: 12px; color: #94a3b8; font-style: italic; }
+    .result-table { width: 100%; font-size: 12px; border-collapse: collapse; }
+    .result-table th, .result-table td { padding: 6px 10px; border-bottom: 1px solid #e2e8f0; text-align: left; }
+    .dark .result-table th, .dark .result-table td { border-color: #1e293b; }
+    .result-table th { background: #f8fafc; font-size: 10px; text-transform: uppercase; letter-spacing: 0.05em; color: #64748b; font-weight: 600; }
+    .dark .result-table th { background: #0d1629; color: #94a3b8; }
+    .result-table tbody tr:hover { background: rgba(248,250,252,0.8); }
+    .dark .result-table tbody tr:hover { background: rgba(30,41,59,0.3); }
+  </style>
+</head>
+<body class="bg-slate-700 dark:bg-[#0b0e18] w-screen h-screen overflow-hidden text-sm text-slate-700 dark:text-slate-200">
+  <div class="flex w-full h-full">
+
+    <aside class="app-sidebar shrink-0 w-16 flex flex-col items-stretch py-3">
+      <a href="index.html" class="shrink-0 mx-auto mb-3 w-10 h-10 rounded-xl bg-gradient-to-br from-blue-500 to-purple-500 flex items-center justify-center text-white font-extrabold text-sm shadow-lg" title="1Shell">1S</a>
+      <div class="mx-3 h-px bg-slate-700/60 mb-2"></div>
+      <nav class="flex flex-col flex-1 gap-1 px-1">
+        <a href="index.html" class="side-nav-item flex flex-col items-center gap-0.5 py-2.5 rounded-lg text-slate-400 text-[10px] font-medium" title="主控台"><span class="text-lg">&#128421;</span><span>主控</span></a>
+        <a href="programs.html" class="side-nav-item flex flex-col items-center gap-0.5 py-2.5 rounded-lg text-slate-400 text-[10px] font-medium" title="长驻程序"><span class="text-lg">&#9881;</span><span>程序</span></a>
+        <a href="containers.html" class="side-nav-item flex flex-col items-center gap-0.5 py-2.5 rounded-lg text-slate-400 text-[10px] font-medium" title="容器"><span class="text-lg">&#128051;</span><span>容器</span></a>
+        <a href="sites.html" class="side-nav-item flex flex-col items-center gap-0.5 py-2.5 rounded-lg text-slate-400 text-[10px] font-medium" title="网站"><span class="text-lg">&#127760;</span><span>网站</span></a>
+        <a href="scripts.html" class="side-nav-item flex flex-col items-center gap-0.5 py-2.5 rounded-lg text-slate-400 text-[10px] font-medium" title="脚本"><span class="text-lg">&#128220;</span><span>脚本</span></a>
+        <a href="skills.html" class="side-nav-item active flex flex-col items-center gap-0.5 py-2.5 rounded-lg text-slate-400 text-[10px] font-medium" title="仓库"><span class="text-lg">&#129520;</span><span>仓库</span></a>
+        <a href="playbooks.html" class="side-nav-item flex flex-col items-center gap-0.5 py-2.5 rounded-lg text-slate-400 text-[10px] font-medium" title="剧本库"><span class="text-lg">&#128214;</span><span>剧本</span></a>
+        <a href="skill-studio.html" class="side-nav-item flex flex-col items-center gap-0.5 py-2.5 rounded-lg text-slate-400 text-[10px] font-medium" title="创作台"><span class="text-lg">&#9997;</span><span>创作</span></a>
+        <a href="cli-setup.html" class="side-nav-item flex flex-col items-center gap-0.5 py-2.5 rounded-lg text-slate-400 text-[10px] font-medium" title="AI 配置"><span class="text-lg">&#9881;</span><span>AI</span></a>
+        <a href="probe.html" class="side-nav-item flex flex-col items-center gap-0.5 py-2.5 rounded-lg text-slate-400 text-[10px] font-medium" title="探针"><span class="text-lg">&#128225;</span><span>探针</span></a>
+        <a href="audit.html" class="side-nav-item flex flex-col items-center gap-0.5 py-2.5 rounded-lg text-slate-400 text-[10px] font-medium" title="审计日志"><span class="text-lg">&#128203;</span><span>审计</span></a>
+      </nav>
+      <div class="shrink-0 flex flex-col gap-1 px-1">
+        <div class="mx-3 h-px bg-slate-700/60 mb-1"></div>
+        <button class="side-nav-item flex flex-col items-center gap-0.5 py-2.5 rounded-lg text-slate-400 text-[10px] font-medium" title="主题" id="theme-toggle-btn">
+          <span class="text-base" id="theme-icon">&#9728;</span><span>主题</span>
+        </button>
+      </div>
+    </aside>
+
+    <div class="flex flex-col flex-1 min-w-0 p-2 gap-2">
+      <header class="shrink-0 h-14 flex items-center px-5 bg-shell-panel rounded-2xl border border-slate-200 dark:border-[#1e293b] dark:bg-[#0f172a] shadow-sm">
+        <div class="flex items-center gap-3 shrink-0">
+          <span class="text-2xl">&#129520;</span>
+          <div>
+            <div class="text-base font-bold text-slate-700 dark:text-slate-200 flex items-center gap-1.5">
+              仓库
+              <span class="text-[9px] px-1.5 py-0.5 rounded bg-blue-100 text-blue-600 dark:bg-blue-500/20 dark:text-blue-300 font-semibold">Warehouse</span>
+            </div>
+            <div class="text-[11px] text-slate-400">Skill 与 MCP Server 的导入与存放 · 创作台从此处取用</div>
+          </div>
+        </div>
+        <div class="flex-1"></div>
+        <a href="skill-studio.html" class="text-[11px] px-3 py-1.5 rounded-lg bg-gradient-to-r from-blue-500 to-purple-500 text-white font-semibold hover:opacity-90">✍️ 去创作台 →</a>
+      </header>
+
+      <!-- Tab 切换 -->
+      <div class="shrink-0 bg-shell-panel rounded-2xl border border-slate-200 dark:border-[#1e293b] dark:bg-[#0f172a] px-4 flex items-center gap-2">
+        <button id="tab-skill" class="tab-btn active">🧰 Skill（<span id="skill-count">0</span>）</button>
+        <button id="tab-mcp"   class="tab-btn">🔌 MCP Server（<span id="mcp-count">0</span>）</button>
+        <div class="flex-1"></div>
+        <button id="btn-new-mcp" class="hidden text-[11px] px-3 py-1.5 rounded-lg bg-blue-500 text-white hover:bg-blue-600">+ 添加 MCP</button>
+      </div>
+
+      <main class="flex-1 min-h-0 bg-shell-panel rounded-2xl border border-slate-200 dark:border-[#1e293b] dark:bg-[#0f172a] overflow-auto p-4">
+        <!-- Skill 面板 -->
+        <div id="pane-skill" class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
+          <div class="col-span-full text-[12px] text-slate-400 text-center py-10">加载中...</div>
+        </div>
+
+        <!-- MCP 面板 -->
+        <div id="pane-mcp" class="hidden grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
+          <div class="col-span-full text-[12px] text-slate-400 text-center py-10">加载中...</div>
+        </div>
+      </main>
+    </div>
+  </div>
+
+  <!-- MCP 新建/编辑模态 -->
+  <div id="mcp-modal" class="hidden fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4">
+    <div class="bg-white dark:bg-[#0f172a] rounded-2xl border border-slate-200 dark:border-[#1e293b] w-[520px] overflow-hidden shadow-2xl">
+      <div class="px-5 py-3 border-b border-slate-100 dark:border-[#1e293b] flex items-center">
+        <span id="mcp-modal-title" class="text-sm font-semibold flex-1">添加 MCP Server</span>
+        <button id="mcp-modal-close" class="text-xl text-slate-400 hover:text-red-500">✕</button>
+      </div>
+      <div class="p-5 flex flex-col gap-3">
+        <label class="flex flex-col gap-1">
+          <span class="text-[11px] text-slate-500">名称</span>
+          <input id="mcp-f-name" class="fld" placeholder="如 GitHub Issues" />
+        </label>
+        <label class="flex flex-col gap-1">
+          <span class="text-[11px] text-slate-500">URL（HTTP/SSE）</span>
+          <input id="mcp-f-url" class="fld" placeholder="https://mcp.example.com/sse" />
+        </label>
+        <label class="flex flex-col gap-1">
+          <span class="text-[11px] text-slate-500">Authorization Token（可选）</span>
+          <input id="mcp-f-token" class="fld" placeholder="若已有 token，留空表示不修改" />
+        </label>
+        <label class="flex flex-col gap-1">
+          <span class="text-[11px] text-slate-500">描述（可选）</span>
+          <textarea id="mcp-f-desc" class="fld" rows="2" placeholder="这个 MCP 提供什么能力？"></textarea>
+        </label>
+        <label class="flex flex-col gap-1">
+          <span class="text-[11px] text-slate-500">标签（逗号分隔，可选）</span>
+          <input id="mcp-f-tags" class="fld" placeholder="github,issue" />
+        </label>
+      </div>
+      <div class="px-5 py-3 border-t border-slate-100 dark:border-[#1e293b] flex gap-2">
+        <button id="mcp-modal-cancel" class="flex-1 py-2 rounded-lg border border-slate-200 dark:border-[#1e293b] text-xs">取消</button>
+        <button id="mcp-modal-save" class="flex-1 py-2 rounded-lg bg-blue-500 text-white text-xs font-semibold hover:bg-blue-600">保存</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="shared.js"></script>
+  <script src="warehouse-page.js"></script>
+  <script>
+    const themeBtn = document.getElementById('theme-toggle-btn');
+    const themeIcon = document.getElementById('theme-icon');
+    const htmlEl = document.documentElement;
+    if (localStorage.getItem('1shell-theme') === 'dark') { htmlEl.classList.add('dark'); themeIcon.textContent = '\u2600'; }
+    else { themeIcon.textContent = '\uD83C\uDF19'; }
+    themeBtn.addEventListener('click', () => {
+      const isDark = htmlEl.classList.toggle('dark');
+      themeIcon.textContent = isDark ? '\u2600' : '\uD83C\uDF19';
+      localStorage.setItem('1shell-theme', isDark ? 'dark' : 'light');
+    });
+  </script>
+</body>
+</html>

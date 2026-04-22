@@ -1,0 +1,220 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <script>if(localStorage.getItem("1shell-theme")==="dark"||(window.matchMedia&&!localStorage.getItem("1shell-theme")&&window.matchMedia("(prefers-color-scheme:dark)").matches)){document.documentElement.classList.add("dark")}</script><!-- theme-flash-prevent -->
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>1Shell 审计 · 2.0.0</title>
+  <link rel="stylesheet" href="style.css" />
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          colors: {
+            shell: {
+              outer: '#334155',
+              'outer-dark': '#0b0e18',
+              panel: '#f8fafc',
+              'panel-dark': '#111827',
+              accent: '#4f8cff',
+              purple: '#7c3aed',
+              success: '#059669',
+              warn: '#d97706',
+              danger: '#dc2626',
+            },
+          },
+        },
+      },
+    };
+  </script>
+  <style type="text/tailwindcss">
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, sans-serif; }
+    .hidden { display: none !important; }
+    ::-webkit-scrollbar { width: 6px; height: 6px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: rgba(0,0,0,0.15); border-radius: 3px; }
+    .dark ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.12); }
+
+    .app-sidebar {
+      background: linear-gradient(180deg, #1e293b 0%, #0f172a 100%);
+      box-shadow: 2px 0 12px rgba(0,0,0,0.15);
+    }
+    .dark .app-sidebar {
+      background: linear-gradient(180deg, #0b0e18 0%, #050810 100%);
+    }
+    .side-nav-item {
+      position: relative;
+      transition: all 0.2s cubic-bezier(0.4,0,0.2,1);
+    }
+    .side-nav-item:hover {
+      background: rgba(255,255,255,0.06);
+      color: #e2e8f0;
+    }
+    .side-nav-item.active {
+      background: linear-gradient(135deg, rgba(59,130,246,0.22), rgba(139,92,246,0.22));
+      color: #93c5fd;
+    }
+    .side-nav-item.active::before {
+      content: '';
+      position: absolute;
+      left: 0; top: 10px; bottom: 10px; width: 3px;
+      background: linear-gradient(180deg, #3b82f6, #8b5cf6);
+      border-radius: 0 3px 3px 0;
+      box-shadow: 0 0 8px rgba(139,92,246,0.5);
+    }
+
+    .dark .topbar { @apply bg-[#111827] border-[#1e293b]; }
+    .dark .main-panel { @apply bg-[#111827] border-[#1e293b]; }
+  </style>
+</head>
+<body class="bg-slate-700 dark:bg-[#0b0e18] w-screen h-screen overflow-hidden text-sm text-slate-700 dark:text-slate-200">
+  <div class="flex w-full h-full">
+    <aside class="app-sidebar shrink-0 w-16 flex flex-col items-stretch py-3">
+      <a href="index.html" class="shrink-0 mx-auto mb-3 w-10 h-10 rounded-xl bg-gradient-to-br from-blue-500 to-purple-500 flex items-center justify-center text-white font-extrabold text-sm shadow-lg hover:shadow-blue-500/40 transition-all" title="1Shell 2.0">1S</a>
+      <div class="mx-3 h-px bg-slate-700/60 mb-2"></div>
+      <nav class="flex flex-col flex-1 gap-1 px-1">
+        <a href="index.html" class="side-nav-item flex flex-col items-center gap-0.5 py-2.5 rounded-lg text-slate-400 text-[10px] font-medium" title="主控台">
+          <span class="text-lg">🖥</span>
+          <span>主控</span>
+        </a>
+        <a href="programs.html" class="side-nav-item flex flex-col items-center gap-0.5 py-2.5 rounded-lg text-slate-400 text-[10px] font-medium" title="长驻程序"><span class="text-lg">&#9881;</span><span>程序</span></a>
+        <a href="containers.html" class="side-nav-item flex flex-col items-center gap-0.5 py-2.5 rounded-lg text-slate-400 text-[10px] font-medium" title="容器">
+          <span class="text-lg">&#128051;</span>
+          <span>容器</span>
+        </a>
+        <a href="sites.html" class="side-nav-item flex flex-col items-center gap-0.5 py-2.5 rounded-lg text-slate-400 text-[10px] font-medium" title="网站"><span class="text-lg">&#127760;</span><span>网站</span></a>
+        <a href="scripts.html" class="side-nav-item flex flex-col items-center gap-0.5 py-2.5 rounded-lg text-slate-400 text-[10px] font-medium" title="脚本库">
+          <span class="text-lg">📜</span>
+          <span>脚本</span>
+        </a>
+        <a href="skills.html" class="side-nav-item flex flex-col items-center gap-0.5 py-2.5 rounded-lg text-slate-400 text-[10px] font-medium" title="仓库">
+          <span class="text-lg">&#129520;</span>
+          <span>仓库</span>
+        </a>
+        <a href="playbooks.html" class="side-nav-item flex flex-col items-center gap-0.5 py-2.5 rounded-lg text-slate-400 text-[10px] font-medium" title="剧本库">
+          <span class="text-lg">&#128214;</span>
+          <span>剧本</span>
+        </a>
+        <a href="skill-studio.html" class="side-nav-item flex flex-col items-center gap-0.5 py-2.5 rounded-lg text-slate-400 text-[10px] font-medium" title="创作台">
+          <span class="text-lg">&#9997;</span>
+          <span>创作</span>
+        </a>
+        <a href="cli-setup.html" class="side-nav-item flex flex-col items-center gap-0.5 py-2.5 rounded-lg text-slate-400 text-[10px] font-medium" title="AI 配置">
+          <span class="text-lg">⚙</span>
+          <span>AI</span>
+        </a>
+        <a href="probe.html" class="side-nav-item flex flex-col items-center gap-0.5 py-2.5 rounded-lg text-slate-400 text-[10px] font-medium" title="探针">
+          <span class="text-lg">📡</span>
+          <span>探针</span>
+        </a>
+        <a href="audit.html" class="side-nav-item active flex flex-col items-center gap-0.5 py-2.5 rounded-lg text-slate-400 text-[10px] font-medium" title="审计日志">
+          <span class="text-lg">📋</span>
+          <span>审计</span>
+        </a>
+      </nav>
+      <div class="shrink-0 flex flex-col gap-1 px-1">
+        <div class="mx-3 h-px bg-slate-700/60 mb-1"></div>
+        <button class="side-nav-item flex flex-col items-center gap-0.5 py-2.5 rounded-lg text-slate-400 text-[10px] font-medium" title="主题切换" id="theme-toggle-btn" type="button">
+          <span class="text-base" id="theme-icon">☀</span>
+          <span>主题</span>
+        </button>
+      </div>
+    </aside>
+
+    <div class="flex flex-col flex-1 min-w-0 p-2 gap-2">
+      <header class="topbar shrink-0 h-14 flex items-center px-5 bg-shell-panel rounded-2xl border border-slate-200 shadow-sm">
+        <div class="flex items-center gap-3 shrink-0">
+          <span class="text-2xl">📋</span>
+          <div>
+            <div class="text-base font-bold text-slate-700 dark:text-slate-200">审计日志</div>
+            <div class="text-[11px] text-slate-400">查看主机操作、脚本执行与配置变更记录</div>
+          </div>
+        </div>
+        <div class="flex-1"></div>
+        <div class="topbar-actions flex items-center gap-2 shrink-0">
+          <button class="h-8 px-3 rounded-lg border border-slate-200 bg-white text-xs font-semibold text-slate-600 hover:border-blue-300 hover:text-blue-500 transition-all" id="audit-refresh-btn" type="button">立即刷新</button>
+        </div>
+      </header>
+
+      <main class="main-panel flex-1 min-h-0 bg-shell-panel rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+        <div class="h-full flex flex-col min-h-0">
+          <!-- 筛选栏 -->
+          <div class="shrink-0 px-4 pt-4 pb-2 border-b border-slate-100 dark:border-[#1e293b]">
+            <div class="flex flex-wrap items-end gap-3">
+              <div class="flex flex-col gap-1">
+                <label class="text-[10px] font-semibold text-slate-400 uppercase tracking-wide">操作类型</label>
+                <select id="audit-filter-action" class="h-8 px-2 rounded-lg border border-slate-200 dark:border-[#1e293b] bg-white dark:bg-[#0b1324] text-xs text-slate-700 dark:text-slate-200 outline-none focus:border-blue-400">
+                  <option value="">全部</option>
+                  <option value="bridge_exec">命令执行</option>
+                  <option value="script_run">脚本执行</option>
+                  <option value="host_create">新增主机</option>
+                  <option value="host_update">更新主机</option>
+                  <option value="host_delete">删除主机</option>
+                  <option value="local_config_update">本地配置</option>
+                  <option value="login">登录</option>
+                </select>
+              </div>
+              <div class="flex flex-col gap-1">
+                <label class="text-[10px] font-semibold text-slate-400 uppercase tracking-wide">来源</label>
+                <select id="audit-filter-source" class="h-8 px-2 rounded-lg border border-slate-200 dark:border-[#1e293b] bg-white dark:bg-[#0b1324] text-xs text-slate-700 dark:text-slate-200 outline-none focus:border-blue-400">
+                  <option value="">全部</option>
+                  <option value="web_ui">Web UI</option>
+                  <option value="bridge_api">Bridge API</option>
+                  <option value="mcp">MCP</option>
+                  <option value="script_run">脚本执行</option>
+                  <option value="socket">Socket</option>
+                </select>
+              </div>
+              <div class="flex flex-col gap-1">
+                <label class="text-[10px] font-semibold text-slate-400 uppercase tracking-wide">主机</label>
+                <input id="audit-filter-host" type="text" placeholder="主机名 / ID" class="h-8 w-32 px-2 rounded-lg border border-slate-200 dark:border-[#1e293b] bg-white dark:bg-[#0b1324] text-xs text-slate-700 dark:text-slate-200 outline-none focus:border-blue-400" />
+              </div>
+              <div class="flex flex-col gap-1">
+                <label class="text-[10px] font-semibold text-slate-400 uppercase tracking-wide">关键词</label>
+                <input id="audit-filter-keyword" type="text" placeholder="搜索命令 / 错误 / 详情" class="h-8 w-44 px-2 rounded-lg border border-slate-200 dark:border-[#1e293b] bg-white dark:bg-[#0b1324] text-xs text-slate-700 dark:text-slate-200 outline-none focus:border-blue-400" />
+              </div>
+              <button id="audit-filter-btn" type="button" class="h-8 px-4 rounded-lg bg-blue-500 text-white text-xs font-semibold hover:bg-blue-600 transition-colors">筛选</button>
+              <button id="audit-filter-reset-btn" type="button" class="h-8 px-3 rounded-lg border border-slate-200 text-xs font-semibold text-slate-500 hover:text-blue-500 hover:border-blue-300 transition-all">重置</button>
+            </div>
+          </div>
+
+          <!-- 统计 -->
+          <div class="shrink-0 p-4 border-b border-slate-100 dark:border-[#1e293b]">
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-3" id="audit-summary">
+              <div class="rounded-xl border border-slate-200 dark:border-[#1e293b] bg-slate-50/70 dark:bg-[#0b1324] px-4 py-3">
+                <div class="text-[11px] text-slate-400">日志总数</div>
+                <div class="mt-1 text-2xl font-bold text-slate-700 dark:text-slate-200" id="audit-total-count">--</div>
+              </div>
+              <div class="rounded-xl border border-slate-200 dark:border-[#1e293b] bg-slate-50/70 dark:bg-[#0b1324] px-4 py-3">
+                <div class="text-[11px] text-slate-400">当前页</div>
+                <div class="mt-1 text-2xl font-bold text-slate-700 dark:text-slate-200" id="audit-page-indicator">--</div>
+              </div>
+              <div class="rounded-xl border border-slate-200 dark:border-[#1e293b] bg-slate-50/70 dark:bg-[#0b1324] px-4 py-3">
+                <div class="text-[11px] text-slate-400">数据源</div>
+                <div class="mt-1 text-2xl font-bold text-slate-700 dark:text-slate-200" id="audit-source">--</div>
+              </div>
+            </div>
+          </div>
+
+          <div class="flex-1 min-h-0 overflow-y-auto p-4 space-y-3" id="audit-list">
+            <div class="text-xs text-slate-400 text-center py-10">加载中...</div>
+          </div>
+
+          <div class="shrink-0 px-4 py-3 border-t border-slate-100 dark:border-[#1e293b] flex items-center justify-between gap-3">
+            <div class="text-[11px] text-slate-400" id="audit-pagination-meta">--</div>
+            <div class="flex items-center gap-2">
+              <button class="h-8 px-3 rounded-lg border border-slate-200 bg-white text-xs font-semibold text-slate-600 disabled:opacity-50 disabled:cursor-not-allowed" id="audit-prev-btn" type="button">上一页</button>
+              <button class="h-8 px-3 rounded-lg border border-slate-200 bg-white text-xs font-semibold text-slate-600 disabled:opacity-50 disabled:cursor-not-allowed" id="audit-next-btn" type="button">下一页</button>
+            </div>
+          </div>
+        </div>
+      </main>
+    </div>
+  </div>
+
+  <script src="shared.js"></script>
+  <script src="audit-page.js"></script>
+</body>
+</html>

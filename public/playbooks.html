@@ -1,0 +1,344 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <script>if(localStorage.getItem("1shell-theme")==="dark"||(window.matchMedia&&!localStorage.getItem("1shell-theme")&&window.matchMedia("(prefers-color-scheme:dark)").matches)){document.documentElement.classList.add("dark")}</script><!-- theme-flash-prevent -->
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>1Shell 剧本库 · 3.0</title>
+  <link rel="stylesheet" href="style.css" />
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.jsdelivr.net/npm/socket.io-client@4.7.5/dist/socket.io.min.js"></script>
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          colors: {
+            shell: {
+              panel: '#f8fafc',
+              'panel-dark': '#111827',
+              accent: '#4f8cff',
+              purple: '#7c3aed',
+              cyan: '#06b6d4',
+              success: '#059669',
+              warn: '#d97706',
+              danger: '#dc2626',
+            },
+          },
+          fontFamily: {
+            mono: ['"Cascadia Code"', '"JetBrains Mono"', '"Fira Code"', 'Consolas', 'monospace'],
+          },
+        },
+      },
+    }
+  </script>
+  <style type="text/tailwindcss">
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, sans-serif; }
+    .hidden { display: none !important; }
+    ::-webkit-scrollbar { width: 6px; height: 6px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: rgba(0,0,0,0.15); border-radius: 3px; }
+    .dark ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.12); }
+
+    /* ── Skill 卡片 ────────────────────────────────────── */
+    .skill-card {
+      transition: all 0.22s cubic-bezier(0.4,0,0.2,1);
+      border: 1px solid #e2e8f0;
+      cursor: pointer;
+    }
+    .skill-card:hover {
+      transform: translateY(-2px);
+      border-color: rgba(79,140,255,0.5);
+      box-shadow: 0 8px 24px rgba(79,140,255,0.12);
+    }
+    .skill-card.active {
+      border-color: rgba(79,140,255,0.6);
+      box-shadow: 0 0 0 1px rgba(79,140,255,0.30), 0 6px 18px rgba(79,140,255,0.15);
+    }
+
+    /* ── 全局左侧活动栏 ─────────────────────── */
+    .app-sidebar {
+      background: linear-gradient(180deg, #1e293b 0%, #0f172a 100%);
+      box-shadow: 2px 0 12px rgba(0,0,0,0.15);
+    }
+    .dark .app-sidebar {
+      background: linear-gradient(180deg, #0b0e18 0%, #050810 100%);
+    }
+    .side-nav-item {
+      position: relative;
+      transition: all 0.2s cubic-bezier(0.4,0,0.2,1);
+    }
+    .side-nav-item:hover {
+      background: rgba(255,255,255,0.06);
+      color: #e2e8f0;
+    }
+    .side-nav-item.active {
+      background: linear-gradient(135deg, rgba(79,140,255,0.22), rgba(139,92,246,0.22));
+      color: #93c5fd;
+    }
+    .side-nav-item.active::before {
+      content: '';
+      position: absolute;
+      left: 0; top: 10px; bottom: 10px; width: 3px;
+      background: linear-gradient(180deg, #4f8cff, #7c3aed);
+      border-radius: 0 3px 3px 0;
+      box-shadow: 0 0 8px rgba(79,140,255,0.5);
+    }
+
+    /* ── 暗色主题 ────────────────────────────────────────── */
+    .dark body { color: #e2e8f0; }
+    .dark .topbar, .dark .main-panel { @apply bg-[#111827] border-[#1e293b]; }
+    .dark .sub-panel { @apply bg-[#0b1324] border-[#1e293b]; }
+    .dark input, .dark textarea, .dark select { @apply bg-[#0b1324] border-[#1e293b] text-slate-200; }
+    .dark .skill-card { @apply bg-[#0b1324] border-[#1e293b]; }
+    .dark .skill-card:hover { @apply bg-[#111a2e]; border-color: rgba(79,140,255,0.45); }
+    .dark .skill-card.active { background: rgba(79,140,255,0.10) !important; border-color: rgba(79,140,255,0.5) !important; }
+
+    /* ── 步骤流 ─────────────────────────────────── */
+    .step-item {
+      @apply rounded-xl border px-4 py-3 transition-all;
+    }
+    .step-item.step-thought { @apply bg-slate-50 dark:bg-[#0b1324] border-slate-200 dark:border-[#1e293b]; }
+    .step-item.step-exec { @apply bg-blue-50/60 dark:bg-blue-500/5 border-blue-200/70 dark:border-blue-500/20; }
+    .step-item.step-exec.running { @apply border-blue-400 shadow-sm; }
+    .step-item.step-exec.error { @apply bg-red-50/60 dark:bg-red-500/5 border-red-300/70 dark:border-red-500/30; }
+    /* playbook step-started 行 */
+    .step-item.step-playbook { @apply bg-slate-50/80 dark:bg-[#0b1324] border-slate-200/60 dark:border-[#1e293b] py-2; }
+    .step-item.step-playbook.verified { @apply border-emerald-200 dark:border-emerald-500/25 bg-emerald-50/30 dark:bg-emerald-500/5; }
+    .step-item.step-playbook.failed { @apply border-red-200 dark:border-red-500/25 bg-red-50/30 dark:bg-red-500/5; }
+    /* AI rescue 横幅 */
+    .rescue-banner { @apply rounded-xl border border-amber-200 dark:border-amber-500/30 bg-amber-50/60 dark:bg-amber-500/5 px-4 py-2.5 flex items-center gap-2 text-[11px] text-amber-700 dark:text-amber-300; }
+    /* 完成摘要条 */
+    .run-summary { @apply rounded-xl border border-slate-200 dark:border-[#1e293b] bg-slate-50 dark:bg-[#0b1324] px-4 py-3 flex items-center gap-3 text-[11px] text-slate-500 dark:text-slate-400; }
+
+    /* ── 渲染卡 / 交互卡 ──────────────────── */
+    .render-card { @apply rounded-xl border bg-white dark:bg-[#0b1324] shadow-sm; }
+    .render-card.level-info    { @apply border-slate-200 dark:border-[#1e293b]; }
+    .render-card.level-success { @apply border-emerald-200 dark:border-emerald-500/30 bg-emerald-50/40 dark:bg-emerald-500/5; }
+    .render-card.level-warning { @apply border-amber-200 dark:border-amber-500/30 bg-amber-50/40 dark:bg-amber-500/5; }
+    .render-card.level-error   { @apply border-red-200 dark:border-red-500/30 bg-red-50/40 dark:bg-red-500/5; }
+
+    .ask-card { @apply rounded-xl border-2 border-dashed border-amber-300 dark:border-amber-500/40 bg-amber-50/40 dark:bg-amber-500/5 p-5 shadow-sm; }
+    .ask-card.answered { @apply border-slate-200 dark:border-[#1e293b] bg-slate-50 dark:bg-[#0b1324] border-solid opacity-70; }
+
+    /* ── 交互选项卡片 ──────────────────────── */
+    .interact-option {
+      @apply w-full text-left px-4 py-3 rounded-xl border border-slate-200 dark:border-slate-700
+             bg-white dark:bg-[#0b1324] transition-all cursor-pointer;
+    }
+    .interact-option:hover {
+      @apply border-blue-400 dark:border-blue-500 shadow-md;
+      transform: translateY(-1px);
+    }
+    .interact-option:active { transform: translateY(0); }
+
+    /* ── 表格样式 ────────────────────── */
+    .result-table { @apply w-full text-xs border-collapse; }
+    .result-table th, .result-table td {
+      @apply px-3 py-2 text-left border-b border-slate-100 dark:border-[#1e293b];
+    }
+    .result-table th { @apply bg-slate-50 dark:bg-[#0d1629] text-[10px] uppercase tracking-wide text-slate-500 dark:text-slate-400 font-semibold; }
+    .result-table tbody tr:hover { @apply bg-slate-50/80 dark:bg-slate-800/30; }
+
+    /* ── 思考 pulse ─────────────── */
+    @keyframes soft-pulse {
+      0%, 100% { opacity: 1; }
+      50%      { opacity: 0.45; }
+    }
+    .thinking-pulse { animation: soft-pulse 1.5s ease-in-out infinite; }
+
+    /* ── 代码块 ────────────── */
+    .exec-cmd {
+      @apply font-mono text-[11px] text-slate-100 bg-slate-900/95 rounded-md px-3 py-2 overflow-x-auto;
+    }
+    .exec-output {
+      @apply font-mono text-[11px] text-slate-600 dark:text-slate-300 bg-slate-50 dark:bg-[#0d1629] rounded-md px-3 py-2 mt-2 whitespace-pre-wrap max-h-48 overflow-y-auto;
+    }
+  </style>
+</head>
+<body class="bg-slate-700 dark:bg-[#0b0e18] w-screen h-screen overflow-hidden text-sm text-slate-700 dark:text-slate-200">
+
+  <div class="flex w-full h-full">
+
+    <!-- 左侧活动栏 -->
+    <aside class="app-sidebar shrink-0 w-16 flex flex-col items-stretch py-3">
+      <a href="index.html" class="shrink-0 mx-auto mb-3 w-10 h-10 rounded-xl bg-gradient-to-br from-blue-500 to-purple-500 flex items-center justify-center text-white font-extrabold text-sm shadow-lg hover:shadow-blue-500/40 transition-all" title="1Shell">1S</a>
+      <div class="mx-3 h-px bg-slate-700/60 mb-2"></div>
+      <nav class="flex flex-col flex-1 gap-1 px-1">
+        <a href="index.html" class="side-nav-item flex flex-col items-center gap-0.5 py-2.5 rounded-lg text-slate-400 text-[10px] font-medium" title="主控台">
+          <span class="text-lg">&#128421;</span><span>主控</span>
+        </a>
+        <a href="programs.html" class="side-nav-item flex flex-col items-center gap-0.5 py-2.5 rounded-lg text-slate-400 text-[10px] font-medium" title="长驻程序"><span class="text-lg">&#9881;</span><span>程序</span></a>
+        <a href="containers.html" class="side-nav-item flex flex-col items-center gap-0.5 py-2.5 rounded-lg text-slate-400 text-[10px] font-medium" title="容器">
+          <span class="text-lg">&#128051;</span>
+          <span>容器</span>
+        </a>
+        <a href="sites.html" class="side-nav-item flex flex-col items-center gap-0.5 py-2.5 rounded-lg text-slate-400 text-[10px] font-medium" title="网站"><span class="text-lg">&#127760;</span><span>网站</span></a>
+        <a href="scripts.html" class="side-nav-item flex flex-col items-center gap-0.5 py-2.5 rounded-lg text-slate-400 text-[10px] font-medium" title="脚本库">
+          <span class="text-lg">&#128220;</span><span>脚本</span>
+        </a>
+        <a href="skills.html" class="side-nav-item flex flex-col items-center gap-0.5 py-2.5 rounded-lg text-slate-400 text-[10px] font-medium" title="仓库">
+          <span class="text-lg">&#129520;</span><span>仓库</span>
+        </a>
+        <a href="playbooks.html" class="side-nav-item active flex flex-col items-center gap-0.5 py-2.5 rounded-lg text-slate-400 text-[10px] font-medium" title="剧本库">
+          <span class="text-lg">&#128214;</span><span>剧本</span>
+        </a>
+        <a href="skill-studio.html" class="side-nav-item flex flex-col items-center gap-0.5 py-2.5 rounded-lg text-slate-400 text-[10px] font-medium" title="创作台">
+          <span class="text-lg">&#9997;</span><span>创作</span>
+        </a>
+        <a href="cli-setup.html" class="side-nav-item flex flex-col items-center gap-0.5 py-2.5 rounded-lg text-slate-400 text-[10px] font-medium" title="AI 配置">
+          <span class="text-lg">&#9881;</span><span>AI</span>
+        </a>
+        <a href="probe.html" class="side-nav-item flex flex-col items-center gap-0.5 py-2.5 rounded-lg text-slate-400 text-[10px] font-medium" title="探针">
+          <span class="text-lg">&#128225;</span><span>探针</span>
+        </a>
+        <a href="audit.html" class="side-nav-item flex flex-col items-center gap-0.5 py-2.5 rounded-lg text-slate-400 text-[10px] font-medium" title="审计日志">
+          <span class="text-lg">&#128203;</span><span>审计</span>
+        </a>
+      </nav>
+      <div class="shrink-0 flex flex-col gap-1 px-1">
+        <div class="mx-3 h-px bg-slate-700/60 mb-1"></div>
+        <button class="side-nav-item flex flex-col items-center gap-0.5 py-2.5 rounded-lg text-slate-400 text-[10px] font-medium" title="主题切换" id="theme-toggle-btn">
+          <span class="text-base" id="theme-icon">&#9728;</span><span>主题</span>
+        </button>
+      </div>
+    </aside>
+
+    <!-- 主区域 -->
+    <div class="flex flex-col flex-1 min-w-0 p-2 gap-2">
+
+      <header class="topbar shrink-0 h-14 flex items-center px-5 bg-shell-panel rounded-2xl border border-slate-200 shadow-sm">
+        <div class="flex items-center gap-3 shrink-0">
+          <span class="text-2xl">&#9889;</span>
+          <div>
+            <div class="text-base font-bold text-slate-700 dark:text-slate-200 flex items-center gap-1.5">
+              剧本库
+              <span class="text-[9px] px-1.5 py-0.5 rounded bg-purple-100 text-purple-600 dark:bg-purple-500/20 dark:text-purple-300 font-semibold">Playbook</span>
+              <span class="text-[9px] px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-600 dark:bg-emerald-500/20 dark:text-emerald-300 font-semibold" title="结构化执行引擎">SDK</span>
+            </div>
+            <div class="text-[11px] text-slate-400">智能剧本仓库 · 执行中心</div>
+          </div>
+        </div>
+        <div class="flex-1"></div>
+        <div class="flex items-center gap-3 shrink-0 text-[10px] text-slate-400">
+          <span id="skill-provider-status">未配置 Provider</span>
+        </div>
+      </header>
+
+      <div class="flex flex-1 gap-2 min-h-0">
+
+        <!-- 左栏：Skill 列表 -->
+        <aside class="main-panel w-72 shrink-0 flex flex-col bg-shell-panel rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+          <div class="px-4 py-3 border-b border-slate-100 dark:border-[#1e293b] flex items-center justify-between">
+            <span class="text-[10px] font-semibold text-slate-400 uppercase tracking-wide">剧本仓库</span>
+            <button id="btn-create-skill" class="flex items-center gap-1 text-[10px] px-2.5 py-1 rounded-lg bg-gradient-to-r from-blue-500 to-purple-500 text-white font-semibold hover:opacity-90 transition-all shadow-sm" title="用 AI 创建新 Skill">
+              ✍️ 创建
+            </button>
+          </div>
+          <div id="skill-list" class="flex-1 overflow-y-auto p-3 flex flex-col gap-2">
+            <div class="text-center text-slate-400 text-xs py-8">加载中...</div>
+          </div>
+        </aside>
+
+        <!-- 右栏：配置 + 执行流 -->
+        <main class="main-panel flex-1 flex flex-col min-w-0 bg-shell-panel rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+
+          <!-- 空状态 -->
+          <div id="skill-empty" class="flex-1 flex flex-col items-center justify-center text-slate-400 gap-3">
+            <div class="text-5xl opacity-40">&#9889;</div>
+            <div class="text-sm">从左侧选择一个 Skill 开始</div>
+            <div class="text-[11px]">AI 将在后台完成任务，结果以结构化方式展示</div>
+          </div>
+
+          <!-- Skill 面板 -->
+          <div id="skill-config" class="hidden flex flex-col h-full">
+
+            <!-- 头部 -->
+            <div class="shrink-0 px-5 py-3 border-b border-slate-100 dark:border-[#1e293b] flex items-center justify-between">
+              <div class="flex items-center gap-3 min-w-0">
+                <span class="text-2xl shrink-0" id="skill-icon">&#9889;</span>
+                <div class="min-w-0">
+                  <div class="text-sm font-bold text-slate-700 dark:text-slate-200 truncate" id="skill-name">-</div>
+                  <div class="text-[11px] text-slate-400 truncate" id="skill-desc">-</div>
+                </div>
+              </div>
+              <div class="flex items-center gap-2 shrink-0">
+                <div class="flex items-center gap-1 shrink-0" id="rescuer-select-wrap" title="步骤失败时的 AI 救援策略">
+                  <span class="text-[10px] text-slate-400">🛟</span>
+                  <select id="rescuer-skill-select" class="h-8 px-2 rounded-lg border border-slate-200 dark:border-[#1e293b] bg-slate-50 dark:bg-[#0b1324] text-[11px] outline-none focus:border-blue-400 max-w-[160px] truncate">
+                    <option value="">默认救援（按 Playbook）</option>
+                  </select>
+                </div>
+                <button id="btn-skill-run" class="h-8 px-4 rounded-lg bg-gradient-to-r from-blue-500 to-purple-500 text-white text-xs font-semibold shadow-md hover:shadow-lg transition-all">
+                  &#9654; 执行
+                </button>
+                <button id="btn-skill-stop" class="hidden h-8 px-3 rounded-lg border border-red-200 text-xs text-red-500 hover:bg-red-50 hover:border-red-400 transition-all">
+                  &#9632; 停止
+                </button>
+                <button id="btn-skill-new" class="hidden h-8 px-3 rounded-lg border border-slate-200 dark:border-slate-600 text-xs text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 transition-all">
+                  重新执行
+                </button>
+              </div>
+            </div>
+
+            <!-- 表单 -->
+            <div id="skill-form-area" class="shrink-0 px-5 py-4 border-b border-slate-100 dark:border-[#1e293b]">
+              <div class="grid grid-cols-2 gap-4">
+                <div>
+                  <label class="text-[10px] font-semibold text-slate-400 uppercase tracking-wide mb-1 block">目标主机</label>
+                  <select id="skill-host-select" class="w-full h-9 px-3 rounded-lg border border-slate-200 bg-slate-50 text-xs outline-none focus:border-blue-400">
+                    <option value="local">&#128421; 本机（1Shell 宿主）</option>
+                  </select>
+                </div>
+                <div></div>
+              </div>
+              <div id="skill-inputs" class="flex flex-col gap-3 mt-3"></div>
+            </div>
+
+            <!-- 运行区：步骤流 + 交互 -->
+            <div id="skill-run-area" class="hidden flex-1 flex flex-col min-h-0 overflow-hidden">
+              <div class="shrink-0 px-5 py-2.5 border-b border-slate-100 dark:border-[#1e293b] flex items-center justify-between">
+                <div class="flex items-center gap-2">
+                  <span id="run-status-dot" class="w-2 h-2 rounded-full bg-blue-500 animate-pulse"></span>
+                  <span id="run-status-text" class="text-[11px] text-slate-500 dark:text-slate-400">AI 思考中</span>
+                  <span class="text-[10px] text-slate-400 tabular-nums ml-2" id="run-elapsed">00:00</span>
+                </div>
+                <div class="flex items-center gap-2">
+                  <span id="run-mode-badge" class="hidden text-[9px] px-1.5 py-0.5 rounded font-semibold"></span>
+                  <span class="text-[10px] text-slate-400" id="run-turn">第 0 轮</span>
+                </div>
+              </div>
+              <div id="skill-run-stream" class="flex-1 overflow-y-auto p-5 flex flex-col gap-3">
+              </div>
+            </div>
+
+          </div>
+        </main>
+      </div>
+    </div>
+  </div>
+
+  <div id="modal-root"></div>
+
+  <script>window.LIBRARY_KIND = 'playbook';</script>
+  <script src="shared.js"></script>
+  <script src="skill-client.js"></script>
+  <script src="skills-page.js"></script>
+  <script>
+    const themeBtn = document.getElementById('theme-toggle-btn');
+    const themeIcon = document.getElementById('theme-icon');
+    const htmlEl = document.documentElement;
+    if (localStorage.getItem('1shell-theme') === 'dark') {
+      htmlEl.classList.add('dark');
+      themeIcon.textContent = '\u2600';
+    } else {
+      themeIcon.textContent = '\uD83C\uDF19';
+    }
+    themeBtn.addEventListener('click', () => {
+      const isDark = htmlEl.classList.toggle('dark');
+      themeIcon.textContent = isDark ? '\u2600' : '\uD83C\uDF19';
+      localStorage.setItem('1shell-theme', isDark ? 'dark' : 'light');
+    });
+  </script>
+</body>
+</html>

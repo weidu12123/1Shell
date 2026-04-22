@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <script>if(localStorage.getItem("1shell-theme")==="dark"||(window.matchMedia&&!localStorage.getItem("1shell-theme")&&window.matchMedia("(prefers-color-scheme:dark)").matches)){document.documentElement.classList.add("dark")}</script><!-- theme-flash-prevent -->
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>运行面板 · 1Shell 3.0</title>
+  <link rel="stylesheet" href="style.css" />
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.jsdelivr.net/npm/socket.io-client@4.7.5/dist/socket.io.min.js"></script>
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: { extend: { colors: { shell: { panel: '#f8fafc', 'panel-dark': '#111827', accent: '#4f8cff', purple: '#7c3aed' } },
+        fontFamily: { mono: ['"Cascadia Code"','"JetBrains Mono"','Consolas','monospace'] } } }
+    }
+  </script>
+  <style type="text/tailwindcss">
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, sans-serif; }
+    .hidden { display: none !important; }
+    ::-webkit-scrollbar { width: 6px; height: 6px; }
+    ::-webkit-scrollbar-thumb { background: rgba(0,0,0,0.15); border-radius: 3px; }
+    .dark ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.12); }
+    .app-sidebar { background: linear-gradient(180deg,#1e293b 0%,#0f172a 100%); border-right: 1px solid rgba(255,255,255,0.05); }
+    .side-nav-item { transition: all .2s; }
+    .side-nav-item:hover { background: rgba(79,140,255,0.08); color: #e2e8f0; }
+    .side-nav-item.active { background: linear-gradient(135deg, rgba(79,140,255,0.18), rgba(124,58,237,0.16)); color: #fff; box-shadow: inset 2px 0 0 #4f8cff; }
+
+    .run-card { border: 1px solid #e2e8f0; border-radius: 12px; background: #fff; transition: all .15s; }
+    .dark .run-card { background: #0f172a; border-color: #1e293b; }
+    .run-card.active { border-color: #4f8cff; box-shadow: 0 0 0 1px rgba(79,140,255,0.3); }
+
+    .pill { display: inline-flex; align-items: center; padding: 1px 8px; border-radius: 999px; font-size: 10px; font-weight: 600; }
+    .pill-running { background: rgba(79,140,255,0.15); color: #2563eb; }
+    .pill-success { background: rgba(16,185,129,0.15); color: #059669; }
+    .pill-error { background: rgba(239,68,68,0.15); color: #dc2626; }
+    .pill-cancelled { background: rgba(148,163,184,0.2); color: #64748b; }
+
+    .ev { font-family: "Cascadia Code",monospace; font-size: 11px; line-height: 1.55; white-space: pre-wrap; word-break: break-word; }
+    .ev.info { color: #2563eb; }
+    .ev.thought { color: #7c3aed; font-style: italic; }
+    .ev.stdout { color: #334155; }
+    .dark .ev.stdout { color: #cbd5e1; }
+    .ev.stderr { color: #dc2626; }
+    .ev.success { color: #059669; font-weight: 600; }
+    .ev.error { color: #dc2626; font-weight: 600; }
+  </style>
+</head>
+<body class="bg-slate-700 dark:bg-[#0b0e18] w-screen h-screen overflow-hidden text-sm text-slate-700 dark:text-slate-200">
+  <div class="flex w-full h-full">
+    <aside class="app-sidebar shrink-0 w-16 flex flex-col items-stretch py-3">
+      <a href="index.html" class="shrink-0 mx-auto mb-3 w-10 h-10 rounded-xl bg-gradient-to-br from-blue-500 to-purple-500 flex items-center justify-center text-white font-extrabold text-sm shadow-lg" title="1Shell">1S</a>
+      <div class="mx-3 h-px bg-slate-700/60 mb-2"></div>
+      <nav class="flex flex-col flex-1 gap-1 px-1">
+        <a href="index.html" class="side-nav-item flex flex-col items-center gap-0.5 py-2.5 rounded-lg text-slate-400 text-[10px] font-medium" title="主控台"><span class="text-lg">&#128421;</span><span>主控</span></a>
+        <a href="programs.html" class="side-nav-item flex flex-col items-center gap-0.5 py-2.5 rounded-lg text-slate-400 text-[10px] font-medium" title="长驻程序"><span class="text-lg">&#9881;</span><span>程序</span></a>
+        <a href="containers.html" class="side-nav-item flex flex-col items-center gap-0.5 py-2.5 rounded-lg text-slate-400 text-[10px] font-medium" title="容器"><span class="text-lg">&#128051;</span><span>容器</span></a>
+        <a href="sites.html" class="side-nav-item flex flex-col items-center gap-0.5 py-2.5 rounded-lg text-slate-400 text-[10px] font-medium" title="网站"><span class="text-lg">&#127760;</span><span>网站</span></a>
+        <a href="scripts.html" class="side-nav-item flex flex-col items-center gap-0.5 py-2.5 rounded-lg text-slate-400 text-[10px] font-medium" title="脚本"><span class="text-lg">&#128220;</span><span>脚本</span></a>
+        <a href="skills.html" class="side-nav-item flex flex-col items-center gap-0.5 py-2.5 rounded-lg text-slate-400 text-[10px] font-medium" title="Skill 素材"><span class="text-lg">&#129520;</span><span>素材</span></a>
+        <a href="playbooks.html" class="side-nav-item flex flex-col items-center gap-0.5 py-2.5 rounded-lg text-slate-400 text-[10px] font-medium" title="剧本库"><span class="text-lg">&#128214;</span><span>剧本</span></a>
+        <a href="skill-studio.html" class="side-nav-item flex flex-col items-center gap-0.5 py-2.5 rounded-lg text-slate-400 text-[10px] font-medium" title="创作台"><span class="text-lg">&#9997;</span><span>创作</span></a>
+        <a href="playbook-runs.html" class="side-nav-item active flex flex-col items-center gap-0.5 py-2.5 rounded-lg text-slate-400 text-[10px] font-medium" title="运行面板"><span class="text-lg">&#128293;</span><span>运行</span></a>
+        <a href="cli-setup.html" class="side-nav-item flex flex-col items-center gap-0.5 py-2.5 rounded-lg text-slate-400 text-[10px] font-medium" title="AI 配置"><span class="text-lg">&#9881;</span><span>AI</span></a>
+        <a href="probe.html" class="side-nav-item flex flex-col items-center gap-0.5 py-2.5 rounded-lg text-slate-400 text-[10px] font-medium" title="探针"><span class="text-lg">&#128225;</span><span>探针</span></a>
+        <a href="audit.html" class="side-nav-item flex flex-col items-center gap-0.5 py-2.5 rounded-lg text-slate-400 text-[10px] font-medium" title="审计日志"><span class="text-lg">&#128203;</span><span>审计</span></a>
+      </nav>
+      <div class="shrink-0 flex flex-col gap-1 px-1">
+        <div class="mx-3 h-px bg-slate-700/60 mb-1"></div>
+        <button class="side-nav-item flex flex-col items-center gap-0.5 py-2.5 rounded-lg text-slate-400 text-[10px] font-medium" title="主题" id="theme-toggle-btn">
+          <span class="text-base" id="theme-icon">&#9728;</span><span>主题</span>
+        </button>
+      </div>
+    </aside>
+
+    <div class="flex flex-col flex-1 min-w-0 p-2 gap-2">
+      <header class="shrink-0 h-14 flex items-center px-5 bg-shell-panel rounded-2xl border border-slate-200 dark:border-[#1e293b] dark:bg-[#0f172a] shadow-sm">
+        <div class="flex items-center gap-3 shrink-0">
+          <span class="text-2xl">🔥</span>
+          <div>
+            <div class="text-base font-bold text-slate-700 dark:text-slate-200 flex items-center gap-1.5">
+              运行面板
+              <span class="text-[9px] px-1.5 py-0.5 rounded bg-blue-100 text-blue-600 dark:bg-blue-500/20 dark:text-blue-300 font-semibold">Live</span>
+            </div>
+            <div class="text-[11px] text-slate-400">所有进行中的 Skill/Playbook 运行 · 实时事件流</div>
+          </div>
+        </div>
+        <div class="flex-1"></div>
+        <button id="btn-refresh" class="text-[11px] px-3 py-1.5 rounded-lg border border-slate-200 dark:border-[#1e293b] hover:bg-slate-100 dark:hover:bg-[#1e293b]">↻ 刷新</button>
+      </header>
+
+      <div class="flex flex-1 gap-2 min-h-0">
+
+        <!-- 左：运行列表 -->
+        <aside class="w-[30%] shrink-0 bg-shell-panel rounded-2xl border border-slate-200 dark:border-[#1e293b] dark:bg-[#0f172a] flex flex-col overflow-hidden">
+          <div class="px-4 py-3 border-b border-slate-100 dark:border-[#1e293b] flex items-center justify-between">
+            <span class="text-[10px] font-semibold text-slate-400 uppercase">进行中</span>
+            <span id="run-count" class="text-[10px] text-slate-400">0</span>
+          </div>
+          <div id="run-list" class="flex-1 overflow-auto p-3 flex flex-col gap-2">
+            <div class="text-[11px] text-slate-400 text-center py-10">加载中...</div>
+          </div>
+        </aside>
+
+        <!-- 右：事件流 -->
+        <main class="flex-1 min-w-0 bg-shell-panel rounded-2xl border border-slate-200 dark:border-[#1e293b] dark:bg-[#0f172a] flex flex-col overflow-hidden">
+          <div class="px-4 py-3 border-b border-slate-100 dark:border-[#1e293b] flex items-center gap-2">
+            <span class="text-[10px] font-semibold text-slate-400 uppercase">事件流</span>
+            <span id="focus-title" class="text-xs font-mono text-slate-500 flex-1 truncate">（选择左侧一个运行以订阅）</span>
+            <button id="btn-stop" class="hidden text-[11px] px-3 py-1 rounded-lg bg-red-500 text-white hover:bg-red-600">停止</button>
+          </div>
+          <div id="event-stream" class="flex-1 overflow-auto p-3 flex flex-col gap-1"></div>
+        </main>
+
+      </div>
+    </div>
+  </div>
+
+  <script src="shared.js"></script>
+  <script src="playbook-runs-page.js"></script>
+  <script>
+    const themeBtn = document.getElementById('theme-toggle-btn');
+    const themeIcon = document.getElementById('theme-icon');
+    const htmlEl = document.documentElement;
+    if (localStorage.getItem('1shell-theme') === 'dark') { htmlEl.classList.add('dark'); themeIcon.textContent = '\u2600'; }
+    else { themeIcon.textContent = '\uD83C\uDF19'; }
+    themeBtn.addEventListener('click', () => {
+      const isDark = htmlEl.classList.toggle('dark');
+      themeIcon.textContent = isDark ? '\u2600' : '\uD83C\uDF19';
+      localStorage.setItem('1shell-theme', isDark ? 'dark' : 'light');
+    });
+  </script>
+</body>
+</html>

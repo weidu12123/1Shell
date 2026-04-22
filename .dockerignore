@@ -1,0 +1,14 @@
+node_modules
+npm-debug.log
+.env
+data/*.db
+data/*.json
+data/*.log
+test
+test-results
+docs
+artifacts
+*.png
+*.md
+.git
+.claude
