@@ -6,7 +6,7 @@
 
 零侵入式多机管理中枢 · AI 自动化运维总台
 
-[![version](https://img.shields.io/badge/version-2.0.0-4f8cff?style=flat-square)](https://github.com/weidu12123/1shell/releases)
+[![version](https://img.shields.io/badge/version-3.1.0-4f8cff?style=flat-square)](https://github.com/weidu12123/1shell/releases)
 [![node](https://img.shields.io/badge/node-%3E%3D18-43a047?style=flat-square&logo=node.js)](https://nodejs.org)
 [![license](https://img.shields.io/badge/license-MIT-f9a825?style=flat-square)](LICENSE)
 [![docker](https://img.shields.io/badge/docker-ready-2496ed?style=flat-square&logo=docker)](https://hub.docker.com)
@@ -253,17 +253,80 @@ PORT=3301
 
 ## Roadmap
 
-- [ ] 3.0 Agent Skill：声明式自动化运维（一键建站、容器管理）
+- [x] 3.0 Agent Skill：声明式自动化运维（一键建站、容器管理）
 - [ ] 前端 Vite 构建工具链
 - [ ] TypeScript 迁移
 - [ ] 主机组批量操作
-- [ ] MCP 权限控制（限制 AI 只能操作指定主机）
-- [ ] HTTPS / TLS 证书自动管理
+- [x] MCP 权限控制（限制 AI 只能操作指定主机）
+- [x] HTTPS / TLS 证书自动管理（3.0 已通过 Skill 实现 Let’s Encrypt 自动申请/续期）
 - [ ] 国际化（i18n）
 
 ---
 
 ## 更新日志
+
+### 3.1.0 更新
+
+#### 1Shell 原生 AI 引擎
+
+- 新增 1Shell AI 引擎，替代 Claude Code CLI 依赖，主控台 AI 不再需要外部 CLI 二进制
+- 主控台 AI 面板从 PTY/xterm 终端嵌入改为原生聊天界面 + ide:* socket 协议
+- AI 面板不再绑定单台主机，可通过 `list_hosts` 自由操控所有 VPS
+- AI 配置页 1Shell AI 引擎卡片置顶，一处配置驱动全局
+
+#### IDE 工作台完善
+
+- `run_skill` 从空壳改为真正调用 Skill Runner（AI-Loop），同步返回完整执行结果
+- 新增 `run_playbook` 工具，走 L1 确定性执行器 + L2 Rescuer 完整链路
+- IDE 引擎 SSE 流式连接增加重试（Premature close / ECONNRESET 最多重试 2 次）
+
+#### 仓库管理
+
+- Skill 卡片新增删除按钮（系统 Skill 不可删）
+- Playbook executor 补全 `last_line` 和 `line_count` transform
+
+#### 本机命令执行修复
+
+- Windows 本机执行从 wsl.exe 改为 cmd.exe 直接执行，修复无 WSL 环境的乱码
+- 新增 GBK → UTF-8 Buffer 解码（iconv-lite），兜底 Windows 中文输出
+
+### 3.0.0 更新
+
+1Shell 3.0 从「多机运维平台」升级为「约束可控的自维护 AI 运维代理系统」。核心目标：让大模型代理在真实运维场景中既可控、又可持续学习。
+
+#### 三层分级执行架构
+
+- 新增 **L1 Playbook Executor**：声明式 YAML 定义步骤，按 verify 规则自动判定，零 token 消耗，毫秒级完成，全程可审计
+- 新增 **L2 AI Rescuer**：L1 步骤失败时激活，硬性预算（3 条命令 / 8 轮对话 / 2048 tokens），输出 retry_ok / patch_plan / give_up 三选一
+- 新增 **L3 Guardian**：长驻 Program 的守护者 AI，滑动窗口配额控制每小时介入次数，危险命令强制 ask_user
+
+#### Skill 能力包系统
+
+- rules/ 目录：人类写、AI 不可修改的硬约束（路径沙箱、命令红线、救援预算）
+- workflows/ + references/ 目录：AI 可根据执行历史自我演进的软过程
+- 新增 Skill 创作台：用户自然语言描述需求 → AI 生成完整 Playbook 目录 → 立即可运行
+- 内置 skill-authoring / program-authoring 元 Skill，具备系统自扩展能力
+
+#### 长驻 Program 与守护者
+
+- 新增 Program 模块：cron 触发的持续运行任务
+- on_fail=escalate 失败时自动唤醒 Guardian 自愈
+- 危险命令模式拦截：rm -rf、dd if=、mkfs、shutdown、reboot 等强制人工确认
+
+#### 开箱即用的元 Skill
+
+仓库仅内置三套最小必需的创作台能力包：
+
+-  — 用自然语言生成 Skill / Playbook / Rescue Skill
+-  — 用自然语言生成 Program
+-  — 创作时复制的文件模板
+
+其余所有具体运维能力（证书管理、容器巡检、主机巡检、救援策略…）交由用户通过创作台自行生成，仓库不分发特定场景的样例
+
+#### 版本发布
+
+- 当前版本升级为 3.0.0 正式版
+- 3.0 对应定位为「让 AI 自动化运维既可控又可持续」的分层智能代理系统
 
 ### 2.0.0 更新
 
