@@ -323,7 +323,6 @@ SKILL.md 的 description 是触发条件（最重要），Always Read + Common T
           }
 
           // MCP 工具通过 mcpToolMap 路由到 localMcpService，其余走内置 handler
-          let result;
           const mcpInfo = mcpToolMap.get(tc.name);
           if (mcpInfo && localMcpService) {
             try {
