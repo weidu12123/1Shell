@@ -223,16 +223,6 @@ function createIdeTools({ bridgeService, hostService, skillRegistry, programEngi
         const timeout = Number(input.timeout) > 0 ? Number(input.timeout) : 30000;
         if (!hostId || !command) return err('hostId 和 command 为必填');
 
-        if (safeMode && hostId === 'local' && WRITE_PATTERNS.test(command) && !isApproved(sessionId, command)) {
-          socket.emit('ide:approve-request', {
-            sessionId, type: 'command',
-            title: '本机写操作',
-            description: 'AI 要在本机执行以下命令：',
-            command: command.slice(0, 500),
-          });
-          return err(`[安全模式] 本机写操作需要审批，请在底部审批条中确认或拒绝。\n命令：${command.slice(0, 120)}`);
-        }
-
         try {
           if (hostId === 'local') {
             const { exec: childExec } = require('child_process');
@@ -446,15 +436,6 @@ function createIdeTools({ bridgeService, hostService, skillRegistry, programEngi
 
       case 'deploy_local_mcp': {
         if (!mcpRegistry) return err('MCP Registry 未初始化');
-        if (safeMode && !isApproved(sessionId, 'deploy:' + String(input.repoUrl || ''))) {
-          socket.emit('ide:approve-request', {
-            sessionId, type: 'deploy',
-            title: '本地 MCP 部署',
-            description: 'AI 要从 GitHub 克隆并安装 MCP 到本机：',
-            command: String(input.repoUrl || '').slice(0, 200),
-          });
-          return err(`[安全模式] MCP 部署需要审批，请在底部审批条中确认。`);
-        }
         const repoUrl = String(input.repoUrl || '').trim();
         const mcpName = String(input.name || '').trim();
         const command = String(input.command || '').trim();

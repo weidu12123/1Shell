@@ -230,16 +230,18 @@
       const $bar = document.getElementById('approve-bar');
       const $title = document.getElementById('approve-title');
       const $desc = document.getElementById('approve-desc');
-      const $cmd = document.getElementById('approve-cmd');
+      const $detail = document.getElementById('approve-detail');
       const $allow = document.getElementById('approve-allow');
-      const $edit = document.getElementById('approve-edit');
       const $deny = document.getElementById('approve-deny');
+      const $customInput = document.getElementById('approve-custom-input');
+      const $customBtn = document.getElementById('approve-custom-btn');
       const $countdown = document.getElementById('approve-countdown');
       if (!$bar) return;
 
       $title.textContent = msg.title || '安全模式';
-      $desc.textContent = msg.description || 'AI 要执行以下操作：';
-      $cmd.value = msg.command || '';
+      $desc.textContent = `AI 要执行 ${msg.toolName || '操作'}：`;
+      $detail.textContent = msg.detail || '';
+      $customInput.value = '';
       $bar.classList.remove('hidden');
 
       let remaining = 120;
@@ -247,33 +249,32 @@
       const tick = setInterval(() => {
         remaining--;
         $countdown.textContent = `${remaining}s`;
-        if (remaining <= 0) { clearInterval(tick); dismiss(); }
+        if (remaining <= 0) { respond('deny'); }
       }, 1000);
 
-      const dismiss = () => { clearInterval(tick); $bar.classList.add('hidden'); };
-
-      $deny.onclick = () => dismiss();
-
-      $allow.onclick = () => {
+      const respond = (action, text) => {
+        clearInterval(tick);
+        $bar.classList.add('hidden');
         socket.emit('ide:approve-response', {
+          requestId: msg.requestId,
           sessionId: msg.sessionId,
-          command: msg.command,
-          approved: true,
+          action,
+          text: text || '',
         });
-        dismiss();
-        showToast?.('已批准，AI 将重试', 'success');
       };
 
-      $edit.onclick = () => {
-        const edited = $cmd.value.trim();
-        if (!edited) return;
-        socket.emit('ide:approve-response', {
-          sessionId: msg.sessionId,
-          command: edited,
-          approved: true,
-        });
-        dismiss();
-        showToast?.('已批准（修改后），AI 将重试', 'success');
+      $deny.onclick = () => respond('deny');
+      $allow.onclick = () => respond('allow');
+      $customBtn.onclick = () => {
+        const text = $customInput.value.trim();
+        if (!text) { showToast?.('请输入自定义回复', 'error'); return; }
+        respond('custom', text);
+      };
+      $customInput.onkeydown = (e) => {
+        if (e.key === 'Enter' && !e.shiftKey) {
+          e.preventDefault();
+          $customBtn.click();
+        }
       };
     });
   }

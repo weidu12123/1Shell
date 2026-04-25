@@ -472,14 +472,16 @@
       <span class="text-[10px] text-slate-400" id="approve-countdown"></span>
     </div>
     <div class="px-4 py-2">
-      <div id="approve-desc" class="text-[11px] text-slate-500 dark:text-slate-400 mb-1.5"></div>
-      <textarea id="approve-cmd" class="w-full text-[11px] p-2 rounded-lg bg-slate-900 text-emerald-400 font-mono resize-none border border-slate-700 focus:border-amber-400 focus:outline-none" rows="2" spellcheck="false"></textarea>
+      <div id="approve-desc" class="text-[11px] text-slate-500 dark:text-slate-400 mb-1.5">AI 要执行以下操作：</div>
+      <pre id="approve-detail" class="w-full text-[11px] p-2 rounded-lg bg-slate-900 text-emerald-400 font-mono whitespace-pre-wrap break-all max-h-[120px] overflow-auto border border-slate-700"></pre>
     </div>
     <div class="px-4 py-2 flex items-center gap-2 border-t border-slate-100 dark:border-[#1e293b]">
-      <button id="approve-deny" class="px-4 py-1.5 rounded-lg border border-red-200 dark:border-red-500/30 text-red-500 text-[11px] font-semibold hover:bg-red-50 dark:hover:bg-red-900/20">拒绝</button>
-      <div class="flex-1"></div>
-      <button id="approve-edit" class="px-4 py-1.5 rounded-lg border border-blue-200 dark:border-blue-500/30 text-blue-500 text-[11px] font-semibold hover:bg-blue-50 dark:hover:bg-blue-900/20">修改后执行</button>
-      <button id="approve-allow" class="px-4 py-1.5 rounded-lg bg-emerald-500 text-white text-[11px] font-semibold hover:bg-emerald-600">允许</button>
+      <button id="approve-deny" class="px-4 py-1.5 rounded-lg border border-red-200 dark:border-red-500/30 text-red-500 text-[11px] font-semibold hover:bg-red-50 dark:hover:bg-red-900/20">✕ 拒绝</button>
+      <div class="flex-1 flex items-center gap-1">
+        <input id="approve-custom-input" class="flex-1 text-[11px] px-2 py-1 rounded-lg border border-slate-200 dark:border-[#334155] dark:bg-[#0f172a] dark:text-slate-200 focus:outline-none focus:border-blue-400" placeholder="自定义回复..." />
+        <button id="approve-custom-btn" class="px-3 py-1.5 rounded-lg border border-blue-200 dark:border-blue-500/30 text-blue-500 text-[11px] font-semibold hover:bg-blue-50 dark:hover:bg-blue-900/20">回复</button>
+      </div>
+      <button id="approve-allow" class="px-4 py-1.5 rounded-lg bg-emerald-500 text-white text-[11px] font-semibold hover:bg-emerald-600">✓ 允许</button>
     </div>
   </div>
   <style>

@@ -69,12 +69,56 @@ SKILL.md 的 description 是触发条件（最重要），Always Read + Common T
   const SAFE_MODE_ADDENDUM = `
 
 ## ⚠ 安全模式已开启
-当前处于安全模式。在本机（hostId="local"）上执行任何会修改、写入或删除文件的命令前，你必须：
-1. 先向用户说明你打算执行的具体命令和影响
-2. 停止当前回合（不调用工具），等待用户确认
-3. 用户确认后再执行
-只读命令（ls、cat、find、grep、docker ps 等）不受此限制，可以直接执行。
-远程主机上的操作不受安全模式限制。`;
+当前处于安全模式。你可以正常调用工具，但所有写操作（执行命令、写入文件等）会在执行前弹出审批框，由用户决定是否允许。
+你不需要额外确认或停顿——直接调用工具即可，系统会自动暂停等待用户审批。
+用户可能会拒绝操作或给出自定义回复，请根据返回结果调整行为。`;
+
+  const READONLY_TOOLS = new Set([
+    'list_hosts', 'read_file', 'list_artifacts', 'query_format',
+    'reload_registry', 'list_mcp_servers',
+  ]);
+
+  function getApprovalSummary(tc) {
+    const input = tc.input || {};
+    switch (tc.name) {
+      case 'execute_command':
+        return { title: '执行命令', detail: `主机: ${input.hostId || 'local'}\n命令: ${input.command || ''}` };
+      case 'write_file':
+        return { title: '写入文件', detail: `路径: ${input.path || ''}\n内容: ${(input.content || '').substring(0, 300)}` };
+      case 'deploy_local_mcp':
+        return { title: '部署本地 MCP', detail: `仓库: ${input.repoUrl || ''}\n名称: ${input.name || ''}` };
+      default:
+        return { title: tc.name, detail: JSON.stringify(input, null, 2).substring(0, 400) };
+    }
+  }
+
+  function waitForApproval(socket, sessionId, tc) {
+    return new Promise((resolve) => {
+      const requestId = `apr-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
+      const summary = getApprovalSummary(tc);
+
+      const handler = (resp) => {
+        if (resp.requestId !== requestId) return;
+        socket.off('ide:approve-response', handler);
+        clearTimeout(timer);
+        resolve(resp);
+      };
+      socket.on('ide:approve-response', handler);
+
+      const timer = setTimeout(() => {
+        socket.off('ide:approve-response', handler);
+        resolve({ action: 'deny' });
+      }, 5 * 60 * 1000);
+
+      socket.emit('ide:approve-request', {
+        sessionId,
+        requestId,
+        toolName: tc.name,
+        title: summary.title,
+        detail: summary.detail,
+      });
+    });
+  }
 
   function getOrCreateSession(sessionId, context) {
     if (sessions.has(sessionId)) return sessions.get(sessionId);
@@ -258,6 +302,25 @@ SKILL.md 的 description 是触发条件（最重要），Always Read + Common T
           }
 
           socket.emit('ide:tool-start', { sessionId, toolUseId: tc.id, name: tc.name, input: tc.input });
+
+          // 安全模式审批门：非只读工具暂停等待用户审批
+          let result;
+          if (session.safeMode && !READONLY_TOOLS.has(tc.name)) {
+            const approval = await waitForApproval(socket, sessionId, tc);
+            if (approval.action === 'deny') {
+              result = { content: '[用户拒绝了此操作]', is_error: true };
+              socket.emit('ide:tool-end', { sessionId, toolUseId: tc.id, name: tc.name, result: result.content, is_error: true });
+              toolResults.push({ type: 'tool_result', tool_use_id: tc.id, content: result.content, is_error: true });
+              continue;
+            }
+            if (approval.action === 'custom') {
+              result = { content: approval.text || '[用户自定义回复]', is_error: false };
+              socket.emit('ide:tool-end', { sessionId, toolUseId: tc.id, name: tc.name, result: result.content, is_error: false });
+              toolResults.push({ type: 'tool_result', tool_use_id: tc.id, content: result.content });
+              continue;
+            }
+            // action === 'allow' → 继续执行
+          }
 
           // MCP 工具通过 mcpToolMap 路由到 localMcpService，其余走内置 handler
           let result;
