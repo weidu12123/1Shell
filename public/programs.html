@@ -107,7 +107,6 @@
         <a href="sites.html" class="side-nav-item flex flex-col items-center gap-0.5 py-2.5 rounded-lg text-slate-400 text-[10px] font-medium" title="网站"><span class="text-lg">&#127760;</span><span>网站</span></a>
         <a href="scripts.html" class="side-nav-item flex flex-col items-center gap-0.5 py-2.5 rounded-lg text-slate-400 text-[10px] font-medium" title="脚本库"><span class="text-lg">&#128220;</span><span>脚本</span></a>
         <a href="skills.html" class="side-nav-item flex flex-col items-center gap-0.5 py-2.5 rounded-lg text-slate-400 text-[10px] font-medium" title="仓库"><span class="text-lg">&#129520;</span><span>仓库</span></a>
-        <a href="playbooks.html" class="side-nav-item flex flex-col items-center gap-0.5 py-2.5 rounded-lg text-slate-400 text-[10px] font-medium" title="剧本库"><span class="text-lg">&#128214;</span><span>剧本</span></a>
         <a href="skill-studio.html" class="side-nav-item flex flex-col items-center gap-0.5 py-2.5 rounded-lg text-slate-400 text-[10px] font-medium" title="创作台"><span class="text-lg">&#9997;</span><span>创作</span></a>
         <a href="cli-setup.html" class="side-nav-item flex flex-col items-center gap-0.5 py-2.5 rounded-lg text-slate-400 text-[10px] font-medium" title="AI 配置"><span class="text-lg">&#9881;</span><span>AI</span></a>
         <a href="probe.html" class="side-nav-item flex flex-col items-center gap-0.5 py-2.5 rounded-lg text-slate-400 text-[10px] font-medium" title="探针"><span class="text-lg">&#128225;</span><span>探针</span></a>
@@ -244,6 +243,12 @@
 
             <!-- Guardian Tab -->
             <div id="panel-guardian" class="flex-1 overflow-auto hidden">
+              <div class="flex items-center gap-2 px-3 py-2 border-b border-slate-100 dark:border-[#1e293b]">
+                <label class="flex items-center gap-1.5 cursor-pointer select-none text-[11px]" title="开启后 Guardian 不限轮次，直到完成任务或手动取消">
+                  <input type="checkbox" id="chk-guardian-unlimited" class="accent-amber-500 w-3 h-3">
+                  <span id="guardian-unlimited-label" class="text-slate-400">不限轮次</span>
+                </label>
+              </div>
               <div id="guardian-stream" class="flex flex-col divide-y divide-slate-100 dark:divide-[#1e293b]">
                 <div class="text-center text-slate-400 text-xs py-8">Guardian 还未被唤起。<br>当 Program 的 step 失败且 <code>on_fail: escalate</code> 时，Guardian AI 会自动介入诊断。</div>
               </div>

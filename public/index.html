@@ -4,7 +4,7 @@
   <script>if(localStorage.getItem("1shell-theme")==="dark"||(window.matchMedia&&!localStorage.getItem("1shell-theme")&&window.matchMedia("(prefers-color-scheme:dark)").matches)){document.documentElement.classList.add("dark")}</script><!-- theme-flash-prevent -->
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>1Shell 3.1.0</title>
+  <title>1Shell 2.0.0</title>
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/xterm@5.3.0/css/xterm.min.css" />
   <link rel="stylesheet" href="style.css" />
   <script src="https://cdn.tailwindcss.com"></script>
@@ -49,6 +49,8 @@
 
     /* xterm 覆盖 */
     #terminal-container .xterm, #terminal-container .xterm-viewport { height: 100% !important; }
+    #agent-terminal-wrap .xterm, #agent-terminal-wrap .xterm-viewport { height: 100% !important; }
+    .agent-session-term .xterm, .agent-session-term .xterm-viewport { height: 100% !important; }
 
     /* ── 暗色主题：整体覆盖 ─────────────────────────────── */
     /* 登录页 */
@@ -137,14 +139,15 @@
     }
   </style>
 </head>
-<body class="bg-slate-700 dark:bg-[#0b0e18] w-screen h-screen overflow-hidden text-sm text-slate-700 dark:text-slate-200">
+<body class="bg-slate-700 dark:bg-[#0b0e18] w-screen h-screen overflow-hidden text-sm text-slate-700 dark:text-slate-200" style="opacity:0;transition:opacity .15s">
+<script>window.addEventListener('DOMContentLoaded',()=>{document.body.style.opacity='1'})</script>
 
   <!-- ════════════════════════════════════════════════════════
        登录页（默认显示，JS 加载成功后由 auth.js 控制显隐）
        ════════════════════════════════════════════════════════ -->
   <div class="login-screen fixed inset-0 z-[9000] flex items-center justify-center bg-slate-100/40 backdrop-blur-md p-6" id="login-screen">
     <div class="w-full max-w-sm p-8 bg-white/80 backdrop-blur-2xl rounded-3xl shadow-2xl border border-white/60 dark:border-[#1e293b]/60">
-      <div class="text-3xl font-extrabold bg-gradient-to-r from-blue-500 to-purple-500 bg-clip-text text-transparent">1Shell 3.1.0</div>
+      <div class="text-3xl font-extrabold bg-gradient-to-r from-blue-500 to-purple-500 bg-clip-text text-transparent">1Shell 2.0.0</div>
       <div class="mt-0.5 text-[11px] text-slate-400 italic font-medium tracking-wide">One Shell to rule them all.</div>
       <div class="mt-1 text-slate-500 text-sm">请输入账号和密码后进入多 VPS 控制台</div>
       <form id="login-form" class="mt-6 flex flex-col gap-4" autocomplete="off">
@@ -203,10 +206,6 @@
         <a href="skills.html" class="side-nav-item flex flex-col items-center gap-0.5 py-2.5 rounded-lg text-slate-400 text-[10px] font-medium" title="仓库">
           <span class="text-lg">&#129520;</span>
           <span>仓库</span>
-        </a>
-        <a href="playbooks.html" class="side-nav-item flex flex-col items-center gap-0.5 py-2.5 rounded-lg text-slate-400 text-[10px] font-medium" title="剧本库">
-          <span class="text-lg">&#128214;</span>
-          <span>剧本</span>
         </a>
         <a href="skill-studio.html" class="side-nav-item flex flex-col items-center gap-0.5 py-2.5 rounded-lg text-slate-400 text-[10px] font-medium" title="创作台">
           <span class="text-lg">&#9997;</span>
@@ -271,7 +270,8 @@
       <!-- 右：操作按钮 -->
       <div class="topbar-actions flex items-center gap-2 shrink-0">
         <button class="h-8 px-3 rounded-lg border border-slate-200 bg-white text-xs font-semibold text-slate-600 hover:border-blue-300 hover:text-blue-500 transition-all hidden" id="refresh-hosts-btn" type="button">刷新</button>
-        <button class="h-8 px-3 rounded-lg bg-gradient-to-r from-purple-500 to-blue-500 text-white text-xs font-semibold shadow-md hover:shadow-lg transition-all" id="agent-panel-btn" type="button">1Shell AI</button>
+        <button class="h-8 px-3 rounded-lg bg-gradient-to-r from-purple-500 to-blue-500 text-white text-xs font-semibold shadow-md hover:shadow-lg transition-all" id="agent-panel-btn" type="button">AI Agent</button>
+        <button class="h-8 px-3 rounded-lg bg-gradient-to-r from-blue-500 to-cyan-500 text-white text-xs font-semibold shadow-md hover:shadow-lg transition-all" id="ide-panel-btn" type="button">1Shell AI</button>
         <button class="h-8 px-3 rounded-lg bg-gradient-to-r from-purple-500 to-blue-500 text-white text-xs font-semibold shadow-md hover:shadow-lg transition-all" id="ai-api-config-btn" type="button" title="AI API 配置">⚙ AI 配置</button>
         <button class="h-8 px-3 rounded-lg border border-slate-200 bg-white text-xs font-semibold text-slate-600 hover:border-blue-300 hover:text-blue-500 transition-all" id="ai-panel-toggle-btn" type="button" title="折叠/展开 AI 面板">AI 折叠</button>
         <button class="h-8 px-3 rounded-lg border border-slate-200 bg-white text-xs font-semibold text-slate-600 hover:border-slate-400 transition-all" id="settings-btn" type="button" title="系统设置">⚙ 设置</button>
@@ -458,33 +458,63 @@
       <!-- ── Agent 面板（内嵌右侧，默认隐藏，打开后变为 2:4:4 布局） ─────── -->
       <aside class="agent-side-panel hidden flex flex-col min-h-0 bg-shell-panel rounded-2xl border border-slate-200 shadow-sm overflow-hidden" id="agent-panel">
 
+        <!-- 会话标签页（类似终端 tabs） -->
+        <div id="agent-tabs" class="shrink-0 flex items-center gap-1 px-3 h-9 border-b border-slate-100 bg-slate-50/50 overflow-x-auto">
+          <button class="h-7 px-2.5 rounded-lg border border-dashed border-slate-300 text-xs text-slate-400 hover:border-purple-300 hover:text-purple-500 transition-all shrink-0" id="agent-new-session-btn">+ 新会话</button>
+        </div>
+
         <!-- 标题栏 -->
         <div class="agent-side-panel-header shrink-0 flex items-center justify-between gap-3 px-4 py-2 border-b border-slate-100">
           <div class="panel-title-block flex items-center gap-3">
-            <span class="panel-title text-sm font-bold text-slate-700 dark:text-slate-200">1Shell AI</span>
-            <span class="text-[9px] px-1.5 py-0.5 rounded bg-gradient-to-r from-blue-500 to-purple-500 text-white font-semibold">CLI</span>
+            <span class="panel-title text-sm font-bold text-slate-700">AI Agent</span>
+            <span class="panel-subtitle text-[11px] text-slate-400" id="agent-target-text">当前目标：本机</span>
           </div>
-          <div class="flex items-center gap-1">
-            <button class="icon-btn h-6 px-2 rounded-md border border-slate-200 text-[11px] text-slate-500 hover:text-blue-500 hover:border-blue-200 transition-all" id="agent-clear-btn" type="button" title="清空对话">清空</button>
-            <button class="icon-btn h-6 px-2 rounded-md border border-slate-200 text-[11px] text-slate-500 hover:text-red-400 hover:border-red-200 transition-all" id="agent-panel-close-btn" type="button">关闭</button>
-          </div>
+          <button class="icon-btn h-6 px-2 rounded-md border border-slate-200 text-[11px] text-slate-500 hover:text-red-400 hover:border-red-200 transition-all" id="agent-panel-close-btn" type="button">关闭</button>
         </div>
 
-        <!-- 对话区 -->
-        <div id="agent-chat-area" class="flex-1 overflow-auto p-3 flex flex-col gap-2">
-          <div id="agent-chat-placeholder" class="text-[11px] text-slate-400 text-center py-10 flex flex-col items-center gap-2">
+        <!-- Provider 选择 + 状态 -->
+        <div class="agent-toolbar shrink-0 flex items-center gap-2 px-4 py-2 border-b border-slate-100">
+          <select id="agent-provider-select" class="flex-1 min-h-[28px] px-2 rounded-lg border border-slate-200 bg-slate-50 text-xs outline-none"></select>
+          <button class="btn-link text-purple-500 text-xs font-semibold hover:underline" id="agent-setup-btn" type="button" title="一键将当前 AI CLI 工具接入 1Shell MCP">⚡ 一键接入</button>
+          <span class="text-slate-400 text-[11px] whitespace-nowrap" id="agent-status-text">未启动</span>
+        </div>
+
+        <!-- 终端区（多会话，JS 动态渲染） -->
+        <div id="agent-terminal-wrap" class="flex-1 min-h-0 overflow-hidden p-2"></div>
+
+        <!-- 操作按钮 -->
+        <div class="shrink-0 flex items-center justify-end gap-2 px-4 py-2 border-t border-slate-100">
+          <button class="h-7 px-3 rounded-lg bg-gradient-to-r from-purple-500 to-purple-600 text-white text-xs font-semibold shadow-md hover:shadow-lg transition-all" id="agent-start-btn" type="button">启动</button>
+          <button class="h-7 px-3 rounded-lg border border-slate-200 text-xs font-semibold text-slate-600 hover:border-emerald-300 hover:text-emerald-600 transition-all" id="agent-start-local-btn" type="button">本地启动</button>
+          <button class="h-7 px-3 rounded-lg border border-slate-200 text-xs font-semibold text-slate-600 hover:border-purple-300 hover:text-purple-500 transition-all" id="agent-stop-btn" type="button">停止</button>
+          <button class="h-7 px-3 rounded-lg border border-slate-200 text-xs font-semibold text-slate-600 hover:border-slate-400 transition-all" id="agent-clear-btn" type="button">清屏</button>
+        </div>
+      </aside>
+
+      <!-- ── 1Shell AI 面板（IDE 聊天，默认隐藏，与 Agent 共用布局槽位） ─── -->
+      <aside class="agent-side-panel hidden flex flex-col min-h-0 bg-shell-panel rounded-2xl border border-slate-200 shadow-sm overflow-hidden" id="ide-panel">
+        <div class="agent-side-panel-header shrink-0 flex items-center justify-between gap-3 px-4 py-2 border-b border-slate-100">
+          <div class="panel-title-block flex items-center gap-3">
+            <span class="panel-title text-sm font-bold text-slate-700 dark:text-slate-200">1Shell AI</span>
+            <span class="text-[9px] px-1.5 py-0.5 rounded bg-gradient-to-r from-blue-500 to-cyan-500 text-white font-semibold">IDE</span>
+          </div>
+          <div class="flex items-center gap-1">
+            <button class="icon-btn h-6 px-2 rounded-md border border-slate-200 text-[11px] text-slate-500 hover:text-blue-500 hover:border-blue-200 transition-all" id="ide-clear-btn" type="button" title="清空对话">清空</button>
+            <button class="icon-btn h-6 px-2 rounded-md border border-slate-200 text-[11px] text-slate-500 hover:text-red-400 hover:border-red-200 transition-all" id="ide-panel-close-btn" type="button">关闭</button>
+          </div>
+        </div>
+        <div id="ide-chat-area" class="flex-1 overflow-auto p-3 flex flex-col gap-2">
+          <div id="ide-chat-placeholder" class="text-[11px] text-slate-400 text-center py-10 flex flex-col items-center gap-2">
             <span class="text-2xl">&#128187;</span>
             <span>1Shell AI 助手<br/>输入需求，AI 会在你的主机上执行操作</span>
           </div>
         </div>
-
-        <!-- 输入框 -->
         <div class="shrink-0 px-3 pb-3 pt-1 border-t border-slate-100 dark:border-[#1e293b] flex flex-col gap-2">
-          <textarea id="agent-input" class="w-full px-3 py-2 text-xs border border-slate-200 dark:border-[#1e293b] dark:bg-[#0a0f1c] dark:text-slate-200 rounded-lg resize-none focus:outline-none focus:border-blue-400 focus:ring-1 focus:ring-blue-200" rows="2" placeholder="描述你的需求，如：查看所有容器状态、检查磁盘占用..."></textarea>
+          <textarea id="ide-input" class="w-full px-3 py-2 text-xs border border-slate-200 dark:border-[#1e293b] dark:bg-[#0a0f1c] dark:text-slate-200 rounded-lg resize-none focus:outline-none focus:border-blue-400 focus:ring-1 focus:ring-blue-200" rows="2" placeholder="描述你的需求，如：查看所有容器状态、检查磁盘占用..."></textarea>
           <div class="flex items-center gap-2">
-            <span class="text-[10px] text-slate-400 flex-1" id="agent-status-text">待命</span>
-            <button class="h-7 px-4 rounded-lg bg-gradient-to-r from-blue-500 to-purple-500 text-white text-xs font-semibold hover:opacity-90 transition-all" id="agent-send-btn" type="button">发送 →</button>
-            <button class="hidden h-7 px-3 rounded-lg bg-red-500 text-white text-xs font-semibold hover:bg-red-600 transition-all" id="agent-stop-btn" type="button">停止</button>
+            <span class="text-[10px] text-slate-400 flex-1" id="ide-status-text">待命</span>
+            <button class="h-7 px-4 rounded-lg bg-gradient-to-r from-blue-500 to-cyan-500 text-white text-xs font-semibold hover:opacity-90 transition-all" id="ide-send-btn" type="button">发送 →</button>
+            <button class="hidden h-7 px-3 rounded-lg bg-red-500 text-white text-xs font-semibold hover:bg-red-600 transition-all" id="ide-stop-btn" type="button">停止</button>
           </div>
         </div>
       </aside>
@@ -843,6 +873,7 @@
   <script src="probe.js"></script>
   <script src="ai-chat.js"></script>
   <script src="agent-panel.js"></script>
+  <script src="ide-panel.js"></script>
   <script src="command-suggestion.js"></script>
   <script src="terminal-analyze.js"></script>
   <script src="file-browser.js"></script>

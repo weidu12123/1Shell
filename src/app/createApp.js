@@ -23,7 +23,14 @@ function createApp(rootDir) {
   }));
 
   app.use(express.json({ limit: '2mb' }));
-  app.use(express.static(path.join(rootDir, 'public')));
+  app.use(express.static(path.join(rootDir, 'public'), {
+    maxAge: '1h',
+    setHeaders: (res, filePath) => {
+      if (filePath.endsWith('.html')) {
+        res.set('Cache-Control', 'no-cache');
+      }
+    },
+  }));
   return app;
 }
 

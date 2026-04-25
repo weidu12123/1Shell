@@ -41,6 +41,37 @@ const TOOLS = [
       required: [],
     },
   },
+  {
+    name: 'list_mcp_tools',
+    description: '列出 1Shell 平台上所有已注册的本地 MCP Server 及其提供的工具。仅在你需要调用第三方 MCP 能力时才使用此工具进行发现。返回每个 MCP 的 id、名称、状态、以及工具列表。',
+    inputSchema: {
+      type: 'object',
+      properties: {},
+      required: [],
+    },
+  },
+  {
+    name: 'call_mcp_tool',
+    description: '调用 1Shell 平台上某个本地 MCP Server 的指定工具。先用 list_mcp_tools 发现可用工具，再用本工具调用。1Shell 会自动启动目标 MCP（如未运行）、路由调用、返回结果。',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        mcpId: {
+          type: 'string',
+          description: '目标 MCP Server 的 ID（通过 list_mcp_tools 获取）',
+        },
+        toolName: {
+          type: 'string',
+          description: '要调用的工具名称',
+        },
+        args: {
+          type: 'object',
+          description: '工具参数（JSON 对象）',
+        },
+      },
+      required: ['mcpId', 'toolName'],
+    },
+  },
 ];
 
 /**

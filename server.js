@@ -78,6 +78,7 @@ const { registerSkillSocketHandlers } = require('./src/sockets/registerSkillSock
 const { registerIdeSocketHandlers } = require('./src/sockets/registerIdeSocketHandlers');
 const { createIdeTools } = require('./src/ide/ide.tools');
 const { createIdeService } = require('./src/ide/ide.service');
+const { createLocalMcpService } = require('./src/services/local-mcp.service');
 
 // ─── 初始化核心服务 ─────────────────────────────────────────────────────
 const dataDir = path.join(ROOT_DIR, 'data');
@@ -108,6 +109,7 @@ const skillRegistry = createSkillRegistry(path.join(dataDir, 'skills'), { kind: 
 const playbookRegistry = createSkillRegistry(path.join(dataDir, 'playbooks'), { kind: 'playbook' });
 const libraryService = createLibraryService({ skillRegistry, playbookRegistry });
 const mcpRegistry = createMcpRegistry({ dataDir });
+const localMcpService = createLocalMcpService({ logger: log });
 const skillRunner = createSkillRunner({
   bridgeService,
   hostService,
@@ -120,7 +122,7 @@ const skillRunner = createSkillRunner({
     try { libraryService.reload(); } catch { /* ignore */ }
   },
 });
-const mcpService = createMcpService({ bridgeService, hostService, auditService, bridgeToken: BRIDGE_TOKEN });
+const mcpService = createMcpService({ bridgeService, hostService, auditService, bridgeToken: BRIDGE_TOKEN, localMcpService, mcpRegistry });
 const siteScanService = createSiteScanService({ bridgeService, hostService });
 const siteDeleteService = createSiteDeleteService({ bridgeService });
 
@@ -156,6 +158,8 @@ const ideTools = createIdeTools({
   programEngine,
   skillRunner,
   auditService,
+  mcpRegistry,
+  localMcpService,
   onFileWritten: () => {
     try { libraryService.reload(); } catch { /* ignore */ }
     try { programRegistry.reload(); } catch { /* ignore */ }
@@ -168,6 +172,8 @@ const ideService = createIdeService({
   hostService,
   auditService,
   logger: log,
+  localMcpService,
+  mcpRegistry,
 });
 
 // ─── 路由挂载 ───────────────────────────────────────────────────────────
@@ -217,7 +223,7 @@ registerSessionSocketHandlers(io, { sessionService });
 registerAgentSocketHandlers(io, { agentPtyService, skillRegistry });
 registerSkillSocketHandlers(io, { skillRunner });
 registerGuardianSocketHandlers(io, { guardianService });
-registerIdeSocketHandlers(io, { ideService });
+registerIdeSocketHandlers(io, { ideService, ideTools, localMcpService, mcpRegistry });
 
 // ─── 定时任务 ───────────────────────────────────────────────────────────
 probeService.startScheduler({
@@ -228,6 +234,30 @@ probeService.startScheduler({
 
 // ─── Program Engine 启动（所有服务就位后再启）─────────────────────────
 programEngine.start();
+
+// ─── 自动启动本地 MCP Server（不阻塞服务器启动）──────────────────────
+(async () => {
+  try {
+    const servers = mcpRegistry.listServersWithSecrets();
+    const locals = servers.filter(s => s.type === 'local' && s.command);
+    if (locals.length === 0) return;
+    log.info(`[mcp-auto-start] 正在启动 ${locals.length} 个本地 MCP...`);
+    const results = await Promise.allSettled(
+      locals.map(s => localMcpService.start(s.id, s.command, { cwd: s.installDir || undefined }))
+    );
+    for (let i = 0; i < locals.length; i++) {
+      const r = results[i];
+      if (r.status === 'fulfilled' && r.value.ok) {
+        log.info(`[mcp-auto-start] ${locals[i].id}: ${r.value.tools.length} tools ready`);
+      } else {
+        const errMsg = r.status === 'rejected' ? r.reason?.message : r.value?.error;
+        log.warn(`[mcp-auto-start] ${locals[i].id}: 启动失败 — ${errMsg}`);
+      }
+    }
+  } catch (e) {
+    log.error('[mcp-auto-start] 异常', e.message);
+  }
+})();
 
 // ─── 启动 ───────────────────────────────────────────────────────────────
 hostRepository.ensureHostsFile();
@@ -247,6 +277,7 @@ server.listen(PORT, () => {
 function shutdown() {
   log.info('1Shell 正在关闭...');
   programEngine.stop();
+  localMcpService.stopAll();
   sshPool.closeAll();
   sshShellPool.closeAll();
   if (db) db.close();

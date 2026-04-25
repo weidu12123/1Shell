@@ -15,7 +15,7 @@ function isPathAllowed(relPath) {
   });
 }
 
-function createIdeTools({ bridgeService, hostService, skillRegistry, programEngine, skillRunner, auditService, onFileWritten }) {
+function createIdeTools({ bridgeService, hostService, skillRegistry, programEngine, skillRunner, auditService, mcpRegistry, localMcpService, onFileWritten }) {
 
   const TOOL_SCHEMAS = [
     {
@@ -144,18 +144,95 @@ function createIdeTools({ bridgeService, hostService, skillRegistry, programEngi
       description: '重新加载 Skill / Playbook / Program 注册表，使刚写入的产物立即可被系统识别。写完产物文件后应调用。',
       input_schema: { type: 'object', properties: {}, required: [] },
     },
+    {
+      name: 'list_mcp_servers',
+      description: '列出 1Shell MCP Server 仓库中已登记的所有 MCP Server。返回 id / name / url / description。',
+      input_schema: { type: 'object', properties: {}, required: [] },
+    },
+    {
+      name: 'add_mcp_server',
+      description:
+        '向 1Shell MCP Server 仓库添加一个新的 MCP Server。' +
+        '\nurl 必须是 http(s):// 开头的远程 SSE/Streamable HTTP 端点。' +
+        '\n注意：这是添加到 1Shell 平台仓库，不是修改本地配置文件。',
+      input_schema: {
+        type: 'object',
+        properties: {
+          name:        { type: 'string', description: 'MCP 名称' },
+          url:         { type: 'string', description: 'MCP Server URL（http(s)://...）' },
+          description: { type: 'string', description: '简要描述' },
+          authToken:   { type: 'string', description: '认证 token（可选）' },
+          tags:        { type: 'array', items: { type: 'string' }, description: '标签（可选）' },
+        },
+        required: ['name', 'url'],
+      },
+    },
+    {
+      name: 'remove_mcp_server',
+      description: '从 1Shell MCP Server 仓库中删除一个 MCP Server。',
+      input_schema: {
+        type: 'object',
+        properties: {
+          id: { type: 'string', description: '要删除的 MCP Server ID' },
+        },
+        required: ['id'],
+      },
+    },
+    {
+      name: 'deploy_local_mcp',
+      description:
+        '从 GitHub 仓库部署一个本地 MCP Server。自动执行 git clone → npm install → 注册到仓库。' +
+        '\n部署完成后 MCP 会注册为 local 类型，用户在工具面板选中时自动启动。' +
+        '\n如果不确定启动命令，先 clone 后读 README 或 package.json 来确定。',
+      input_schema: {
+        type: 'object',
+        properties: {
+          repoUrl:     { type: 'string', description: 'GitHub 仓库 URL，如 https://github.com/user/repo' },
+          name:        { type: 'string', description: 'MCP 名称' },
+          command:     { type: 'string', description: '启动命令，如 "node dist/index.js" 或 "npx tsx src/index.ts"' },
+          description: { type: 'string', description: '简要描述' },
+          tags:        { type: 'array', items: { type: 'string' }, description: '标签（可选）' },
+        },
+        required: ['repoUrl', 'name', 'command'],
+      },
+    },
   ];
 
   // ─── Handler 实现 ────────────────────────────────────────────────────
 
-  async function handle(name, input, { socket, sessionId }) {
+  const WRITE_PATTERNS = /\b(rm|mv|cp|mkdir|touch|chmod|chown|dd|mkfs|tee|install|npm|npx|pip|apt|yum|dnf|brew|git\s+clone|git\s+pull|git\s+checkout|wget|curl\s+-[^\s]*[oO]|docker\s+(run|pull|build|exec)|>\s|>>)\b/i;
+
+  // 安全模式：已批准的命令（sessionId → Set<commandHash>）
+  const approvedCommands = new Map();
+
+  function approveCommand(sessionId, command) {
+    if (!approvedCommands.has(sessionId)) approvedCommands.set(sessionId, new Set());
+    approvedCommands.get(sessionId).add(command.trim());
+  }
+
+  function isApproved(sessionId, command) {
+    return approvedCommands.get(sessionId)?.has(command.trim()) || false;
+  }
+
+  async function handle(name, input, { socket, sessionId, safeMode }) {
     switch (name) {
 
       case 'execute_command': {
         const hostId = String(input.hostId || '').trim();
-        const command = String(input.command || '').trim();
+        let command = String(input.command || '').trim();
         const timeout = Number(input.timeout) > 0 ? Number(input.timeout) : 30000;
         if (!hostId || !command) return err('hostId 和 command 为必填');
+
+        if (safeMode && hostId === 'local' && WRITE_PATTERNS.test(command) && !isApproved(sessionId, command)) {
+          socket.emit('ide:approve-request', {
+            sessionId, type: 'command',
+            title: '本机写操作',
+            description: 'AI 要在本机执行以下命令：',
+            command: command.slice(0, 500),
+          });
+          return err(`[安全模式] 本机写操作需要审批，请在底部审批条中确认或拒绝。\n命令：${command.slice(0, 120)}`);
+        }
+
         try {
           if (hostId === 'local') {
             const { exec: childExec } = require('child_process');
@@ -327,6 +404,118 @@ function createIdeTools({ bridgeService, hostService, skillRegistry, programEngi
         }
       }
 
+      case 'list_mcp_servers': {
+        if (!mcpRegistry) return err('MCP Registry 未初始化');
+        const servers = mcpRegistry.listServers();
+        if (servers.length === 0) return ok('（仓库中暂无 MCP Server）');
+        const lines = servers.map(s => {
+          const typeTag = (s.type === 'local' || s.command) ? '[本地]' : '[远程]';
+          const loc = s.type === 'local' ? `cmd=${s.command || ''}` : `url=${s.url}`;
+          return `${typeTag} id=${s.id}  name="${s.name}"  ${loc}  ${s.description ? '— ' + s.description : ''}`;
+        });
+        return ok(lines.join('\n'));
+      }
+
+      case 'add_mcp_server': {
+        if (!mcpRegistry) return err('MCP Registry 未初始化');
+        try {
+          const server = mcpRegistry.createServer({
+            name: input.name,
+            url: input.url || '',
+            command: input.command || '',
+            installDir: input.installDir || '',
+            description: input.description || '',
+            authToken: input.authToken || '',
+            tags: input.tags || [],
+          });
+          const typeLabel = server.type === 'local' ? '本地' : '远程';
+          return ok(`${typeLabel} MCP Server 已添加到 1Shell 仓库: id=${server.id} name="${server.name}"`);
+        } catch (e) {
+          return err(`添加失败: ${e.message}`);
+        }
+      }
+
+      case 'remove_mcp_server': {
+        if (!mcpRegistry) return err('MCP Registry 未初始化');
+        const id = String(input.id || '').trim();
+        if (!id) return err('id 为空');
+        if (localMcpService) localMcpService.stop(id);
+        const removed = mcpRegistry.deleteServer(id);
+        return removed ? ok(`MCP Server "${id}" 已从仓库中删除。`) : err(`MCP Server 不存在: ${id}`);
+      }
+
+      case 'deploy_local_mcp': {
+        if (!mcpRegistry) return err('MCP Registry 未初始化');
+        if (safeMode && !isApproved(sessionId, 'deploy:' + String(input.repoUrl || ''))) {
+          socket.emit('ide:approve-request', {
+            sessionId, type: 'deploy',
+            title: '本地 MCP 部署',
+            description: 'AI 要从 GitHub 克隆并安装 MCP 到本机：',
+            command: String(input.repoUrl || '').slice(0, 200),
+          });
+          return err(`[安全模式] MCP 部署需要审批，请在底部审批条中确认。`);
+        }
+        const repoUrl = String(input.repoUrl || '').trim();
+        const mcpName = String(input.name || '').trim();
+        const command = String(input.command || '').trim();
+        if (!repoUrl || !mcpName || !command) return err('repoUrl、name、command 均为必填');
+
+        const mcpDir = path.join(ROOT_DIR, 'data', 'local-mcp');
+        const repoName = repoUrl.split('/').pop()?.replace(/\.git$/, '') || 'mcp';
+        const installDir = path.join(mcpDir, repoName);
+
+        try {
+          fs.mkdirSync(mcpDir, { recursive: true });
+
+          // clone
+          const { exec: childExec } = require('child_process');
+          const cloneResult = await new Promise((resolve) => {
+            const cloneCmd = fs.existsSync(installDir)
+              ? `cd "${installDir}" && git pull`
+              : `git clone "${repoUrl}" "${installDir}"`;
+            childExec(cloneCmd, { timeout: 120000, maxBuffer: 8 * 1024 * 1024 }, (e, stdout, stderr) => {
+              resolve({ stdout: stdout || '', stderr: (e && !stderr) ? e.message : (stderr || ''), exitCode: e ? 1 : 0 });
+            });
+          });
+          if (cloneResult.exitCode !== 0 && !fs.existsSync(installDir)) {
+            return err(`git clone 失败: ${cloneResult.stderr.slice(0, 300)}`);
+          }
+
+          // install
+          const pkgJson = path.join(installDir, 'package.json');
+          if (fs.existsSync(pkgJson)) {
+            const installResult = await new Promise((resolve) => {
+              childExec('npm install --production', { timeout: 180000, maxBuffer: 8 * 1024 * 1024, cwd: installDir }, (e, stdout, stderr) => {
+                resolve({ exitCode: e ? 1 : 0, stderr: (e && !stderr) ? e.message : (stderr || '') });
+              });
+            });
+            if (installResult.exitCode !== 0) {
+              return err(`npm install 失败: ${installResult.stderr.slice(0, 300)}`);
+            }
+          }
+
+          // register
+          const server = mcpRegistry.createServer({
+            name: mcpName,
+            command,
+            installDir,
+            description: input.description || `部署自 ${repoUrl}`,
+            tags: input.tags || ['local', 'deployed'],
+          });
+
+          return ok(
+            `本地 MCP "${mcpName}" 部署成功！\n` +
+            `- 仓库: ${repoUrl}\n` +
+            `- 安装目录: ${installDir}\n` +
+            `- 启动命令: ${command}\n` +
+            `- 已注册 ID: ${server.id}\n` +
+            `用户可在工具面板中选中该 MCP 来启动它。`
+          );
+        } catch (e) {
+          return err(`部署失败: ${e.message}`);
+        }
+      }
+
       default:
         return err(`未知工具: ${name}`);
     }
@@ -439,7 +628,7 @@ function createIdeTools({ bridgeService, hostService, skillRegistry, programEngi
     });
   }
 
-  return { TOOL_SCHEMAS, handle };
+  return { TOOL_SCHEMAS, handle, approveCommand };
 }
 
 module.exports = { createIdeTools };

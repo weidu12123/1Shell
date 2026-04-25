@@ -37,7 +37,7 @@ const fetch = require('node-fetch');
 const { exec: childExec } = require('child_process');
 const { ROOT_DIR } = require('../config/env');
 
-const MAX_GUARDIAN_TURNS = 12;
+const DEFAULT_MAX_GUARDIAN_TURNS = 12;
 const DEFAULT_EXEC_TIMEOUT_MS = 30000;
 const ASK_TIMEOUT_MS = 5 * 60 * 1000;  // 5 分钟无人回应自动 give_up
 
@@ -357,6 +357,15 @@ function createGuardianService({
   const quota = createQuotaTracker();
   // sessionId → { cancelled, pendingAsk:{toolUseId, resolve, reject, timer} }
   const activeSessions = new Map();
+  let globalUnlimitedTurns = false;
+
+  function setUnlimitedTurns(enabled) {
+    globalUnlimitedTurns = enabled;
+  }
+
+  function getUnlimitedTurns() {
+    return globalUnlimitedTurns;
+  }
 
   /**
    * 对一个 Program 发起 Guardian 介入。
@@ -424,7 +433,9 @@ function createGuardianService({
     let summary = '';
 
     try {
-      for (let turn = 0; turn < MAX_GUARDIAN_TURNS; turn++) {
+      const maxTurns = globalUnlimitedTurns ? Infinity : DEFAULT_MAX_GUARDIAN_TURNS;
+
+      for (let turn = 0; turn < maxTurns; turn++) {
         if (state.cancelled) { summary = 'Guardian 被取消'; break; }
         io?.emit?.('guardian:thinking', { sessionId, turn: turn + 1 });
 
@@ -531,8 +542,44 @@ function createGuardianService({
       }
 
       if (!resolution) {
-        resolution = 'unresolvable';
-        summary = summary || `Guardian 超出最大轮次 (${MAX_GUARDIAN_TURNS})`;
+        // 轮次耗尽但 AI 未主动 report_outcome —— 强制一轮总结，确保有输出
+        try {
+          messages.push({ role: 'user', content: [{ type: 'text', text:
+            '你已达到最大轮次限制。请立即：\n1. 调用 render_result 输出你目前的诊断发现和已采取的修复措施\n2. 调用 report_outcome 宣告最终结果（resolved 或 unresolvable）\n不要再执行任何命令，直接总结。'
+          }] });
+          io?.emit?.('guardian:thinking', { sessionId, turn: 'final-summary' });
+          const finalResp = await fetch(proxyUrl, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ model, max_tokens: 4096, system, messages, tools: GUARDIAN_TOOLS }),
+          });
+          if (finalResp.ok) {
+            const finalData = await finalResp.json();
+            const finalContent = Array.isArray(finalData.content) ? finalData.content : [];
+            for (const blk of finalContent) {
+              if (blk.type === 'text' && blk.text?.trim()) {
+                io?.emit?.('guardian:thought', { sessionId, text: blk.text });
+              }
+            }
+            const finalToolUses = finalContent.filter(b => b.type === 'tool_use');
+            for (const tu of finalToolUses) {
+              if (tu.name === 'render_result') {
+                io?.emit?.('guardian:render', {
+                  sessionId, toolUseId: tu.id, payload: tu.input,
+                  programId: program.id, hostId,
+                });
+              } else if (tu.name === 'report_outcome') {
+                resolution = tu.input?.resolution === 'resolved' ? 'resolved' : 'unresolvable';
+                summary = String(tu.input?.summary || '').trim() || '(轮次耗尽后总结)';
+              }
+            }
+          }
+        } catch { /* 总结失败不影响主流程 */ }
+
+        if (!resolution) {
+          resolution = 'unresolvable';
+          summary = summary || `Guardian 超出最大轮次 (${DEFAULT_MAX_GUARDIAN_TURNS})，已输出阶段性结果`;
+        }
       }
     } finally {
       activeSessions.delete(sessionId);
@@ -740,7 +787,7 @@ function createGuardianService({
     return [...activeSessions.keys()];
   }
 
-  return { escalate, submitAnswer, cancel, currentQuota, listActive };
+  return { escalate, submitAnswer, cancel, currentQuota, listActive, setUnlimitedTurns, getUnlimitedTurns };
 }
 
 module.exports = { createGuardianService };

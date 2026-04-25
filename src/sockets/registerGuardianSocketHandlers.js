@@ -35,6 +35,16 @@ function registerGuardianSocketHandlers(io, { guardianService }) {
         reply({ ok: false, error: err.message });
       }
     });
+
+    socket.on('guardian:set-unlimited-turns', (payload = {}, reply = () => {}) => {
+      const enabled = payload.enabled !== false;
+      guardianService.setUnlimitedTurns(enabled);
+      reply({ ok: true, unlimitedTurns: enabled });
+    });
+
+    socket.on('guardian:get-unlimited-turns', (payload = {}, reply = () => {}) => {
+      reply({ ok: true, unlimitedTurns: guardianService.getUnlimitedTurns() });
+    });
   });
 }
 

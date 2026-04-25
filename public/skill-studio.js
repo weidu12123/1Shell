@@ -52,6 +52,7 @@
   let localSessionId = null;    // local UI session tracker
   let currentAiTurnBody = null;
   let toolFilter = 'all';
+  let safeMode = true;
 
   // ─── 初始化 ───────────────────────────────────────────────────────
   async function init() {
@@ -65,6 +66,17 @@
     renderContainerPinned();
     refreshScanHostSelect();
     updateSummary();
+
+    // 从仓库页 AI 部署跳转过来
+    const params = new URLSearchParams(window.location.search);
+    const deployUrl = params.get('deploy_mcp');
+    if (deployUrl) {
+      window.history.replaceState({}, '', window.location.pathname);
+      setTimeout(() => {
+        $task.value = `帮我部署这个 MCP Server 到本地：${deployUrl}\n请 clone 仓库、安装依赖、识别启动命令，然后用 deploy_local_mcp 注册。`;
+        onSend();
+      }, 500);
+    }
   }
 
   async function loadContext() {
@@ -95,10 +107,17 @@
 
 
 
+  const localMcpStatus = new Map();
+
   function toolItems() {
     const items = [];
     for (const s of skillList) items.push({ kind: 'skill', id: s.id, name: s.name, icon: s.icon || '🔧', meta: truncate160(s.description) });
-    for (const m of mcpList)  items.push({ kind: 'mcp',   id: m.id, name: m.name, icon: '🔌',        meta: truncate160(m.description || m.url) });
+    for (const m of mcpList) {
+      const isLocal = m.type === 'local' || Boolean(m.command);
+      const status = localMcpStatus.get(m.id);
+      const statusDot = isLocal ? (status?.status === 'running' ? ' 🟢' : status?.status === 'starting' ? ' 🟡' : '') : '';
+      items.push({ kind: isLocal ? 'local' : 'mcp', id: m.id, name: m.name, icon: isLocal ? '📦' : '🔌', meta: truncate160(m.description || m.url || m.command), isLocal, statusDot });
+    }
     return items;
   }
   function truncate160(s) { return String(s || '').replace(/\s+/g, ' ').slice(0, 60); }
@@ -109,18 +128,23 @@
     $toolCount.textContent = `${selectedTools.size} / ${toolItems().length}`;
     if (items.length === 0) {
       $toolList.innerHTML = `<div class="text-[11px] text-slate-400 text-center py-4">
-        仓库里暂无${toolFilter === 'mcp' ? ' MCP Server' : toolFilter === 'skill' ? ' Skill' : '工具'}。<br/>
+        仓库里暂无${toolFilter === 'local' ? '本地 MCP' : toolFilter === 'mcp' ? '远程 MCP' : toolFilter === 'skill' ? ' Skill' : '工具'}。<br/>
         点右上"↗ 管理"跳转仓库添加。
       </div>`;
       return;
     }
     $toolList.innerHTML = items.map(it => {
-      const key = `${it.kind}:${it.id}`;
-      const sel = selectedTools.has(key) ? 'selected' : '';
-      const kindPill = it.kind === 'skill'
-        ? '<span class="text-[9px] px-1.5 py-0.5 rounded bg-blue-100 text-blue-600">Skill</span>'
-        : '<span class="text-[9px] px-1.5 py-0.5 rounded bg-amber-100 text-amber-600">MCP</span>';
-      return `<div class="item-row ${sel}" data-key="${escapeHtml(key)}">
+      const selKey = it.isLocal ? `mcp:${it.id}` : `${it.kind}:${it.id}`;
+      const sel = selectedTools.has(selKey) ? 'selected' : '';
+      let kindPill;
+      if (it.kind === 'skill') {
+        kindPill = '<span class="text-[9px] px-1.5 py-0.5 rounded bg-blue-100 text-blue-600">Skill</span>';
+      } else if (it.isLocal) {
+        kindPill = `<span class="text-[9px] px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-600">本地${it.statusDot}</span>`;
+      } else {
+        kindPill = '<span class="text-[9px] px-1.5 py-0.5 rounded bg-amber-100 text-amber-600">远程</span>';
+      }
+      return `<div class="item-row ${sel}" data-key="${escapeHtml(selKey)}" data-local="${it.isLocal ? '1' : '0'}">
         <span class="text-[14px]">${escapeHtml(it.icon)}</span>
         <span class="flex-1 truncate" title="${escapeHtml(it.meta || '')}">${escapeHtml(it.name)}</span>
         ${kindPill}
@@ -129,8 +153,22 @@
     $toolList.querySelectorAll('.item-row').forEach(el => {
       el.addEventListener('click', () => {
         const k = el.dataset.key;
-        if (selectedTools.has(k)) selectedTools.delete(k);
-        else selectedTools.add(k);
+        const isLocal = el.dataset.local === '1';
+        const mcpId = k.startsWith('mcp:') ? k.slice(4) : null;
+
+        if (selectedTools.has(k)) {
+          selectedTools.delete(k);
+          if (isLocal && mcpId) {
+            socket.emit('ide:mcp-stop', { mcpId });
+          }
+        } else {
+          selectedTools.add(k);
+          if (isLocal && mcpId) {
+            socket.emit('ide:mcp-start', { mcpId }, (ack) => {
+              if (!ack?.ok) showToast?.(`MCP 启动失败: ${ack?.error || '未知错误'}`, 'error');
+            });
+          }
+        }
         renderTools();
         updateSummary();
       });
@@ -179,6 +217,64 @@
       setStatus('cancelled', '已取消');
       appendLine('error', '已取消');
       finalize();
+    });
+
+    socket.on('ide:mcp-status', (msg) => {
+      if (!msg?.mcpId) return;
+      localMcpStatus.set(msg.mcpId, { status: msg.status, toolCount: (msg.tools || []).length });
+      renderTools();
+    });
+
+    // ─── 安全模式审批条 ──────────────────────────────────
+    socket.on('ide:approve-request', (msg) => {
+      const $bar = document.getElementById('approve-bar');
+      const $title = document.getElementById('approve-title');
+      const $desc = document.getElementById('approve-desc');
+      const $cmd = document.getElementById('approve-cmd');
+      const $allow = document.getElementById('approve-allow');
+      const $edit = document.getElementById('approve-edit');
+      const $deny = document.getElementById('approve-deny');
+      const $countdown = document.getElementById('approve-countdown');
+      if (!$bar) return;
+
+      $title.textContent = msg.title || '安全模式';
+      $desc.textContent = msg.description || 'AI 要执行以下操作：';
+      $cmd.value = msg.command || '';
+      $bar.classList.remove('hidden');
+
+      let remaining = 120;
+      $countdown.textContent = `${remaining}s`;
+      const tick = setInterval(() => {
+        remaining--;
+        $countdown.textContent = `${remaining}s`;
+        if (remaining <= 0) { clearInterval(tick); dismiss(); }
+      }, 1000);
+
+      const dismiss = () => { clearInterval(tick); $bar.classList.add('hidden'); };
+
+      $deny.onclick = () => dismiss();
+
+      $allow.onclick = () => {
+        socket.emit('ide:approve-response', {
+          sessionId: msg.sessionId,
+          command: msg.command,
+          approved: true,
+        });
+        dismiss();
+        showToast?.('已批准，AI 将重试', 'success');
+      };
+
+      $edit.onclick = () => {
+        const edited = $cmd.value.trim();
+        if (!edited) return;
+        socket.emit('ide:approve-response', {
+          sessionId: msg.sessionId,
+          command: edited,
+          approved: true,
+        });
+        dismiss();
+        showToast?.('已批准（修改后），AI 将重试', 'success');
+      };
     });
   }
 
@@ -428,17 +524,49 @@
     const $filterAll   = document.getElementById('tool-filter-all');
     const $filterSkill = document.getElementById('tool-filter-skill');
     const $filterMcp   = document.getElementById('tool-filter-mcp');
+    const $filterLocal = document.getElementById('tool-filter-local');
     if ($filterAll)   $filterAll.addEventListener('click',   () => { toolFilter = 'all';   renderTools(); });
     if ($filterSkill) $filterSkill.addEventListener('click', () => { toolFilter = 'skill'; renderTools(); });
     if ($filterMcp)   $filterMcp.addEventListener('click',   () => { toolFilter = 'mcp';   renderTools(); });
+    if ($filterLocal) $filterLocal.addEventListener('click', () => { toolFilter = 'local'; renderTools(); });
 
     $btnCreate.addEventListener('click', onSend);
     $task.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); onSend(); } });
     $btnStop.addEventListener('click', onStop);
 
+    const $chkSafe = document.getElementById('chk-safe-mode');
+    const $safeLabel = document.getElementById('safe-mode-label');
+    if ($chkSafe) {
+      $chkSafe.addEventListener('change', () => {
+        safeMode = $chkSafe.checked;
+        if ($safeLabel) {
+          $safeLabel.textContent = safeMode ? '🛡 安全模式' : '安全模式';
+          $safeLabel.className = safeMode ? 'text-amber-500' : 'text-slate-400';
+        }
+        if (currentSessionId) {
+          socket.emit('ide:safe-mode', { sessionId: currentSessionId, enabled: safeMode });
+        }
+      });
+    }
+
+    const $chkUnlimited = document.getElementById('chk-unlimited-turns');
+    const $unlimitedLabel = document.getElementById('unlimited-turns-label');
+    if ($chkUnlimited) {
+      $chkUnlimited.addEventListener('change', () => {
+        const enabled = $chkUnlimited.checked;
+        if ($unlimitedLabel) {
+          $unlimitedLabel.className = enabled ? 'text-blue-500' : 'text-slate-400';
+        }
+        if (currentSessionId) {
+          socket.emit('ide:unlimited-turns', { sessionId: currentSessionId, enabled });
+        }
+      });
+    }
+
     // 历史抽屉 + 新建 + 清空
     $btnToggleHistory?.addEventListener('click', toggleHistoryDrawer);
     $btnNewSession?.addEventListener('click', startNewChat);
+    document.getElementById('btn-new-chat')?.addEventListener('click', startNewChat);
     $btnClearChat?.addEventListener('click', () => {
       const s = getSession(currentSessionId);
       if (!s) return;
@@ -606,6 +734,11 @@
         setStatus('error', '启动失败');
         appendLine('error', ack?.error || 'ide:message 被拒绝');
         finalize();
+      } else {
+        socket.emit('ide:safe-mode', { sessionId: currentSessionId, enabled: safeMode });
+        if (document.getElementById('chk-unlimited-turns')?.checked) {
+          socket.emit('ide:unlimited-turns', { sessionId: currentSessionId, enabled: true });
+        }
       }
     });
   }

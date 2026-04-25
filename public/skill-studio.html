@@ -268,7 +268,6 @@
         <a href="sites.html" class="side-nav-item flex flex-col items-center gap-0.5 py-2.5 rounded-lg text-slate-400 text-[10px] font-medium" title="网站"><span class="text-lg">&#127760;</span><span>网站</span></a>
         <a href="scripts.html" class="side-nav-item flex flex-col items-center gap-0.5 py-2.5 rounded-lg text-slate-400 text-[10px] font-medium" title="脚本"><span class="text-lg">&#128220;</span><span>脚本</span></a>
         <a href="skills.html" class="side-nav-item flex flex-col items-center gap-0.5 py-2.5 rounded-lg text-slate-400 text-[10px] font-medium" title="仓库"><span class="text-lg">&#129520;</span><span>仓库</span></a>
-        <a href="playbooks.html" class="side-nav-item flex flex-col items-center gap-0.5 py-2.5 rounded-lg text-slate-400 text-[10px] font-medium" title="剧本库"><span class="text-lg">&#128214;</span><span>剧本</span></a>
         <a href="skill-studio.html" class="side-nav-item active flex flex-col items-center gap-0.5 py-2.5 rounded-lg text-slate-400 text-[10px] font-medium" title="IDE 工作台"><span class="text-lg">&#128187;</span><span>IDE</span></a>
         <a href="cli-setup.html" class="side-nav-item flex flex-col items-center gap-0.5 py-2.5 rounded-lg text-slate-400 text-[10px] font-medium" title="AI 配置"><span class="text-lg">&#9881;</span><span>AI</span></a>
         <a href="probe.html" class="side-nav-item flex flex-col items-center gap-0.5 py-2.5 rounded-lg text-slate-400 text-[10px] font-medium" title="探针"><span class="text-lg">&#128225;</span><span>探针</span></a>
@@ -308,6 +307,7 @@
         </div>
         <div class="flex-1"></div>
         <div class="flex items-center gap-2">
+          <button id="btn-new-chat" class="text-[11px] px-3 py-1.5 rounded-lg border border-blue-200 dark:border-blue-800 text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/30 flex items-center gap-1" title="新建对话">✚ 新建</button>
           <button id="btn-toggle-history" class="text-[11px] px-3 py-1.5 rounded-lg border border-slate-200 dark:border-[#1e293b] hover:bg-slate-100 dark:hover:bg-[#1e293b] flex items-center gap-1" title="创作历史">📋 历史</button>
           <a href="skills.html" class="text-[11px] px-3 py-1.5 rounded-lg border border-slate-200 dark:border-[#1e293b] hover:bg-slate-100 dark:hover:bg-[#1e293b]">← 仓库</a>
         </div>
@@ -374,8 +374,16 @@
             <textarea id="task-input" class="studio-input" rows="3"
               placeholder="用自然语言描述你的需求。例如：帮我写一个每5分钟监控证书过期的程序；列出所有容器并显示状态表格；写一个删除网站的 Skill。"></textarea>
             <div class="flex items-center gap-2">
-              <div class="text-[10px] text-slate-400 flex-1">
+              <div class="text-[10px] text-slate-400 flex-1 flex items-center gap-3">
                 <span id="summary-chip">主机: 0 · 路径: 0 · 容器: 0 · 工具: 0</span>
+                <label class="flex items-center gap-1 cursor-pointer select-none" title="安全模式：开启后本机写操作需确认">
+                  <input type="checkbox" id="chk-safe-mode" checked class="accent-amber-500 w-3 h-3">
+                  <span id="safe-mode-label" class="text-amber-500">🛡 安全模式</span>
+                </label>
+                <label class="flex items-center gap-1 cursor-pointer select-none" title="不限轮次：关闭后 AI 工具调用轮数无上限">
+                  <input type="checkbox" id="chk-unlimited-turns" class="accent-blue-500 w-3 h-3">
+                  <span id="unlimited-turns-label" class="text-slate-400">∞ 不限轮次</span>
+                </label>
               </div>
               <button id="btn-create" class="px-5 py-2 rounded-lg bg-gradient-to-r from-blue-500 to-purple-500 text-white text-xs font-semibold hover:opacity-90">发送 →</button>
               <button id="btn-stop"   class="hidden px-4 py-2 rounded-lg bg-red-500 text-white text-xs font-semibold hover:bg-red-600">停止</button>
@@ -417,7 +425,8 @@
             <div class="px-3 pt-2 flex gap-1 text-[10px]">
               <button id="tool-filter-all"   class="tool-filter-btn px-2 py-0.5 rounded bg-blue-500 text-white">全部</button>
               <button id="tool-filter-skill" class="tool-filter-btn px-2 py-0.5 rounded bg-slate-100 dark:bg-[#1e293b]">🧰 Skill</button>
-              <button id="tool-filter-mcp"   class="tool-filter-btn px-2 py-0.5 rounded bg-slate-100 dark:bg-[#1e293b]">🔌 MCP</button>
+              <button id="tool-filter-mcp"   class="tool-filter-btn px-2 py-0.5 rounded bg-slate-100 dark:bg-[#1e293b]">🔌 远程</button>
+              <button id="tool-filter-local" class="tool-filter-btn px-2 py-0.5 rounded bg-slate-100 dark:bg-[#1e293b]">📦 本地</button>
             </div>
             <div class="flex-1 overflow-auto p-2 flex flex-col gap-1" id="tool-list">
               <div class="text-[11px] text-slate-400 text-center py-4">加载中...</div>
@@ -454,6 +463,28 @@
       </div>
     </div>
   </div>
+
+  <!-- 安全模式审批条（底部浮出） -->
+  <div id="approve-bar" class="hidden fixed bottom-4 left-1/2 -translate-x-1/2 z-50 w-[600px] max-w-[90vw] bg-white dark:bg-[#1e293b] rounded-xl border border-amber-300 dark:border-amber-500/40 shadow-2xl overflow-hidden" style="animation: slideUp .2s ease-out">
+    <div class="px-4 py-2 flex items-center gap-2 border-b border-amber-100 dark:border-amber-500/20">
+      <span>🛡</span>
+      <span id="approve-title" class="text-[11px] font-semibold text-amber-700 dark:text-amber-300 flex-1">安全模式</span>
+      <span class="text-[10px] text-slate-400" id="approve-countdown"></span>
+    </div>
+    <div class="px-4 py-2">
+      <div id="approve-desc" class="text-[11px] text-slate-500 dark:text-slate-400 mb-1.5"></div>
+      <textarea id="approve-cmd" class="w-full text-[11px] p-2 rounded-lg bg-slate-900 text-emerald-400 font-mono resize-none border border-slate-700 focus:border-amber-400 focus:outline-none" rows="2" spellcheck="false"></textarea>
+    </div>
+    <div class="px-4 py-2 flex items-center gap-2 border-t border-slate-100 dark:border-[#1e293b]">
+      <button id="approve-deny" class="px-4 py-1.5 rounded-lg border border-red-200 dark:border-red-500/30 text-red-500 text-[11px] font-semibold hover:bg-red-50 dark:hover:bg-red-900/20">拒绝</button>
+      <div class="flex-1"></div>
+      <button id="approve-edit" class="px-4 py-1.5 rounded-lg border border-blue-200 dark:border-blue-500/30 text-blue-500 text-[11px] font-semibold hover:bg-blue-50 dark:hover:bg-blue-900/20">修改后执行</button>
+      <button id="approve-allow" class="px-4 py-1.5 rounded-lg bg-emerald-500 text-white text-[11px] font-semibold hover:bg-emerald-600">允许</button>
+    </div>
+  </div>
+  <style>
+    @keyframes slideUp { from { transform: translate(-50%, 100%); opacity: 0; } to { transform: translate(-50%, 0); opacity: 1; } }
+  </style>
 
   <!-- hidden select for playbook list (used by JS internally) -->
   <select id="refine-target" class="hidden"></select>

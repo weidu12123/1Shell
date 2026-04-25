@@ -84,6 +84,26 @@
     document.querySelectorAll('.tab-btn').forEach((btn) => {
       btn.addEventListener('click', () => switchTab(btn.dataset.tab));
     });
+
+    const $chkUnlimited = document.getElementById('chk-guardian-unlimited');
+    const $unlimitedLabel = document.getElementById('guardian-unlimited-label');
+    if ($chkUnlimited) {
+      socket.emit('guardian:get-unlimited-turns', {}, (ack) => {
+        if (ack?.ok) {
+          $chkUnlimited.checked = ack.unlimitedTurns;
+          if ($unlimitedLabel) {
+            $unlimitedLabel.className = ack.unlimitedTurns ? 'text-amber-500' : 'text-slate-400';
+          }
+        }
+      });
+      $chkUnlimited.addEventListener('change', () => {
+        const enabled = $chkUnlimited.checked;
+        socket.emit('guardian:set-unlimited-turns', { enabled }, () => {});
+        if ($unlimitedLabel) {
+          $unlimitedLabel.className = enabled ? 'text-amber-500' : 'text-slate-400';
+        }
+      });
+    }
   }
 
   function bindSocket() {

@@ -54,10 +54,13 @@ function createMcpRegistry({ dataDir }) {
   }
 
   function createServer(input) {
-    const { name, url } = input || {};
+    const { name, url, command } = input || {};
     if (!name || typeof name !== 'string') throw new Error('name 不能为空');
-    if (!url || typeof url !== 'string') throw new Error('url 不能为空');
-    if (!/^https?:\/\//i.test(url)) throw new Error('url 必须是 http(s):// 开头');
+
+    const isLocal = Boolean(command);
+    if (!isLocal && (!url || typeof url !== 'string')) throw new Error('远程 MCP 的 url 不能为空');
+    if (!isLocal && !/^https?:\/\//i.test(url)) throw new Error('url 必须是 http(s):// 开头');
+    if (isLocal && (!command || typeof command !== 'string')) throw new Error('本地 MCP 的 command 不能为空');
 
     const data = _read();
     const id = (input.id || kebab(name)).slice(0, 64);
@@ -66,8 +69,11 @@ function createMcpRegistry({ dataDir }) {
     }
     const server = {
       id,
+      type: isLocal ? 'local' : 'remote',
       name: name.trim(),
-      url: url.trim(),
+      url: isLocal ? '' : url.trim(),
+      command: isLocal ? command.trim() : '',
+      installDir: typeof input.installDir === 'string' ? input.installDir : '',
       authToken: typeof input.authToken === 'string' ? input.authToken : '',
       description: typeof input.description === 'string' ? input.description : '',
       tags: Array.isArray(input.tags) ? input.tags.map(String) : [],

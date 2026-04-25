@@ -6,7 +6,7 @@
 
 零侵入式多机管理中枢 · AI 自动化运维总台
 
-[![version](https://img.shields.io/badge/version-3.1.0-4f8cff?style=flat-square)](https://github.com/weidu12123/1shell/releases)
+[![version](https://img.shields.io/badge/version-3.2.0-4f8cff?style=flat-square)](https://github.com/weidu12123/1shell/releases)
 [![node](https://img.shields.io/badge/node-%3E%3D18-43a047?style=flat-square&logo=node.js)](https://nodejs.org)
 [![license](https://img.shields.io/badge/license-MIT-f9a825?style=flat-square)](LICENSE)
 [![docker](https://img.shields.io/badge/docker-ready-2496ed?style=flat-square&logo=docker)](https://hub.docker.com)
@@ -264,6 +264,29 @@ PORT=3301
 ---
 
 ## 更新日志
+
+### 3.2.0 更新
+
+#### 本地 MCP Server 原生集成
+
+- 新增本地 MCP 进程管理服务（stdio JSON-RPC 客户端），支持 spawn / init / tools/list / tools/call 全链路
+- 服务器启动时自动启动所有已注册的本地 MCP Server（异步非阻塞）
+- MCP 工具直注入 Anthropic API tools 列表，AI 像使用内置工具一样调用 MCP 工具
+- 工具名自动加 `mcp__<mcpId>__` 前缀并限制 ≤ 64 字符，兼容 Anthropic API 规范
+- 支持一键从 GitHub 部署本地 MCP（git clone → npm install → 注册）
+
+#### 仓库管理增强
+
+- 新增本地 MCP 分类面板，与远程 MCP 分开展示
+- 修复本地 MCP 删除按钮无响应的问题
+
+#### 创作台体验优化
+
+- 顶栏新增「新建对话」快捷按钮，无需打开历史抽屉即可创建新会话
+
+#### 主控台精简
+
+- 移除 1Shell AI 面板的工具选择条（MCP 工具已自动注入，无需手动选择）
 
 ### 3.1.0 更新
 
