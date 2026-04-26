@@ -15,7 +15,7 @@ function isPathAllowed(relPath) {
   });
 }
 
-function createIdeTools({ bridgeService, hostService, skillRegistry, programEngine, skillRunner, auditService, mcpRegistry, localMcpService, onFileWritten }) {
+function createIdeTools({ bridgeService, hostService, skillRegistry, programEngine, skillRunner, auditService, mcpRegistry, localMcpService, scriptService, probeService, siteScanService, dataDir, onFileWritten }) {
 
   const TOOL_SCHEMAS = [
     {
@@ -194,6 +194,139 @@ function createIdeTools({ bridgeService, hostService, skillRegistry, programEngi
           tags:        { type: 'array', items: { type: 'string' }, description: '标签（可选）' },
         },
         required: ['repoUrl', 'name', 'command'],
+      },
+    },
+
+    // ── 1Shell Core：容器管理 ──────────────────────────────────────────
+    {
+      name: 'list_containers',
+      description:
+        '列出指定主机上的所有 Docker 容器（含已停止）。' +
+        '\n返回每个容器的 name / image / status / ports / id。',
+      input_schema: {
+        type: 'object',
+        properties: {
+          hostId: { type: 'string', description: '目标主机 ID' },
+        },
+        required: ['hostId'],
+      },
+    },
+    {
+      name: 'manage_container',
+      description:
+        '对指定主机上的 Docker 容器执行操作。' +
+        '\n支持的 action：start / stop / restart / rm / logs / inspect。' +
+        '\nlogs 默认返回最后 80 行。',
+      input_schema: {
+        type: 'object',
+        properties: {
+          hostId:    { type: 'string', description: '目标主机 ID' },
+          container: { type: 'string', description: '容器名或 ID' },
+          action:    { type: 'string', enum: ['start', 'stop', 'restart', 'rm', 'logs', 'inspect'], description: '要执行的操作' },
+          tail:      { type: 'number', description: 'logs 时返回的行数，默认 80' },
+        },
+        required: ['hostId', 'container', 'action'],
+      },
+    },
+
+    // ── 1Shell Core：站点与 DNS 管理 ──────────────────────────────────
+    {
+      name: 'list_sites',
+      description:
+        '扫描指定主机上的 Web 服务器配置，返回所有站点、SSL 证书信息。' +
+        '\n自动检测 Nginx / OpenResty / Apache / Caddy。首次调用较慢（需扫描配置）。',
+      input_schema: {
+        type: 'object',
+        properties: {
+          hostId: { type: 'string', description: '目标主机 ID' },
+        },
+        required: ['hostId'],
+      },
+    },
+    {
+      name: 'list_dns_providers',
+      description:
+        '列出 1Shell 中保存的所有 DNS 验证凭据（如 Cloudflare API Token）。' +
+        '\nToken 会脱敏显示。返回 id / domain / provider / tokenMasked / note。',
+      input_schema: { type: 'object', properties: {}, required: [] },
+    },
+    {
+      name: 'manage_dns_provider',
+      description:
+        '管理 DNS 验证凭据（Cloudflare API Token 等）。' +
+        '\n支持的 action：add / update / delete。',
+      input_schema: {
+        type: 'object',
+        properties: {
+          action:   { type: 'string', enum: ['add', 'update', 'delete'], description: '操作类型' },
+          id:       { type: 'string', description: '凭据 ID（update/delete 时必填）' },
+          domain:   { type: 'string', description: '域名（add/update）' },
+          provider: { type: 'string', description: '提供商，默认 cloudflare（add/update）' },
+          token:    { type: 'string', description: 'API Token（add 时必填，update 时留空不修改）' },
+          note:     { type: 'string', description: '备注（可选）' },
+        },
+        required: ['action'],
+      },
+    },
+
+    // ── 1Shell Core：脚本管理 ─────────────────────────────────────────
+    {
+      name: 'list_scripts',
+      description: '列出 1Shell 脚本库中的所有脚本。返回 id / name / description / category / tags。',
+      input_schema: {
+        type: 'object',
+        properties: {
+          category: { type: 'string', description: '按分类过滤（可选）' },
+          keyword:  { type: 'string', description: '关键词搜索（可选）' },
+        },
+        required: [],
+      },
+    },
+    {
+      name: 'run_script',
+      description:
+        '在指定主机上运行一个已有的脚本。' +
+        '\n返回 stdout / stderr / exitCode。支持传入参数。',
+      input_schema: {
+        type: 'object',
+        properties: {
+          scriptId: { type: 'string', description: '脚本 ID' },
+          hostId:   { type: 'string', description: '目标主机 ID' },
+          params:   { type: 'object', description: '脚本参数键值对（可选）' },
+          timeout:  { type: 'number', description: '超时毫秒，默认 60000' },
+        },
+        required: ['scriptId', 'hostId'],
+      },
+    },
+
+    // ── 1Shell Core：探针与审计 ───────────────────────────────────────
+    {
+      name: 'query_probe',
+      description:
+        '获取所有主机的探针监控数据快照。' +
+        '\n返回每台主机的 CPU / 内存 / 磁盘 / 网络 / 负载等实时指标。',
+      input_schema: {
+        type: 'object',
+        properties: {
+          refresh: { type: 'boolean', description: '是否强制刷新（默认 false，使用缓存）' },
+        },
+        required: [],
+      },
+    },
+    {
+      name: 'query_audit',
+      description:
+        '查询 1Shell 审计日志。返回最近的操作记录。' +
+        '\n可按 action / hostId / keyword 过滤。',
+      input_schema: {
+        type: 'object',
+        properties: {
+          limit:   { type: 'number', description: '返回条数，默认 30' },
+          action:  { type: 'string', description: '按 action 过滤（可选）' },
+          hostId:  { type: 'string', description: '按主机 ID 过滤（可选）' },
+          keyword: { type: 'string', description: '关键词搜索（可选）' },
+        },
+        required: [],
       },
     },
   ];
@@ -495,6 +628,222 @@ function createIdeTools({ bridgeService, hostService, skillRegistry, programEngi
         } catch (e) {
           return err(`部署失败: ${e.message}`);
         }
+      }
+
+      // ── 1Shell Core：脚本管理 ──────────────────────────────────────
+      case 'list_scripts': {
+        if (!scriptService) return err('scriptService 未初始化');
+        try {
+          const scripts = scriptService.listScripts({ category: input.category, keyword: input.keyword });
+          if (scripts.length === 0) return ok('（脚本库为空）');
+          const lines = scripts.map(s =>
+            `id=${s.id}  name="${s.name}"  category=${s.category || '-'}  tags=[${(s.tags || []).join(',')}]  ${s.description ? '— ' + s.description.slice(0, 80) : ''}`
+          );
+          return ok(lines.join('\n'));
+        } catch (e) { return err(e.message); }
+      }
+
+      case 'run_script': {
+        if (!scriptService) return err('scriptService 未初始化');
+        const scriptId = String(input.scriptId || '').trim();
+        const hostId = String(input.hostId || '').trim();
+        if (!scriptId || !hostId) return err('scriptId 和 hostId 为必填');
+        try {
+          const result = await scriptService.runScript(scriptId, {
+            hostId,
+            params: input.params || {},
+            confirmed: true,
+            timeoutMs: input.timeout || 60000,
+          });
+          return ok(formatExec(result));
+        } catch (e) { return err(e.message); }
+      }
+
+      // ── 1Shell Core：探针与审计 ─────────────────────────────────────
+      case 'query_probe': {
+        if (!probeService) return err('probeService 未初始化');
+        try {
+          const snapshot = await probeService.getSnapshot({ refresh: !!input.refresh });
+          if (!snapshot || !snapshot.probes || snapshot.probes.length === 0) return ok('（无探针数据）');
+          const lines = snapshot.probes.map(p => {
+            const h = p.host || p.name || p.hostId || '?';
+            if (p.error) return `${h}  ✘ ${p.error}`;
+            const cpu = p.cpuUsage != null ? `CPU=${p.cpuUsage}%` : '';
+            const mem = p.memUsage != null ? `MEM=${p.memUsage}%` : '';
+            const disk = p.diskUsage != null ? `DISK=${p.diskUsage}%` : '';
+            const load = p.loadAvg ? `LOAD=${p.loadAvg}` : '';
+            const uptime = p.uptime ? `UP=${p.uptime}` : '';
+            return `${h}  ${[cpu, mem, disk, load, uptime].filter(Boolean).join('  ')}`;
+          });
+          return ok(lines.join('\n'));
+        } catch (e) { return err(e.message); }
+      }
+
+      case 'query_audit': {
+        if (!auditService) return err('auditService 未初始化');
+        try {
+          const result = auditService.query({
+            limit: input.limit || 30,
+            action: input.action,
+            hostId: input.hostId,
+            keyword: input.keyword,
+          });
+          const logs = result.logs || result || [];
+          if (logs.length === 0) return ok('（无审计记录）');
+          const lines = logs.map(l =>
+            `[${l.createdAt || l.ts || '?'}] action=${l.action}  host=${l.hostId || '-'}  ${l.command ? 'cmd=' + l.command.slice(0, 100) : ''} ${l.source ? 'src=' + l.source : ''}`
+          );
+          return ok(lines.join('\n'));
+        } catch (e) { return err(e.message); }
+      }
+
+      // ── 1Shell Core：站点与 DNS 管理 ────────────────────────────────
+      case 'list_sites': {
+        const hostId = String(input.hostId || '').trim();
+        if (!hostId) return err('hostId 为必填');
+        if (!siteScanService) return err('siteScanService 未初始化');
+        try {
+          const result = await siteScanService.scan(hostId);
+          const lines = [];
+          if (result.webserver) lines.push(`Web 服务器: ${result.webserver}`);
+          if (result.sites?.length) {
+            lines.push(`\n站点 (${result.sites.length} 个):`);
+            for (const s of result.sites) {
+              lines.push(`  ${s.domain}  → ${s.proxyTarget || s.root || '-'}  SSL=${s.hasSSL ? '是' : '否'}`);
+            }
+          } else {
+            lines.push('（未检测到站点配置）');
+          }
+          if (result.certs?.length) {
+            lines.push(`\nSSL 证书 (${result.certs.length} 张):`);
+            for (const c of result.certs) {
+              lines.push(`  ${c.domain}  到期=${c.expiryDate || '?'}  路径=${c.path || '-'}`);
+            }
+          }
+          return ok(lines.join('\n'));
+        } catch (e) { return err(e.message); }
+      }
+
+      case 'list_dns_providers': {
+        try {
+          const filePath = path.join(dataDir, 'dns-providers.json');
+          let all = [];
+          try { all = JSON.parse(fs.readFileSync(filePath, 'utf8')); } catch { /* empty */ }
+          if (all.length === 0) return ok('（暂无 DNS 凭据，可用 manage_dns_provider 添加）');
+          const lines = all.map(e => {
+            const masked = e.token && e.token.length >= 10
+              ? e.token.substring(0, 5) + '…' + e.token.substring(e.token.length - 4)
+              : '****';
+            return `id=${e.id}  domain=${e.domain}  provider=${e.provider || 'cloudflare'}  token=${masked}  note="${e.note || ''}"`;
+          });
+          return ok(lines.join('\n'));
+        } catch (e) { return err(e.message); }
+      }
+
+      case 'manage_dns_provider': {
+        const action = String(input.action || '').trim();
+        const filePath = path.join(dataDir, 'dns-providers.json');
+        let all = [];
+        try { all = JSON.parse(fs.readFileSync(filePath, 'utf8')); } catch { /* empty */ }
+
+        if (action === 'add') {
+          const domain = String(input.domain || '').trim().toLowerCase();
+          const token = String(input.token || '').trim();
+          if (!domain) return err('domain 为必填');
+          if (!token) return err('token 为必填');
+          if (all.some(e => e.domain === domain)) return err(`域名 ${domain} 已存在`);
+          const entry = {
+            id: require('crypto').randomBytes(4).toString('hex'),
+            domain,
+            provider: input.provider || 'cloudflare',
+            token,
+            note: (input.note || '').trim(),
+            createdAt: new Date().toISOString(),
+          };
+          all.push(entry);
+          fs.mkdirSync(path.dirname(filePath), { recursive: true });
+          fs.writeFileSync(filePath, JSON.stringify(all, null, 2), 'utf8');
+          auditService?.log?.({ action: 'ide_dns_add', domain });
+          return ok(`DNS 凭据已添加: id=${entry.id} domain=${domain} provider=${entry.provider}`);
+        }
+        if (action === 'update') {
+          const id = String(input.id || '').trim();
+          if (!id) return err('id 为必填');
+          const idx = all.findIndex(e => e.id === id);
+          if (idx === -1) return err(`凭据不存在: ${id}`);
+          if (input.domain) all[idx].domain = String(input.domain).trim().toLowerCase();
+          if (input.provider) all[idx].provider = input.provider;
+          if (input.token) all[idx].token = String(input.token).trim();
+          if (input.note !== undefined) all[idx].note = (input.note || '').trim();
+          fs.writeFileSync(filePath, JSON.stringify(all, null, 2), 'utf8');
+          auditService?.log?.({ action: 'ide_dns_update', id });
+          return ok(`DNS 凭据已更新: id=${id}`);
+        }
+        if (action === 'delete') {
+          const id = String(input.id || '').trim();
+          if (!id) return err('id 为必填');
+          const idx = all.findIndex(e => e.id === id);
+          if (idx === -1) return err(`凭据不存在: ${id}`);
+          const removed = all.splice(idx, 1)[0];
+          fs.writeFileSync(filePath, JSON.stringify(all, null, 2), 'utf8');
+          auditService?.log?.({ action: 'ide_dns_delete', domain: removed.domain });
+          return ok(`DNS 凭据已删除: domain=${removed.domain}`);
+        }
+        return err(`未知操作: ${action}`);
+      }
+
+      // ── 1Shell Core：容器管理 ────────────────────────────────────────
+      case 'list_containers': {
+        const hostId = String(input.hostId || '').trim();
+        if (!hostId) return err('hostId 为必填');
+        try {
+          const cmd = 'docker ps -a --format "{{.Names}}\\t{{.Image}}\\t{{.Status}}\\t{{.Ports}}\\t{{.ID}}"';
+          const execFn = hostId === 'local'
+            ? () => new Promise(resolve => {
+                require('child_process').exec(cmd, { timeout: 15000 }, (e, stdout, stderr) => {
+                  resolve({ stdout: stdout || '', stderr: (e && !stderr) ? e.message : (stderr || ''), exitCode: e ? 1 : 0 });
+                });
+              })
+            : () => bridgeService.execOnHost(hostId, cmd, 15000, { source: 'ide' });
+          const result = await execFn();
+          if (result.exitCode !== 0) return err(`Docker 未安装或无法访问: ${result.stderr}`);
+          if (!result.stdout.trim()) return ok('（该主机上没有任何容器）');
+          const lines = result.stdout.trim().split('\n').map(l => {
+            const [name, image, status, ports, id] = l.split('\t');
+            return `${name}  image=${image}  status="${status}"  ports=${ports || '-'}  id=${id}`;
+          });
+          return ok(lines.join('\n'));
+        } catch (e) { return err(e.message); }
+      }
+
+      case 'manage_container': {
+        const hostId = String(input.hostId || '').trim();
+        const container = String(input.container || '').trim();
+        const action = String(input.action || '').trim();
+        if (!hostId || !container || !action) return err('hostId, container, action 均为必填');
+        const cmds = {
+          start:   `docker start ${container}`,
+          stop:    `docker stop ${container}`,
+          restart: `docker restart ${container}`,
+          rm:      `docker rm -f ${container}`,
+          logs:    `docker logs --tail ${input.tail || 80} ${container}`,
+          inspect: `docker inspect ${container}`,
+        };
+        const cmd = cmds[action];
+        if (!cmd) return err(`未知操作: ${action}`);
+        try {
+          const timeout = action === 'logs' ? 15000 : 30000;
+          const execFn = hostId === 'local'
+            ? () => new Promise(resolve => {
+                require('child_process').exec(cmd, { timeout, maxBuffer: 4 * 1024 * 1024 }, (e, stdout, stderr) => {
+                  resolve({ stdout: stdout || '', stderr: (e && !stderr) ? e.message : (stderr || ''), exitCode: e ? 1 : 0 });
+                });
+              })
+            : () => bridgeService.execOnHost(hostId, cmd, timeout, { source: 'ide' });
+          const result = await execFn();
+          auditService?.log?.({ action: `ide_container_${action}`, hostId, container });
+          return ok(formatExec(result));
+        } catch (e) { return err(e.message); }
       }
 
       default:

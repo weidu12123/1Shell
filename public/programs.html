@@ -288,5 +288,6 @@
     if (localStorage.getItem('1shell-theme') === 'dark') { htmlEl.classList.add('dark'); themeIcon.textContent = '\u2600'; } else { themeIcon.textContent = '\uD83C\uDF19'; }
     themeBtn.addEventListener('click', () => { const d = htmlEl.classList.toggle('dark'); themeIcon.textContent = d ? '\u2600' : '\uD83C\uDF19'; localStorage.setItem('1shell-theme', d ? 'dark' : 'light'); });
   </script>
+  <script src="ai-fab.js"></script>
 </body>
 </html>

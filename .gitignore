@@ -25,3 +25,6 @@ deploy.js
 
 # 内部规格/设计文档（不对外发布）
 .spec-workflow/
+
+# Claude Code 本地配置
+.claude/

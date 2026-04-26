@@ -139,6 +139,7 @@
           <button id="btn-add-site" class="act-btn act-btn-primary mb-1">+ 添加站点</button>
           <button id="btn-apply-cert" class="act-btn act-btn-success mb-1 ml-1 hidden">&#128274; 申请证书</button>
           <button id="btn-add-dns" class="act-btn act-btn-primary mb-1 ml-1 hidden">+ 添加凭据</button>
+          <button id="btn-install-ws" class="act-btn act-btn-default mb-1 ml-1 hidden">⚡ 安装 Web 服务器</button>
           <div class="text-[10px] text-slate-400 ml-3 mb-1" id="tab-status"></div>
         </div>
 
@@ -209,5 +210,6 @@
     if (localStorage.getItem('1shell-theme') === 'dark') { htmlEl.classList.add('dark'); themeIcon.textContent = '\u2600'; } else { themeIcon.textContent = '\uD83C\uDF19'; }
     themeBtn.addEventListener('click', () => { const d = htmlEl.classList.toggle('dark'); themeIcon.textContent = d ? '\u2600' : '\uD83C\uDF19'; localStorage.setItem('1shell-theme', d ? 'dark' : 'light'); });
   </script>
+  <script src="ai-fab.js"></script>
 </body>
 </html>

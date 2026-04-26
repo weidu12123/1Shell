@@ -160,6 +160,10 @@ const ideTools = createIdeTools({
   auditService,
   mcpRegistry,
   localMcpService,
+  scriptService,
+  probeService,
+  siteScanService,
+  dataDir,
   onFileWritten: () => {
     try { libraryService.reload(); } catch { /* ignore */ }
     try { programRegistry.reload(); } catch { /* ignore */ }

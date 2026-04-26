@@ -1,5 +1,53 @@
 # 1Shell Changelog
 
+## v3.3.0 (2026-04-27)
+
+> **1Shell AI 全局化 + 内置 MCP 工具体系**
+>
+> 从"主控台有个 AI 按钮"进化到"每个页面都是 AI 的入口，每个功能都是 AI 的工具"。
+
+### 1. 1Shell AI 全局化
+
+- 新增 `ai-fab.js` 浮动 AI 组件，右下角常驻按钮，一键唤起 AI 对话
+- 覆盖全部 11 个子页面：容器、网站、脚本、Skill 仓库、长驻程序、Playbook、运行记录、探针、审计、创作台、AI 配置
+- 自动感知当前模块上下文（页面类型 + 选中主机），AI 一上来就知道用户在看什么
+- 内置安全模式审批条，支持允许 / 拒绝 / 自定义回复
+- 自动加载 socket.io，无需各页面额外引入依赖
+- index.html 已有 IDE 面板，自动跳过，不冲突
+
+### 2. 内置 MCP 工具体系（IDE 底层扩展）
+
+在 `ide.tools.js` 中新增 9 个 1Shell Core 工具，AI 可直接调用 1Shell 全部业务能力：
+
+| 工具 | 能力 |
+|---|---|
+| `list_containers` | 列出主机上所有 Docker 容器（名称、镜像、状态、端口） |
+| `manage_container` | 容器生命周期管理：start / stop / restart / rm / logs / inspect |
+| `list_sites` | 扫描主机 Web 服务器配置 + SSL 证书信息 |
+| `list_dns_providers` | 列出已保存的 DNS 验证凭据（token 脱敏） |
+| `manage_dns_provider` | DNS 凭据增删改（Cloudflare API Token 等） |
+| `list_scripts` | 列出脚本库所有脚本 |
+| `run_script` | 在指定主机上执行脚本（支持参数传入） |
+| `query_probe` | 获取所有主机的实时监控指标（CPU / 内存 / 磁盘 / 负载） |
+| `query_audit` | 查询审计日志（支持按 action / hostId / keyword 过滤） |
+
+工具总数从 14 个扩展到 23 个。
+
+### 3. 数据可发现、可操作
+
+- AI 无需预注入页面数据，通过工具主动探索：用户问"我的 Cloudflare token 配了哪些域名？"，AI 自行调 `list_dns_providers`
+- 所有业务数据（容器、站点、证书、DNS 凭据、脚本、探针指标、审计记录）均以结构化文本返回，AI 可理解、可推理、可操作
+- 操作全程记录审计日志
+
+### 改动文件
+
+- 新增 `public/ai-fab.js`（浮动 AI 组件）
+- 修改 `src/ide/ide.tools.js`（+9 工具 schema + handler）
+- 修改 `server.js`（注入 scriptService / probeService / siteScanService / dataDir）
+- 修改 11 个 HTML 页面（各加一行 `<script src="ai-fab.js">`）
+
+---
+
 ## v3.0.0（规划中）
 
 ### 方向：Agent Skill — 声明式自动化运维
