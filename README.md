@@ -265,6 +265,30 @@ PORT=3301
 
 ## 更新日志
 
+### 3.3.0 更新
+
+#### 1Shell AI 全局化
+
+- 新增 `ai-fab.js` 浮动 AI 组件，右下角常驻按钮，一键唤起 AI 对话
+- 覆盖全部 11 个子页面（容器、网站、脚本、Skill 仓库、长驻程序、Playbook、运行记录、探针、审计、创作台、AI 配置）
+- 自动感知当前模块上下文 + 选中主机，AI 一上来就知道用户在哪个页面、操作哪台机器
+- 内置安全模式审批条，自动加载 socket.io，index.html 已有 IDE 面板自动跳过
+
+#### 内置 MCP 工具体系
+
+- `ide.tools.js` 新增 9 个 1Shell Core 工具，AI 可直接操作全部业务能力
+- 容器管理：`list_containers` / `manage_container`（start / stop / restart / rm / logs / inspect）
+- 站点与 DNS：`list_sites` / `list_dns_providers` / `manage_dns_provider`
+- 脚本管理：`list_scripts` / `run_script`
+- 监控与审计：`query_probe`（实时 CPU / 内存 / 磁盘 / 负载）/ `query_audit`（操作日志查询）
+- IDE 工具总数从 14 个扩展到 23 个
+
+#### 数据可发现、可操作
+
+- AI 无需预注入页面数据，通过工具主动探索所有业务数据
+- 容器、站点、证书、DNS 凭据、脚本、探针指标、审计记录均以结构化文本返回
+- 操作全程记录审计日志
+
 ### 3.2.0 更新
 
 #### 本地 MCP Server 原生集成
