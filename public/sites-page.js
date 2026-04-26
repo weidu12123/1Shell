@@ -173,6 +173,55 @@
     }
   }
 
+  // ─── Web 服务器安装 ────────────────────────────────────────────────
+  async function installWebServer(type) {
+    const btns = document.querySelectorAll('.install-ws-btn');
+    const $log = document.getElementById('ws-install-log');
+    if (!$log) return;
+
+    btns.forEach(b => { b.disabled = true; });
+    const activeBtn = document.querySelector(`.install-ws-btn[data-ws="${type}"]`);
+    if (activeBtn) activeBtn.textContent = '安装中…';
+    $log.classList.remove('hidden');
+
+    const labels = { nginx: 'Nginx', openresty: 'OpenResty', caddy: 'Caddy' };
+    $log.textContent = `正在安装 ${labels[type]}，请稍候…\n`;
+
+    const cmds = {
+      nginx: 'apt-get update && apt-get install -y nginx || yum install -y nginx',
+      openresty: 'apt-get update && apt-get -y install --no-install-recommends wget gnupg ca-certificates lsb-release && wget -O - https://openresty.org/package/pubkey.gpg | apt-key add - && echo "deb http://openresty.org/package/$(. /etc/os-release && echo $ID) $(lsb_release -sc) main" > /etc/apt/sources.list.d/openresty.list && apt-get update && apt-get -y install openresty || yum install -y yum-utils && yum-config-manager --add-repo https://openresty.org/package/centos/openresty.repo && yum install -y openresty',
+      caddy: 'apt-get update && apt-get install -y debian-keyring debian-archive-keyring apt-transport-https curl && curl -1sLf "https://dl.cloudsmith.io/public/caddy/stable/setup.deb.sh" | bash && apt-get install -y caddy || yum install -y yum-plugin-copr && yum copr enable -y @caddy/caddy && yum install -y caddy',
+    };
+
+    try {
+      const res = await exec(cmds[type], 300000);
+      $log.textContent += (res.stdout || '') + '\n' + (res.stderr || '');
+      $log.scrollTop = $log.scrollHeight;
+
+      if (res.exitCode !== 0) {
+        $log.textContent += `\n安装失败 (exitCode: ${res.exitCode})`;
+        btns.forEach(b => { b.disabled = false; });
+        if (activeBtn) activeBtn.textContent = labels[type];
+        return;
+      }
+
+      const startCmds = {
+        nginx: 'systemctl enable nginx && systemctl start nginx',
+        openresty: 'systemctl enable openresty && systemctl start openresty',
+        caddy: 'systemctl enable caddy && systemctl start caddy',
+      };
+      await exec(startCmds[type], 15000);
+
+      $log.textContent += `\n✓ ${labels[type]} 安装完成！正在刷新…`;
+      showToast(`${labels[type]} 安装成功`, 'success');
+      setTimeout(() => loadAll(), 1000);
+    } catch (err) {
+      $log.textContent += `\n安装异常: ${err.message}`;
+      btns.forEach(b => { b.disabled = false; });
+      if (activeBtn) activeBtn.textContent = labels[type];
+    }
+  }
+
   // ─── 容错执行：超时或失败返回空结果，不抛异常 ───────────────────
   async function safeExec(command, timeout) {
     try {
@@ -184,10 +233,30 @@
   }
 
   function renderSitesTable() {
+    if (!serverType && sites.length === 0) {
+      $sitesBody.innerHTML = `<tr><td colspan="6" class="text-center py-10">
+        <div class="flex flex-col items-center gap-4 max-w-md mx-auto">
+          <div class="text-3xl">🌐</div>
+          <div class="text-sm font-bold text-slate-700 dark:text-slate-200">未检测到 Web 服务器</div>
+          <div class="text-[11px] text-slate-400 text-center">安装 Web 服务器后即可管理站点和 SSL 证书，请选择一个：</div>
+          <div class="flex gap-3">
+            <button class="act-btn act-btn-primary install-ws-btn" data-ws="nginx">Nginx</button>
+            <button class="act-btn act-btn-primary install-ws-btn" data-ws="openresty">OpenResty</button>
+            <button class="act-btn act-btn-primary install-ws-btn" data-ws="caddy">Caddy</button>
+          </div>
+          <div id="ws-install-log" class="hidden w-full text-left bg-slate-900 text-emerald-400 rounded-lg p-3 font-mono text-[11px] max-h-[200px] overflow-auto whitespace-pre-wrap"></div>
+        </div>
+      </td></tr>`;
+      $sitesBody.querySelectorAll('.install-ws-btn').forEach(btn => {
+        btn.addEventListener('click', () => installWebServer(btn.dataset.ws));
+      });
+      return;
+    }
+
     if (sites.length === 0) {
       const serverName = { nginx: 'Nginx', openresty: 'OpenResty', caddy: 'Caddy', apache: 'Apache' }[serverType];
       $sitesBody.innerHTML = `<tr><td colspan="6" class="text-center text-slate-400 py-8">${
-        serverType ? `未找到 ${serverName} 站点配置` : '未检测到 Web 服务器（Nginx / Caddy / OpenResty / Apache）'
+        serverType ? `未找到 ${serverName} 站点配置` : '未检测到 Web 服务器'
       }</td></tr>`;
       return;
     }

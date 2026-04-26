@@ -205,12 +205,68 @@
   }
 
   function showTableError(error) {
+    const isNotInstalled = /未安装|not found|not recognized|command not found/i.test(error);
+
+    if (isNotInstalled) {
+      $tableBody.innerHTML = `<tr><td colspan="6" class="text-center py-12">
+        <div class="flex flex-col items-center gap-4 max-w-sm mx-auto">
+          <div class="text-4xl">🐳</div>
+          <div class="text-sm font-bold text-slate-700 dark:text-slate-200">Docker 未安装</div>
+          <div class="text-[11px] text-slate-400 text-center">当前主机未检测到 Docker，安装后即可管理容器。</div>
+          <button class="act-btn act-btn-primary text-xs" id="install-docker-btn">⚡ 一键安装 Docker</button>
+          <div id="install-docker-log" class="hidden w-full text-left bg-slate-900 text-emerald-400 rounded-lg p-3 font-mono text-[11px] max-h-[200px] overflow-auto whitespace-pre-wrap"></div>
+        </div>
+      </td></tr>`;
+      $tableStatus.textContent = 'Docker 未安装';
+      $statRunning.textContent = '-';
+      $statStopped.textContent = '-';
+      $statTotal.textContent = '-';
+      $statImages.textContent = '-';
+
+      document.getElementById('install-docker-btn')?.addEventListener('click', installDocker);
+      return;
+    }
+
     $tableBody.innerHTML = `<tr><td colspan="6" class="text-center py-8">
       <div class="text-red-500 dark:text-red-400 mb-2">${escapeHtml(error)}</div>
       <button class="act-btn act-btn-primary" id="retry-btn">重试</button>
     </td></tr>`;
     $tableStatus.textContent = '加载失败';
     document.getElementById('retry-btn')?.addEventListener('click', loadContainerList);
+  }
+
+  async function installDocker() {
+    const btn = document.getElementById('install-docker-btn');
+    const $log = document.getElementById('install-docker-log');
+    if (!btn || !$log) return;
+
+    btn.disabled = true;
+    btn.textContent = '安装中…';
+    $log.classList.remove('hidden');
+    $log.textContent = '正在安装 Docker，请稍候（可能需要 1-3 分钟）…\n';
+
+    try {
+      const res = await exec('curl -fsSL https://get.docker.com | sh', 300000);
+      $log.textContent += (res.stdout || '') + '\n' + (res.stderr || '');
+      $log.scrollTop = $log.scrollHeight;
+
+      if (res.exitCode !== 0) {
+        $log.textContent += `\n安装失败 (exitCode: ${res.exitCode})`;
+        btn.textContent = '重试安装';
+        btn.disabled = false;
+        return;
+      }
+
+      await exec('systemctl enable docker && systemctl start docker', 15000);
+
+      $log.textContent += '\n✓ Docker 安装完成！正在刷新…';
+      showToast('Docker 安装成功', 'success');
+      setTimeout(() => loadContainerList(), 1000);
+    } catch (err) {
+      $log.textContent += `\n安装异常: ${err.message}`;
+      btn.textContent = '重试安装';
+      btn.disabled = false;
+    }
   }
 
   // ─── 行操作 ─────────────────────────────────────────────────────────
