@@ -190,8 +190,13 @@ SKILL.md 的 description 是触发条件（最重要），Always Read + Common T
     return session;
   }
 
-  async function handleMessage({ socket, sessionId, message, context }) {
+  async function handleMessage({ socket, sessionId, message, context, safeMode }) {
     const session = getOrCreateSession(sessionId, context);
+
+    // 首次创建时同步前端的 safeMode 状态
+    if (safeMode !== undefined) {
+      session.safeMode = safeMode !== false;
+    }
 
     const userContent = session.messages.length === 0 && session.contextBlock
       ? session.contextBlock + message

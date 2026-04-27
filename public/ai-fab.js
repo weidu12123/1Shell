@@ -400,6 +400,7 @@
       sessionId,
       message: text,
       context: buildContext(),
+      safeMode,
     }, (ack) => {
       if (!ack?.ok) {
         setStatus('启动失败');

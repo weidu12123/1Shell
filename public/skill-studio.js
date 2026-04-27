@@ -730,6 +730,7 @@
       sessionId: currentSessionId,
       message: task,
       context,
+      safeMode,
     }, (ack) => {
       if (!ack?.ok) {
         setStatus('error', '启动失败');

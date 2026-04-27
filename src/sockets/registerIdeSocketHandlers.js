@@ -32,6 +32,7 @@ function registerIdeSocketHandlers(io, { ideService, ideTools, localMcpService, 
         sessionId,
         message,
         context: payload.context || null,
+        safeMode: payload.safeMode,
       }).catch(() => {});
 
       reply({ ok: true });
