@@ -35,6 +35,19 @@ function createAuthRouter(authService) {
     res.json({ ok: true });
   });
 
+  router.put('/credentials', authService.requireAuth, (req, res, next) => {
+    try {
+      const { username, password } = req.body || {};
+      if (!username && !password) {
+        return res.status(400).json({ error: '请提供用户名或密码' });
+      }
+      authService.updateCredentials(username, password);
+      res.json({ ok: true });
+    } catch (error) {
+      next(error);
+    }
+  });
+
   return router;
 }
 

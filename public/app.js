@@ -371,17 +371,23 @@
         return;
       }
 
-      // 保存到 localStorage
-      const newCreds = {};
-      if (username) newCreds.username = username;
-      if (password) newCreds.password = password;
+      if (!username && !password) {
+        settingsErrorEl.textContent = '请填写用户名或密码';
+        return;
+      }
 
-      if (Object.keys(newCreds).length > 0) {
-        const existing = JSON.parse(localStorage.getItem('1shell-settings-creds') || '{}');
-        const merged = { ...existing, ...newCreds };
-        localStorage.setItem('1shell-settings-creds', JSON.stringify(merged));
+      try {
+        const body = {};
+        if (username) body.username = username;
+        if (password) body.password = password;
+        await requestJson('/api/auth/credentials', {
+          method: 'PUT',
+          body: JSON.stringify(body),
+        });
         settingsModal.classList.add('hidden');
-        window.appShared?.showToast?.('设置已保存，下次登录生效', 'success', 2000);
+        window.appShared?.showToast?.('凭据已更新，下次登录生效', 'success', 2000);
+      } catch (err) {
+        settingsErrorEl.textContent = err.message || '保存失败';
       }
     });
   }

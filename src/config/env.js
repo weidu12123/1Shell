@@ -2,6 +2,7 @@
 
 require('dotenv').config();
 
+const fs = require('fs');
 const path = require('path');
 
 function parsePositiveInt(value, fallback) {
@@ -40,6 +41,28 @@ const TRUSTED_PROXY_IPS = (process.env.TRUSTED_PROXY_IPS || '')
 const BRIDGE_TOKEN = (process.env.BRIDGE_TOKEN || '').trim();
 const BRIDGE_EXEC_TIMEOUT_MS = parsePositiveInt(process.env.BRIDGE_EXEC_TIMEOUT_MS, 30000);
 
+function updateCredentials(username, password) {
+  const envPath = path.join(ROOT_DIR, '.env');
+  let content = '';
+  try { content = fs.readFileSync(envPath, 'utf8'); } catch { /* no .env yet */ }
+
+  const updates = {};
+  if (username !== undefined) updates.APP_LOGIN_USERNAME = username;
+  if (password !== undefined) updates.APP_LOGIN_PASSWORD = password;
+
+  for (const [key, value] of Object.entries(updates)) {
+    process.env[key] = value;
+    const regex = new RegExp(`^${key}=.*$`, 'm');
+    if (regex.test(content)) {
+      content = content.replace(regex, `${key}=${value}`);
+    } else {
+      content = content.trimEnd() + `\n${key}=${value}\n`;
+    }
+  }
+
+  fs.writeFileSync(envPath, content, 'utf8');
+}
+
 module.exports = {
   AUTH_USERNAME,
   AUTH_PASSWORD,
@@ -65,4 +88,5 @@ module.exports = {
   BRIDGE_EXEC_TIMEOUT_MS,
   TRUSTED_PROXY_IPS,
   USING_DEFAULT_CREDENTIALS,
+  updateCredentials,
 };

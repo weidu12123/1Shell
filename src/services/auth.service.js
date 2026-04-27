@@ -3,16 +3,18 @@
 const crypto = require('crypto');
 
 const {
-  AUTH_USERNAME,
-  AUTH_PASSWORD,
   SESSION_COOKIE_NAME,
   SESSION_TTL_MS,
   TRUSTED_PROXY_IPS,
+  updateCredentials: updateEnvCredentials,
 } = require('../config/env');
 const { parseCookies } = require('../utils/common');
 
 const CSRF_COOKIE_NAME = 'mvps_csrf_token';
 const CSRF_HEADER_NAME = 'x-csrf-token';
+
+function getAuthUsername() { return process.env.APP_LOGIN_USERNAME || ''; }
+function getAuthPassword() { return process.env.APP_LOGIN_PASSWORD || ''; }
 
 function createAuthService() {
   const authSessions = new Map();
@@ -88,7 +90,7 @@ function createAuthService() {
   }
 
   function isRequestAuthenticated(req) {
-    if (!AUTH_USERNAME && !AUTH_PASSWORD) return true;
+    if (!getAuthUsername() && !getAuthPassword()) return true;
     clearExpiredAuthSessions();
     const sessionId = getAuthSessionId(req);
     const session = authSessions.get(sessionId);
@@ -103,7 +105,7 @@ function createAuthService() {
 
   // 校验 CSRF token：GET/HEAD/OPTIONS 豁免，其余必须携带有效 token
   function verifyCsrfToken(req) {
-    if (!AUTH_USERNAME && !AUTH_PASSWORD) return true;
+    if (!getAuthUsername() && !getAuthPassword()) return true;
     const method = req.method?.toUpperCase();
     if (method === 'GET' || method === 'HEAD' || method === 'OPTIONS') return true;
 
@@ -154,11 +156,11 @@ function createAuthService() {
   }
 
   function isAuthEnabled() {
-    return Boolean(AUTH_USERNAME && AUTH_PASSWORD);
+    return Boolean(getAuthUsername() && getAuthPassword());
   }
 
   function login(username, password, ip = 'unknown') {
-    if (!AUTH_USERNAME && !AUTH_PASSWORD) {
+    if (!getAuthUsername() && !getAuthPassword()) {
       return { ok: true, enabled: false, authenticated: true, sessionId: '', csrfToken: '' };
     }
 
@@ -171,10 +173,10 @@ function createAuthService() {
     const normalizedUsername = String(username || '');
     const normalizedPassword = String(password || '');
 
-    const usernameMatch = !AUTH_USERNAME || normalizedUsername === AUTH_USERNAME;
-    const passwordMatch = !AUTH_PASSWORD || (
-      normalizedPassword.length === AUTH_PASSWORD.length
-      && crypto.timingSafeEqual(Buffer.from(normalizedPassword), Buffer.from(AUTH_PASSWORD))
+    const usernameMatch = !getAuthUsername() || normalizedUsername === getAuthUsername();
+    const passwordMatch = !getAuthPassword() || (
+      normalizedPassword.length === getAuthPassword().length
+      && crypto.timingSafeEqual(Buffer.from(normalizedPassword), Buffer.from(getAuthPassword()))
     );
 
     if (!usernameMatch || !passwordMatch) {
@@ -201,7 +203,7 @@ function createAuthService() {
   }
 
   function authenticateSocket(socket, next) {
-    if (!AUTH_USERNAME && !AUTH_PASSWORD) return next();
+    if (!getAuthUsername() && !getAuthPassword()) return next();
 
     clearExpiredAuthSessions();
 
@@ -220,6 +222,10 @@ function createAuthService() {
     return next();
   }
 
+  function updateCredentials(username, password) {
+    updateEnvCredentials(username, password);
+  }
+
   return {
     authenticateSocket,
     clearAuthCookie,
@@ -231,6 +237,7 @@ function createAuthService() {
     logout,
     requireAuth,
     setAuthCookie,
+    updateCredentials,
   };
 }
 
