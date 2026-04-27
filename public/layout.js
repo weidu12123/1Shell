@@ -433,6 +433,7 @@
 
   // ── Agent 面板：2:4:4 布局切换 ──────────────────────────────────────────
   const agentPanelEl   = document.getElementById('agent-panel');
+  const idePanelEl     = document.getElementById('ide-panel');
   const terminalAreaEl = document.querySelector('.terminal-area');
   const aiPanelEl      = document.querySelector('.ai-panel');
 
@@ -444,6 +445,10 @@
     if (!agentPanelEl || !terminalAreaEl || !aiPanelEl) return;
 
     if (open) {
+      // 先关闭 IDE 面板（互斥）
+      if (idePanelEl && !idePanelEl.classList.contains('hidden')) {
+        window.setIdePanelOpen(false);
+      }
       // 记住 AI 面板折叠状态，避免关闭 Agent 时错误恢复
       agentPanelEl._aiWasCollapsed = aiPanelEl.getAttribute('data-collapsed') === 'true';
       aiPanelEl.style.display = 'none';
@@ -464,6 +469,38 @@
     }
 
     // 触发 xterm refit
+    setTimeout(() => window.dispatchEvent(new Event('resize')), 60);
+  };
+
+  // ── 1Shell AI (IDE) 面板：布局切换 ─────────────────────────────────────
+
+  window.setIdePanelOpen = function (open) {
+    if (!idePanelEl || !terminalAreaEl || !aiPanelEl) return;
+
+    // 先关闭 Agent 面板（互斥）
+    if (open && agentPanelEl && !agentPanelEl.classList.contains('hidden')) {
+      window.setAgentPanelOpen(false);
+    }
+
+    if (open) {
+      idePanelEl._aiWasCollapsed = aiPanelEl.getAttribute('data-collapsed') === 'true';
+      aiPanelEl.style.display = 'none';
+      terminalAreaEl.style.flex = '4 4 0';
+      terminalAreaEl.style.minWidth = '0';
+      idePanelEl.classList.remove('hidden');
+      idePanelEl.style.flex = '4 4 0';
+      idePanelEl.style.minWidth = '0';
+    } else {
+      if (!idePanelEl._aiWasCollapsed) {
+        aiPanelEl.style.display = '';
+      }
+      terminalAreaEl.style.flex = '';
+      terminalAreaEl.style.minWidth = '';
+      idePanelEl.classList.add('hidden');
+      idePanelEl.style.flex = '';
+      idePanelEl.style.minWidth = '';
+    }
+
     setTimeout(() => window.dispatchEvent(new Event('resize')), 60);
   };
 
@@ -500,6 +537,7 @@
       const sidebar = document.querySelector('.sidebar.left-panel');
       const aiPanel2 = document.querySelector('.ai-panel');
       const agentPanel = document.getElementById('agent-panel');
+      const idePanel = document.getElementById('ide-panel');
       const mainContent = document.querySelector('.main-content');
       const appShell2 = document.getElementById('app-shell');
 
@@ -507,6 +545,7 @@
       if (sidebar) sidebar.style.display = 'none';
       if (aiPanel2) aiPanel2.style.display = 'none';
       if (agentPanel) agentPanel.style.display = 'none';
+      if (idePanel) idePanel.style.display = 'none';
       if (appShell2) { appShell2.style.padding = '0'; appShell2.style.gap = '0'; }
       if (mainContent) { mainContent.style.gap = '0'; }
       terminalAreaEl2.style.borderRadius = '0';
@@ -522,6 +561,7 @@
       const sidebar = document.querySelector('.sidebar.left-panel');
       const aiPanel2 = document.querySelector('.ai-panel');
       const agentPanel = document.getElementById('agent-panel');
+      const idePanel = document.getElementById('ide-panel');
       const mainContent = document.querySelector('.main-content');
       const appShell2 = document.getElementById('app-shell');
 
@@ -536,6 +576,9 @@
       }
       if (agentPanel && !agentPanel.classList.contains('hidden')) {
         agentPanel.style.display = '';
+      }
+      if (idePanel && !idePanel.classList.contains('hidden')) {
+        idePanel.style.display = '';
       }
       if (appShell2) { appShell2.style.padding = ''; appShell2.style.gap = ''; }
       if (mainContent) { mainContent.style.gap = ''; }

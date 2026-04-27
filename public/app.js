@@ -30,6 +30,7 @@
   let terminalAnalyzeModule = null;
   let fileBrowserModule = null;
   let agentPanelModule = null;
+  let idePanelModule = null;
   let scriptInjectModule = null;
 
   function setSessionStatus(status, text) {
@@ -72,6 +73,7 @@
     loginErrorEl,
     onAuthExpired: () => {
       agentPanelModule?.closePanel();
+      idePanelModule?.closePanel();
     },
     requestJson,
     setSessionStatus,
@@ -124,6 +126,12 @@
     showErrorMessage,
   });
 
+  idePanelModule = window.createIdePanelModule({
+    getActiveHost,
+    getSessionTerminalModule: () => sessionTerminalModule,
+    showErrorMessage,
+  });
+
   const commandSuggestionModule = window.createCommandSuggestionModule({
     getActiveHost,
     getSessionTerminalModule: () => sessionTerminalModule,
@@ -168,6 +176,7 @@
   terminalAiModule.initialize();
   aiChatModule.initialize();
   agentPanelModule.initialize();
+  idePanelModule.initialize();
   commandSuggestionModule.initialize();
   terminalAnalyzeModule.initialize();
   fileBrowserModule.initialize();
