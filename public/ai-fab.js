@@ -172,6 +172,10 @@
       <span class="fab-title">1Shell AI</span>
       <span class="fab-badge">${escapeHtml(mod.name)}</span>
       <button class="fab-clear-btn" id="fab-stop-header" style="color:#ef4444;border-color:#fca5a5">停止</button>
+      <label class="fab-clear-btn" id="fab-safe-label" style="cursor:pointer;display:flex;align-items:center;gap:3px;color:#f59e0b;border-color:#fcd34d" title="安全模式：写操作需审批">
+        <input type="checkbox" id="fab-safe-mode" checked style="accent-color:#f59e0b;width:11px;height:11px;margin:0">
+        <span style="font-size:10px">🛡 安全</span>
+      </label>
       <button class="fab-clear-btn" id="fab-clear">清空</button>
       <button class="fab-close-btn" id="fab-close">关闭</button>
     </div>
@@ -232,6 +236,7 @@
   let isRunning = false;
   let currentAiBody = null;
   let panelOpen = false;
+  let safeMode = true;
 
   // ── 面板开关 ───────────────────────────────────────────────────────
   fabBtn.addEventListener('click', () => {
@@ -247,6 +252,22 @@
     fabBtn.classList.remove('open');
     fabBtn.innerHTML = '&#129302;';
   });
+
+  // ── 安全模式开关 ────────────────────────────────────────────────────
+  const $fabSafe = document.getElementById('fab-safe-mode');
+  const $fabSafeLabel = document.getElementById('fab-safe-label');
+  if ($fabSafe) {
+    $fabSafe.addEventListener('change', () => {
+      safeMode = $fabSafe.checked;
+      if ($fabSafeLabel) {
+        $fabSafeLabel.style.color = safeMode ? '#f59e0b' : '#94a3b8';
+        $fabSafeLabel.style.borderColor = safeMode ? '#fcd34d' : '';
+      }
+      if (socket && sessionId) {
+        socket.emit('ide:safe-mode', { sessionId, enabled: safeMode });
+      }
+    });
+  }
 
   // ── Socket 连接 ───────────────────────────────────────────────────
   function ensureIo(cb) {
@@ -363,7 +384,11 @@
     if (!text || isRunning) return;
     if (!socket) { connectSocket(); return; }
 
-    if (!sessionId) sessionId = 'fab-' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+    if (!sessionId) {
+      sessionId = 'fab-' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+      // 新 session 同步安全模式状态
+      socket.emit('ide:safe-mode', { sessionId, enabled: safeMode });
+    }
 
     renderUserBubble(text);
     $input.value = '';
