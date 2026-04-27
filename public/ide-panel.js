@@ -32,6 +32,24 @@
     let isRunning = false;
     let currentAiBody = null;
     let visible = false;
+    let safeMode = true;
+
+    // ─── 安全模式开关 ──────────────────────────────────────────────────
+    const $safeToggle = document.getElementById('ide-safe-toggle');
+    const $safeLabel = document.getElementById('ide-safe-label');
+    if ($safeToggle) {
+      $safeToggle.addEventListener('change', () => {
+        safeMode = $safeToggle.checked;
+        if ($safeLabel) {
+          $safeLabel.style.borderColor = safeMode ? '' : '#e2e8f0';
+          const spanEl = $safeLabel.querySelector('span');
+          if (spanEl) spanEl.className = safeMode ? 'text-amber-500 font-medium' : 'text-slate-400 font-medium';
+        }
+        if (socket && sessionId) {
+          socket.emit('ide:safe-mode', { sessionId, enabled: safeMode });
+        }
+      });
+    }
 
     // ─── 工具选择 ────────────────────────────────────────────────────
     const selectedTools = new Set();
@@ -314,7 +332,10 @@
       if (!text || isRunning) return;
       if (!socket) { socket = getSocket(); if (!socket) { showErrorMessage?.({ message: 'Socket 未连接' }); return; } }
 
-      if (!sessionId) sessionId = genSessionId();
+      if (!sessionId) {
+        sessionId = genSessionId();
+        socket.emit('ide:safe-mode', { sessionId, enabled: safeMode });
+      }
 
       renderUserBubble(text);
       inputEl.value = '';

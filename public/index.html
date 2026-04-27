@@ -499,6 +499,10 @@
             <span class="text-[9px] px-1.5 py-0.5 rounded bg-gradient-to-r from-blue-500 to-cyan-500 text-white font-semibold">IDE</span>
           </div>
           <div class="flex items-center gap-1">
+            <label class="flex items-center gap-1 cursor-pointer select-none h-6 px-2 rounded-md border border-amber-300 text-[11px]" id="ide-safe-label" title="安全模式：写操作需审批">
+              <input type="checkbox" id="ide-safe-toggle" checked style="accent-color:#f59e0b;width:11px;height:11px;margin:0">
+              <span class="text-amber-500 font-medium">🛡 安全</span>
+            </label>
             <button class="icon-btn h-6 px-2 rounded-md border border-slate-200 text-[11px] text-slate-500 hover:text-blue-500 hover:border-blue-200 transition-all" id="ide-clear-btn" type="button" title="清空对话">清空</button>
             <button class="icon-btn h-6 px-2 rounded-md border border-slate-200 text-[11px] text-slate-500 hover:text-red-400 hover:border-red-200 transition-all" id="ide-panel-close-btn" type="button">关闭</button>
           </div>
