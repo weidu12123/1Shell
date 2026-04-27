@@ -3,6 +3,29 @@
 const fetch = require('node-fetch');
 const { parseAnthropicSSE } = require('../skills/runner');
 
+// ─── 上下文压缩 ─────────────────────────────────────────────────────────
+// 保留最近 KEEP_RECENT 条消息完整，更早的 tool_result 截断到 TRUNCATE_TO 字符
+const KEEP_RECENT = 8;
+const TRUNCATE_TO = 200;
+
+function compactMessages(messages) {
+  if (messages.length <= KEEP_RECENT) return messages;
+
+  const cutoff = messages.length - KEEP_RECENT;
+  return messages.map((msg, idx) => {
+    if (idx >= cutoff) return msg;
+    if (msg.role !== 'user' || !Array.isArray(msg.content)) return msg;
+
+    const compacted = msg.content.map((block) => {
+      if (block.type !== 'tool_result') return block;
+      const text = typeof block.content === 'string' ? block.content : '';
+      if (text.length <= TRUNCATE_TO) return block;
+      return { ...block, content: text.slice(0, TRUNCATE_TO) + `\n...(已压缩，原 ${text.length} 字符)` };
+    });
+    return { ...msg, content: compacted };
+  });
+}
+
 /**
  * IDE Service — 自由对话模式的创作引擎
  *
@@ -225,12 +248,13 @@ SKILL.md 的 description 是触发条件（最重要），Always Read + Common T
 
         let data;
         try {
+          const compactedMessages = compactMessages(session.messages);
           const apiBody = JSON.stringify({
             model,
             max_tokens: 8192,
             stream: true,
             system: session.safeMode ? session.system + SAFE_MODE_ADDENDUM : session.system,
-            messages: session.messages,
+            messages: compactedMessages,
             tools: allTools,
           });
 

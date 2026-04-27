@@ -22,7 +22,7 @@ function createApp(rootDir) {
     },
   }));
 
-  app.use(express.json({ limit: '2mb' }));
+  app.use(express.json({ limit: '50mb' }));
   app.use(express.static(path.join(rootDir, 'public'), {
     maxAge: '1h',
     setHeaders: (res, filePath) => {
