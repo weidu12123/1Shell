@@ -1,9 +1,12 @@
 'use strict';
 
 /**
- * L2 AI Rescuer
+ * L2 AI Rescuer（隐式触发模式）
  *
- * 当 L1 Playbook Executor 某步骤 verify 失败时被调用。
+ * L2 的两种触发模式之一：
+ *   - 显式触发：Program 的 type: skill 步骤，由 skill-step-executor 执行
+ *   - 隐式触发（本模块）：L1 Playbook Executor 某步骤 verify 失败时自动调用
+ *
  * 使用最少的 AI 调用做定向修复：
  *   - execute_command : 在目标主机诊断 / 修复
  *   - report_outcome  : 宣告结果 → retry_ok | patch_plan | give_up
@@ -14,8 +17,6 @@
  *   { action: 'give_up',    reason }
  *
  * Token 控制：max_tokens=2048，MAX_RESCUE_TURNS=8。
- * 每个 execute_command 调用都通过 socket 发出 skill:exec / skill:exec-result，
- * 前端展示时会带 stepId=rescue_<failingStepId> 以区分救援命令。
  */
 
 const { exec: childExec } = require('child_process');

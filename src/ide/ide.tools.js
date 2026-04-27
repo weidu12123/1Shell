@@ -520,8 +520,14 @@ function createIdeTools({ bridgeService, hostService, skillRegistry, programEngi
       case 'reload_registry': {
         try {
           if (typeof skillRegistry.reload === 'function') skillRegistry.reload();
-          if (typeof programEngine.reload === 'function') programEngine.reload();
-          return ok('Skill / Playbook / Program 注册表已重新加载。');
+          let programMsg = '';
+          if (typeof programEngine.reload === 'function') {
+            const result = programEngine.reload();
+            if (result?.errors?.length) {
+              programMsg = `\n⚠ Program 加载失败（${result.errors.length} 个）：\n` + result.errors.map(e => `  - ${e}`).join('\n');
+            }
+          }
+          return ok('Skill / Playbook / Program 注册表已重新加载。' + programMsg);
         } catch (e) {
           return err(`重载失败: ${e.message}`);
         }

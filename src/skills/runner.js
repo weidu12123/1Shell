@@ -593,7 +593,7 @@ function createSkillRunner({
   // runId → { socket, cancelled, pendingAsk:{toolUseId, resolve, reject} }
   const activeRuns = new Map();
 
-  // L2 AI Rescuer（在 verify 失败时介入，最小 token 消耗）
+  // L2 AI Rescuer（隐式触发：verify 失败时介入，最小 token 消耗）
   const rescuer = createRescuer({
     bridgeService,
     hostService,
@@ -638,7 +638,7 @@ function createSkillRunner({
     //                     即使目录下有 playbook.yaml 也**绝不**绕开 AI。
     //                     （registry 已拒载 skills 下带 playbook.yaml 的目录，
     //                      这里的守卫是二次保障。）
-    //   kind='playbook' → 有 playbook.yaml 走 L1 确定性执行，失败由 L2 Rescuer 接管；
+    //   kind='playbook' → 有 playbook.yaml 走 L1 确定性执行，失败由 L2 Rescuer（隐式触发）接管；
     //                     无 playbook.yaml 退回 AI-Loop。
     if (skill.kind === 'playbook' && skill.hasPlaybook) {
       let playbook;

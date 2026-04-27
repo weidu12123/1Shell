@@ -7,6 +7,11 @@
  * 由 triggers 驱动，在绑定的 hosts 上周期性或按事件执行 actions。
  * 每个 (program_id, host_id) 组合是一个独立实例，有独立 state。
  *
+ * 三层执行架构：
+ *   L1 — exec 步骤：确定性执行 + verify 判定
+ *   L2 — skill 步骤：Skill 驱动的 AI（type: skill + when 条件）
+ *   L3 — Guardian AI：on_fail=escalate 或 monitors 触发
+ *
  * Schema：
  *   id           (从目录名推导)
  *   name         人类可读名称
@@ -14,14 +19,11 @@
  *   enabled      全局开关（默认 true）
  *   hosts        [hostId] 或 'all' 或 'local'
  *   triggers[]   cron | manual
- *     - id
- *     - type: cron | manual
- *     - schedule: '*\/5 * * * *'   (cron only)
- *     - action: <action_name>
  *   actions{}    { name: { steps: [...], on_fail?: escalate|ignore|stop } }
- *   guardian     — Guardian AI 配置（可选，on_fail: escalate 时使用）
+ *   guardian     — L3 Guardian AI 配置（可选）
+ *   monitors[]   — L3 声明式健康检查（可选）
  *
- * Step 语法复用 playbook-schema（exec / render + verify），不发明新格式。
+ * Step 类型：exec | render | skill
  */
 
 const fs = require('fs');
@@ -99,10 +101,15 @@ function normalizeProgram(doc, id, sourcePath = 'program.yaml') {
     normalizeTrigger(t, idx, seenTriggerIds, actions, sourcePath),
   );
 
-  // guardian 配置（可选）
+  // guardian 配置（可选，L3）
   const guardian = doc.guardian && typeof doc.guardian === 'object'
     ? normalizeGuardian(doc.guardian, sourcePath)
     : { enabled: false, skills: [], max_actions_per_hour: 20 };
+
+  // monitors（可选，L3 声明式触发）
+  const monitors = Array.isArray(doc.monitors)
+    ? doc.monitors.map((m, idx) => normalizeMonitor(m, idx, actions, sourcePath)).filter(Boolean)
+    : [];
 
   return {
     id,
@@ -113,6 +120,7 @@ function normalizeProgram(doc, id, sourcePath = 'program.yaml') {
     triggers,
     actions,
     guardian,
+    monitors,
   };
 }
 
@@ -175,6 +183,56 @@ function normalizeTrigger(raw, idx, seenIds, actions, sourcePath) {
   }
 
   return out;
+}
+
+/**
+ * monitor 格式：
+ *   - id:       唯一标识
+ *   - check:    要执行的 shell 命令
+ *   - expect:   期望结果（exit_code / stdout_contains / stdout_match）
+ *   - interval: cron 表达式，决定检查频率
+ *   - action:   条件不满足时触发的 action 名
+ */
+function normalizeMonitor(raw, idx, actions, sourcePath) {
+  if (!raw || typeof raw !== 'object') return null;
+
+  const id = String(raw.id || '').trim();
+  if (!id) {
+    throw new Error(`${sourcePath}: monitors[${idx}] 缺少 id`);
+  }
+
+  const check = String(raw.check || '').trim();
+  if (!check) {
+    throw new Error(`${sourcePath}: monitors[${idx}] 缺少 check（shell 命令）`);
+  }
+
+  const action = String(raw.action || '').trim();
+  if (!action) {
+    throw new Error(`${sourcePath}: monitors[${idx}] 缺少 action`);
+  }
+  if (!actions[action]) {
+    throw new Error(`${sourcePath}: monitors[${idx}] action "${action}" 未在 actions{} 里定义`);
+  }
+
+  const interval = String(raw.interval || '').trim();
+  if (!interval) {
+    throw new Error(`${sourcePath}: monitors[${idx}] 缺少 interval（cron 表达式）`);
+  }
+  if (!cron.validate(interval)) {
+    throw new Error(`${sourcePath}: monitors[${idx}] interval "${interval}" 不是合法的 cron 表达式`);
+  }
+
+  const expect = {};
+  if (raw.expect && typeof raw.expect === 'object') {
+    if (raw.expect.exit_code != null) expect.exit_code = Number(raw.expect.exit_code);
+    if (raw.expect.stdout_contains) expect.stdout_contains = String(raw.expect.stdout_contains);
+    if (raw.expect.stdout_match) expect.stdout_match = String(raw.expect.stdout_match);
+  }
+  if (Object.keys(expect).length === 0) {
+    expect.exit_code = 0;
+  }
+
+  return { id, check, expect, interval, action };
 }
 
 function normalizeGuardian(raw, sourcePath) {

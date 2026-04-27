@@ -3,27 +3,24 @@
 /**
  * Program Engine — 长驻程序调度与执行
  *
+ * 三层架构：
+ *   L1 — 确定性步骤执行（exec + verify，0 token）
+ *   L2 — Skill 驱动的 AI 步骤（type: skill，约束执行）
+ *        显式触发：程序作者在 steps 中声明 type: skill
+ *        隐式触发：Playbook 的 verify 失败时由 Rescuer 接管（见 rescuer.js）
+ *   L3 — 1Shell AI 全权介入（Guardian）
+ *        被动触发：action.on_fail === 'escalate' 且 L1/L2 步骤失败
+ *        声明触发：program.monitors 定期健康检查不符合预期
+ *
  * 职责：
- *   1. 启动时读 registry，对每个启用的 Program 的每个绑定 host，
- *      按 triggers 注册 cron 定时任务。
- *   2. 接收手动触发，按 trigger 或 action 执行。
- *   3. 每次执行走确定性步骤（bridge exec + verify）；
- *      失败按 action.on_fail 处理（escalate → Guardian AI 介入）。
- *   4. 所有 run 记录到 state service；关键事件通过 io 推送到前端。
- *
- * 并发策略：同一个 (program, host) 实例**不并发**——cron 触发时若实例在跑，
- * 本轮直接 skip，避免积压（这是长驻程序的常规做法）。
- *
- * 事件（io emit）：
- *   program:run-started    { runId, programId, hostId, triggerId, action }
- *   program:step-started   { runId, stepId }
- *   program:step-ended     { runId, stepId, status, durationMs, reason? }
- *   program:render         { runId, programId, hostId, stepId, payload }
- *   program:run-ended      { runId, programId, hostId, status, error? }
+ *   1. 启动时读 registry，按 triggers + monitors 注册 cron 定时任务
+ *   2. 接收手动触发，按 trigger 或 action 执行
+ *   3. 每次执行走 L1 → L2 → L3 梯度
+ *   4. 所有 run 记录到 state service；关键事件通过 io 推送到前端
  */
 
 const cron = require('node-cron');
-const { checkVerify, DEFAULT_STEP_TIMEOUT_MS } = require('../skills/playbook-schema');
+const { checkVerify, checkWhen, DEFAULT_STEP_TIMEOUT_MS } = require('../skills/playbook-schema');
 
 function createProgramEngine({
   registry,
@@ -33,7 +30,8 @@ function createProgramEngine({
   auditService,
   logger,
   io,
-  guardianService,   // 可选，为 null 时 escalate 退化成 stop
+  guardianService,   // L3：可选，为 null 时 escalate 退化成 stop
+  skillStepExecutor, // L2：可选，为 null 时 type: skill 步骤直接报错
 }) {
   // programId → [cron.ScheduledTask]
   const scheduledTasks = new Map();
@@ -66,8 +64,9 @@ function createProgramEngine({
 
   function reload() {
     stop();
-    registry.reload();
+    const result = registry.reload();
     start();
+    return result;
   }
 
   function totalScheduled() {
@@ -91,9 +90,7 @@ function createProgramEngine({
     for (const trigger of program.triggers) {
       if (trigger.type !== 'cron') continue;
 
-      // 每个 (program, host, trigger) 注册一个独立的 cron 任务
       for (const hostId of hostIds) {
-        // 实例级停用的跳过
         if (!stateService.isEnabled(program.id, hostId)) continue;
 
         const task = cron.schedule(trigger.schedule, () => {
@@ -106,6 +103,26 @@ function createProgramEngine({
         }, { scheduled: true, timezone: process.env.TZ });
 
         tasks.push(task);
+      }
+    }
+
+    // ─── L3 monitors：定期健康检查，不满足预期时触发 Guardian ────────
+    if (Array.isArray(program.monitors) && program.monitors.length > 0 && guardianService) {
+      for (const monitor of program.monitors) {
+        for (const hostId of hostIds) {
+          if (!stateService.isEnabled(program.id, hostId)) continue;
+
+          const task = cron.schedule(monitor.interval, () => {
+            runMonitorCheck(program, hostId, monitor)
+              .catch((err) => {
+                logger?.error?.('[program-engine] monitor error', {
+                  programId: program.id, hostId, monitorId: monitor.id, error: err.message,
+                });
+              });
+          }, { scheduled: true, timezone: process.env.TZ });
+
+          tasks.push(task);
+        }
       }
     }
 
@@ -206,6 +223,89 @@ function createProgramEngine({
           stepsCompleted++;
           continue;
         }
+
+        // ─── L2 Skill 步骤 ──────────────────────────────────────────
+        if (step.type === 'skill') {
+          // when 条件判断：不满足则跳过
+          if (step.when && !checkWhen(step.when, runState.stepOutputs)) {
+            io?.emit?.('program:step-ended', { runId, stepId: step.id, status: 'skipped', durationMs: 0, reason: 'when 条件未满足' });
+            stepsCompleted++;
+            continue;
+          }
+
+          if (!skillStepExecutor) {
+            io?.emit?.('program:step-ended', { runId, stepId: step.id, status: 'failed', durationMs: 0, reason: 'L2 Skill Executor 未配置' });
+            if (step.optional) { stepsCompleted++; continue; }
+            status = 'failed';
+            error = `step "${step.id}" 类型为 skill 但 L2 Executor 未配置`;
+            break;
+          }
+
+          const l2Result = await skillStepExecutor.execute({
+            program, hostId, step, stepOutputs: runState.stepOutputs, runId,
+          });
+
+          runState.stepOutputs.set(step.id, l2Result);
+
+          // L2 结果推到「结果」Tab（结果导向）
+          if (l2Result.output || l2Result.summary) {
+            const renderPayload = {
+              format: 'message',
+              title: `L2 Skill · ${step.label || step.id}`,
+              subtitle: l2Result.ok ? '执行成功' : '执行失败',
+              level: l2Result.ok ? 'success' : 'warning',
+              content: l2Result.output || l2Result.summary,
+            };
+            runState.renderPayloads.push({ stepId: step.id, payload: renderPayload });
+            io?.emit?.('program:render', {
+              runId, programId: program.id, hostId, stepId: step.id, payload: renderPayload,
+            });
+          }
+
+          io?.emit?.('program:step-ended', {
+            runId, stepId: step.id,
+            status: l2Result.ok ? 'verified' : (step.optional ? 'skipped' : 'failed'),
+            durationMs: l2Result.durationMs,
+            reason: l2Result.ok ? null : l2Result.summary,
+          });
+
+          if (!l2Result.ok) {
+            if (step.optional) { stepsCompleted++; continue; }
+            if (action.on_fail === 'ignore') { stepsCompleted++; continue; }
+
+            // L2 失败 + escalate → 交给 L3
+            if (action.on_fail === 'escalate' && guardianService) {
+              let outcome;
+              try {
+                outcome = await guardianService.escalate({
+                  program, hostId, failingStep: step,
+                  failureReason: l2Result.summary,
+                  execResult: l2Result, runId, triggerId: trigger.id,
+                });
+              } catch (gErr) {
+                outcome = { ok: false, reason: `Guardian 异常: ${gErr.message}` };
+              }
+              guardianInvocations++;
+              if (outcome?.ok) {
+                try { registry.reload?.(); } catch { /* 静默 */ }
+                stepsCompleted++;
+                continue;
+              }
+              status = 'warning';
+              error = `L2 + L3 均未能修复 step "${step.id}"：${outcome?.reason || '未知原因'}`;
+              break;
+            }
+
+            status = 'failed';
+            error = `step "${step.id}" (skill) 失败：${l2Result.summary}`;
+            break;
+          }
+
+          stepsCompleted++;
+          continue;
+        }
+
+        // ─── L1 exec 步骤（原有逻辑）────────────────────────────────
 
         const result = await execStep(step, hostId);
         runState.stepOutputs.set(step.id, result);
@@ -322,6 +422,63 @@ function createProgramEngine({
       return result;
     } catch (err) {
       return { stdout: '', stderr: err.message, exitCode: 1, durationMs: 0 };
+    }
+  }
+
+  // ─── L3 Monitor 检查 ─────────────────────────────────────────────────
+  async function runMonitorCheck(program, hostId, monitor) {
+    let result;
+    try {
+      result = await bridgeService.execOnHost(hostId, monitor.check, DEFAULT_STEP_TIMEOUT_MS, { source: 'monitor' });
+    } catch (err) {
+      result = { stdout: '', stderr: err.message, exitCode: 1, durationMs: 0 };
+    }
+
+    // 检查是否符合预期
+    const expect = monitor.expect;
+    const stdout = (result.stdout || '').replace(/[\r\n\s]+$/, '');
+    let ok = true;
+
+    if (expect.exit_code != null && result.exitCode !== expect.exit_code) ok = false;
+    if (ok && expect.stdout_contains && !stdout.includes(expect.stdout_contains)) ok = false;
+    if (ok && expect.stdout_match) {
+      try { if (!new RegExp(expect.stdout_match).test(stdout)) ok = false; }
+      catch { ok = false; }
+    }
+
+    if (ok) return; // 一切正常，不触发
+
+    // 预期不满足 → 触发 L3 Guardian
+    logger?.warn?.('[program-engine] monitor triggered', {
+      programId: program.id, hostId, monitorId: monitor.id,
+      exitCode: result.exitCode, stdout: stdout.slice(-200),
+    });
+
+    io?.emit?.('program:monitor-triggered', {
+      programId: program.id, hostId, monitorId: monitor.id,
+      check: monitor.check, exitCode: result.exitCode,
+    });
+
+    const failingStep = {
+      id: `monitor_${monitor.id}`,
+      label: `Monitor: ${monitor.id}`,
+      run: monitor.check,
+    };
+
+    try {
+      await guardianService.escalate({
+        program,
+        hostId,
+        failingStep,
+        failureReason: `Monitor "${monitor.id}" 检查不符合预期`,
+        execResult: result,
+        runId: `monitor_${Date.now().toString(36)}`,
+        triggerId: `monitor:${monitor.id}`,
+      });
+    } catch (err) {
+      logger?.error?.('[program-engine] monitor escalate failed', {
+        programId: program.id, hostId, monitorId: monitor.id, error: err.message,
+      });
     }
   }
 

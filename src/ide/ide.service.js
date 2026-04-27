@@ -38,8 +38,10 @@ SKILL.md 的 description 是触发条件（最重要），Always Read + Common T
 
 ### Program（长驻 / 单次任务）
   data/programs/<id>/program.yaml
-由 triggers(cron/manual) 驱动。cron 用于长驻定时任务，manual 用于一次性任务。
-步骤失败且 on_fail=escalate 时唤醒 L3 Guardian AI 自愈。
+由 triggers(cron/manual) 驱动。三层执行架构：
+  L1 exec 步骤 — 确定性执行（0 token）
+  L2 skill 步骤 — Skill 驱动的 AI，用于 L1 做不到的判断/修复（type: skill + when 条件）
+  L3 Guardian — on_fail=escalate 时兜底 + monitors 定期健康检查触发
 不确定格式时调用 query_format("program")。
 
 ## 工作原则

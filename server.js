@@ -73,6 +73,7 @@ const { createProgramStateService } = require('./src/programs/state.service');
 const { createProgramEngine } = require('./src/programs/engine');
 const { createProgramRouter } = require('./src/routes/program.routes');
 const { createGuardianService } = require('./src/guardian/guardian.service');
+const { createSkillStepExecutor } = require('./src/skills/skill-step-executor');
 const { registerGuardianSocketHandlers } = require('./src/sockets/registerGuardianSocketHandlers');
 const { registerSkillSocketHandlers } = require('./src/sockets/registerSkillSocketHandlers');
 const { registerIdeSocketHandlers } = require('./src/sockets/registerIdeSocketHandlers');
@@ -126,7 +127,7 @@ const mcpService = createMcpService({ bridgeService, hostService, auditService, 
 const siteScanService = createSiteScanService({ bridgeService, hostService });
 const siteDeleteService = createSiteDeleteService({ bridgeService });
 
-// ─── Program Engine (长驻程序) + Guardian AI ───────────────────────────
+// ─── Program Engine (长驻程序) + L2 Skill Executor + L3 Guardian AI ────
 const programRegistry = createProgramRegistry(path.join(dataDir, 'programs'));
 const programStateService = createProgramStateService({ db });
 const guardianService = createGuardianService({
@@ -136,7 +137,16 @@ const guardianService = createGuardianService({
   port: PORT,
   auditService,
   logger: log,
-  skillRegistry: libraryService,  // 用 libraryService 便于 getSkill 兼容 Skill/Playbook
+  skillRegistry: libraryService,
+  io,
+});
+const skillStepExecutor = createSkillStepExecutor({
+  bridgeService,
+  hostService,
+  proxyConfigStore,
+  port: PORT,
+  logger: log,
+  skillRegistry: libraryService,
   io,
 });
 const programEngine = createProgramEngine({
@@ -148,6 +158,7 @@ const programEngine = createProgramEngine({
   logger: log,
   io,
   guardianService,
+  skillStepExecutor,
 });
 
 // ─── IDE Service (自由创作引擎) ─────────────────────────────────────────
@@ -226,7 +237,7 @@ io.use(authService.authenticateSocket);
 registerSessionSocketHandlers(io, { sessionService });
 registerAgentSocketHandlers(io, { agentPtyService, skillRegistry });
 registerSkillSocketHandlers(io, { skillRunner });
-registerGuardianSocketHandlers(io, { guardianService });
+registerGuardianSocketHandlers(io, { guardianService, skillStepExecutor, programRegistry });
 registerIdeSocketHandlers(io, { ideService, ideTools, localMcpService, mcpRegistry });
 
 // ─── 定时任务 ───────────────────────────────────────────────────────────

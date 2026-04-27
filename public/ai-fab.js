@@ -440,4 +440,17 @@
       if (t) respond('custom', t);
     };
   }
+
+  // ── 外部接口：允许其他页面模块预填消息并发送 ──────────────────────
+  window.sendToAiFab = function (message) {
+    if (!panelOpen) {
+      panelOpen = true;
+      panel.classList.add('visible');
+      fabBtn.classList.add('open');
+      fabBtn.innerHTML = '&#10005;';
+    }
+    if (!socket) connectSocket();
+    $input.value = message;
+    setTimeout(() => onSend(), 300);
+  };
 })();

@@ -7,7 +7,7 @@
  * 不经过 AI，零 token 消耗。
  *
  * 当某个 exec step 的 verify 失败时：
- *   - 若注入了 rescuer（L2），移交 Rescuer 决定：重试 / 修补剩余计划 / 放弃
+ *   - 若注入了 rescuer（L2 隐式触发），移交 Rescuer 决定：重试 / 修补剩余计划 / 放弃
  *   - 若没有 Rescuer，直接 fail loudly
  *
  * 对外事件（与现有 runner 保持兼容，前端无感）：

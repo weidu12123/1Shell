@@ -17,6 +17,9 @@
   const activeRuns = new Map();
   // 活跃 Guardian session：sessionId → { programId, hostId, runId }
   const guardianSessions = new Map();
+  // L2 最近一次执行日志（用于 AI 改进）
+  let lastL2Log = [];
+  let lastL2Meta = null;
   // 当前弹窗的 ask：{ sessionId, toolUseId, payload }
   let currentAsk = null;
 
@@ -29,11 +32,11 @@
   const $detailDesc = document.getElementById('detail-desc');
   const $detailTriggers = document.getElementById('detail-triggers');
   const $detailEnabled = document.getElementById('detail-enabled-badge');
-  const $btnEditProgram = document.getElementById('btn-edit-program');
   const $instancesBody = document.getElementById('instances-body');
   const $runsBody = document.getElementById('runs-body');
   const $eventsStream    = document.getElementById('events-stream');
   const $guardianStream  = document.getElementById('guardian-stream');
+  const $l2Stream        = document.getElementById('l2-stream');
   const $resultsStream   = document.getElementById('results-stream');
   const $resultsEmpty    = document.getElementById('results-empty');
   const $resultsHostLabel = document.getElementById('results-host-label');
@@ -102,6 +105,74 @@
         if ($unlimitedLabel) {
           $unlimitedLabel.className = enabled ? 'text-amber-500' : 'text-slate-400';
         }
+      });
+    }
+
+    // ─── L2 不限轮次 ──────────────────────────────────────────
+    const $chkL2Unlimited = document.getElementById('chk-l2-unlimited');
+    const $l2UnlimitedLabel = document.getElementById('l2-unlimited-label');
+    if ($chkL2Unlimited) {
+      socket.emit('l2:get-unlimited-turns', {}, (ack) => {
+        if (ack?.ok) {
+          $chkL2Unlimited.checked = ack.unlimitedTurns;
+          if ($l2UnlimitedLabel) {
+            $l2UnlimitedLabel.className = ack.unlimitedTurns ? 'text-violet-500' : 'text-slate-400';
+          }
+        }
+      });
+      $chkL2Unlimited.addEventListener('change', () => {
+        const enabled = $chkL2Unlimited.checked;
+        socket.emit('l2:set-unlimited-turns', { enabled }, () => {});
+        if ($l2UnlimitedLabel) {
+          $l2UnlimitedLabel.className = enabled ? 'text-violet-500' : 'text-slate-400';
+        }
+      });
+    }
+
+    // ─── L2 AI 改进按钮 ──────────────────────────────────────
+    const $btnL2Improve = document.getElementById('btn-l2-improve');
+    if ($btnL2Improve) {
+      $btnL2Improve.addEventListener('click', () => {
+        if (!lastL2Meta || lastL2Log.length === 0) {
+          alert('还没有 L2 执行记录，请先运行一次 Program。');
+          return;
+        }
+        const execEntries = lastL2Log
+          .filter(e => e.type === 'exec' || e.type === 'exec-result')
+          .map(e => {
+            if (e.type === 'exec') return `→ ${e.command}`;
+            const ok = e.exitCode === 0;
+            return `${ok ? '✓' : '✗'} exit=${e.exitCode} ${e.durationMs}ms${e.stderrSnippet ? ' err:' + e.stderrSnippet : ''}`;
+          })
+          .join('\n');
+
+        // 立即切到 L2 Tab 让用户看到事件流
+        switchTab('l2');
+
+        $btnL2Improve.disabled = true;
+        $btnL2Improve.textContent = '⏳ 改进中...';
+
+        const payload = {
+          programId: lastL2Meta.programId,
+          hostId: 'local',
+          skillId: lastL2Meta.skillId,
+          goal: lastL2Meta.goal,
+          execLog: execEntries || '(无日志)',
+        };
+
+        socket.emit('l2:improve', payload, (ack) => {
+          if (ack && !ack.ok) {
+            alert('改进启动失败: ' + (ack.error || '未知错误'));
+            $btnL2Improve.disabled = false;
+            $btnL2Improve.textContent = '🔧 AI 改进';
+          }
+        });
+
+        // 兜底：30 秒后恢复按钮（无论是否收到回调）
+        setTimeout(() => {
+          $btnL2Improve.disabled = false;
+          $btnL2Improve.textContent = '🔧 AI 改进';
+        }, 30000);
       });
     }
   }
@@ -192,6 +263,49 @@
       });
       // 若 modal 是这个 session 的，自动关
       if (currentAsk && currentAsk.sessionId === msg.sessionId) closeAskModal();
+    });
+
+    // ─── L2 Skill 步骤事件 ──────────────────────────────────────
+    socket.on('program:l2:started', (msg) => {
+      guardianSessions.set(msg.sessionId, { programId: msg.programId, hostId: msg.hostId, runId: msg.runId });
+      pushL2({
+        type: 'l2-started', sessionId: msg.sessionId,
+        programId: msg.programId, stepId: msg.stepId,
+        skillId: msg.skillId, goal: msg.goal,
+      });
+    });
+    socket.on('program:l2:thinking', (msg) => {
+      pushL2({ type: 'l2-thinking', sessionId: msg.sessionId, turn: msg.turn });
+    });
+    socket.on('program:l2:exec', (msg) => {
+      pushL2({ type: 'exec', sessionId: msg.sessionId, command: msg.command });
+    });
+    socket.on('program:l2:exec-result', (msg) => {
+      pushL2({
+        type: 'exec-result', sessionId: msg.sessionId,
+        exitCode: msg.exitCode, durationMs: msg.durationMs,
+        stderrSnippet: (msg.stderr || '').trimEnd().slice(-160),
+        stdoutSnippet: (msg.stdout || '').trimEnd().slice(-160),
+      });
+    });
+    socket.on('program:l2:info', (msg) => {
+      pushL2({ type: 'info', sessionId: msg.sessionId, message: msg.message });
+    });
+    socket.on('program:l2:ended', (msg) => {
+      guardianSessions.delete(msg.sessionId);
+      pushL2({
+        type: 'l2-ended', sessionId: msg.sessionId,
+        stepId: msg.stepId, ok: msg.ok, summary: msg.summary, durationMs: msg.durationMs,
+      });
+    });
+
+    // ─── L3 Monitor 触发事件 ────────────────────────────────────
+    socket.on('program:monitor-triggered', (msg) => {
+      pushGuardian({
+        type: 'monitor-triggered',
+        programId: msg.programId, hostId: msg.hostId,
+        monitorId: msg.monitorId, check: msg.check,
+      });
     });
   }
 
@@ -341,13 +455,6 @@
     $detailDesc.textContent = p.description || '';
     $detailEnabled.className = 'badge ' + (p.enabled ? 'badge-ok' : 'badge-idle');
     $detailEnabled.textContent = p.enabled ? '已启用' : '未启用';
-
-    // 改进按钮：跳到创作台，预选该 Program
-    if ($btnEditProgram) {
-      $btnEditProgram.onclick = () => {
-        window.location.href = `skill-studio.html?mode=refine&target=${encodeURIComponent(p.id)}&kind=program`;
-      };
-    }
 
     $detailTriggers.innerHTML = (p.triggers || []).map((t) => {
       const colorCls = t.type === 'cron' ? 'badge-ok' : 'badge-idle';
@@ -575,6 +682,7 @@
     document.getElementById('panel-results').classList.toggle('hidden', tab !== 'results');
     document.getElementById('panel-runs').classList.toggle('hidden', tab !== 'runs');
     document.getElementById('panel-events').classList.toggle('hidden', tab !== 'events');
+    document.getElementById('panel-l2').classList.toggle('hidden', tab !== 'l2');
     document.getElementById('panel-guardian').classList.toggle('hidden', tab !== 'guardian');
     if (tab === 'runs') refreshRuns().catch(() => {});
   }
@@ -596,6 +704,9 @@
     if (ev.type === 'session-started') {
       icon = '🛡'; colorCls = 'text-amber-500';
       msg = `Guardian 唤起 · ${ev.sessionId.slice(0, 16)} · step=${ev.stepId} · skills=[${ev.allowedSkills}]`;
+    } else if (ev.type === 'monitor-triggered') {
+      icon = '📡'; colorCls = 'text-orange-500';
+      msg = `Monitor 触发 · ${ev.monitorId} · program=${ev.programId} · host=${ev.hostId}`;
     } else if (ev.type === 'thinking') {
       icon = '💭'; colorCls = 'text-slate-400';
       msg = `思考 · 第 ${ev.turn} 轮`;
@@ -640,6 +751,63 @@
     $guardianStream.prepend(row);
 
     while ($guardianStream.children.length > 200) $guardianStream.removeChild($guardianStream.lastChild);
+  }
+
+  // ─── L2 Skill 事件流 ────────────────────────────────────────────────
+  function pushL2(ev) {
+    // 收集日志用于 AI 改进
+    if (ev.type === 'l2-started') {
+      lastL2Log = [];
+      lastL2Meta = { programId: ev.programId, stepId: ev.stepId, skillId: ev.skillId, goal: ev.goal };
+    }
+    lastL2Log.push({ ...ev, ts: new Date().toLocaleTimeString('zh-CN', { hour12: false }) });
+
+    if (activeProgramId) {
+      const ses = guardianSessions.get(ev.sessionId);
+      if (ses && ses.programId !== activeProgramId) return;
+    }
+    const empty = $l2Stream.querySelector('.text-center');
+    if (empty) $l2Stream.innerHTML = '';
+
+    const ts = new Date().toLocaleTimeString('zh-CN', { hour12: false });
+    let icon = '·', colorCls = 'text-violet-500';
+    let msg = '';
+
+    if (ev.type === 'l2-started') {
+      icon = '⚡'; colorCls = 'text-violet-500';
+      msg = `Skill 步骤启动 · step=${ev.stepId} · skill=${ev.skillId} · ${ev.goal}`;
+    } else if (ev.type === 'l2-thinking') {
+      icon = '💭'; colorCls = 'text-violet-400';
+      msg = `思考 · 第 ${ev.turn} 轮`;
+    } else if (ev.type === 'exec') {
+      icon = '→'; colorCls = 'text-blue-500';
+      msg = `exec: ${ev.command}`;
+    } else if (ev.type === 'exec-result') {
+      const ok = ev.exitCode === 0;
+      icon = ok ? '✓' : '✗';
+      colorCls = ok ? 'text-emerald-500' : 'text-red-500';
+      msg = `exit=${ev.exitCode} · ${ev.durationMs}ms` +
+        (ev.stderrSnippet ? ` · err: ${ev.stderrSnippet}` : '') +
+        (ok && ev.stdoutSnippet ? ` · out: ${ev.stdoutSnippet}` : '');
+    } else if (ev.type === 'info') {
+      icon = 'ℹ'; colorCls = 'text-slate-500';
+      msg = ev.message;
+    } else if (ev.type === 'l2-ended') {
+      icon = ev.ok ? '●' : '■';
+      colorCls = ev.ok ? 'text-emerald-500' : 'text-red-500';
+      msg = `结束 · ${ev.ok ? '成功' : '失败'} — ${ev.summary} · ${ev.durationMs}ms`;
+    }
+
+    const row = document.createElement('div');
+    row.className = 'event-row pulse';
+    row.innerHTML = `
+      <span class="text-[10px] text-slate-400 shrink-0 font-mono">${escapeHtml(ts)}</span>
+      <span class="${colorCls} shrink-0">${icon}</span>
+      <span class="flex-1 break-all">${escapeHtml(msg)}</span>
+    `;
+    $l2Stream.prepend(row);
+
+    while ($l2Stream.children.length > 200) $l2Stream.removeChild($l2Stream.lastChild);
   }
 
   // ─── Guardian ask modal ─────────────────────────────────────────────

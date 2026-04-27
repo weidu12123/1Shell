@@ -1,11 +1,14 @@
 'use strict';
 
 /**
- * Guardian AI — Program 异常守护者
+ * Guardian AI — L3 全权 AI 介入
  *
- * 当 Program 的 step 失败且 action.on_fail === 'escalate' 时被唤起。
- * 与 L2 Rescuer（针对 Skill/Playbook 的一次性救援）不同，Guardian 是
- * **长驻程序的自愈逻辑**：目标是让 Program 持续稳定运行。
+ * 三层架构的最高层级。两种触发方式：
+ *   1. 被动触发：Program step 失败 + action.on_fail === 'escalate'
+ *   2. 声明触发：program.monitors 定期检查不符合预期时由 engine 调用
+ *
+ * 与 L2（Skill 驱动的约束 AI）不同，Guardian 是
+ * **全权代理**：拥有完整的诊断/修复/ask_user 能力。
  *
  * 能力：
  *   - 读取 program.guardian.skills 白名单里的 Skill 能力包（rules + workflows + SKILL.md）

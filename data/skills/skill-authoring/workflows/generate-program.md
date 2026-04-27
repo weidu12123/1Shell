@@ -21,10 +21,34 @@
 - **作用域**：一台主机 / 多台 / 所有已托管主机 → `hosts: all` 或 `[id1, id2]`
 - **步骤**：每次触发要干嘛？通常 2-5 个 step
 - **失败处理**：生产 Program **必须** `on_fail: escalate`，`on_fail: stop` 只用于开发测试
+- **L2 判断**：是否有步骤需要 AI 判断力？（见下方 L2 决策规则）
+- **L3 监控**：是否需要独立于 triggers 的健康检查？（如服务存活）
 
 **命令选取**：只用 `program-authoring/rules/constraints.md` 里的可靠命令库（禁用 `top`、`vmstat`、`netstat`）。
 
-探测：如需针对远端 VPS，可用 `execute_command` 带 `host_id` 做 2-3 条**只读**探测。
+### L2 决策规则：何时用 `type: skill` 步骤
+
+当一个步骤满足以下任一条件时，用 `type: skill` 而非 `type: exec`：
+- **需要根据上下文做判断**：如"磁盘满了，决定删什么"
+- **有多条修复路径**：如"服务挂了，可能是配置错 / OOM / 端口冲突"
+- **操作超出单条命令**：需要多轮诊断-执行-验证
+- **需要适配不同环境**：同一步骤在不同主机上可能需要不同操作
+
+必须配合 `when` 条件使用：先用 L1 exec 步骤检测状态，`when` 判断异常时才触发 L2，避免无谓的 token 消耗。
+
+**重要：Skill 必须先存在。** `skill` 字段引用的 Skill ID 必须在 `data/skills/` 下存在。
+若不存在，必须**先用 `write_file` 创建 Skill**（至少包含 SKILL.md + workflows/），然后 `reload_registry`，再写 program.yaml。
+创建 Skill 时走 `workflows/generate-skill.md` 的标准流程。
+
+### L3 决策规则：何时加 monitors
+
+当程序需要在 **action 之外** 独立监控某个关键状态时加 monitors：
+- 关键服务存活（nginx、MySQL、Redis、Docker）
+- 端口可达性
+- 证书过期检查
+- 日志异常 pattern
+
+monitors 与 triggers 独立运行：triggers 按时间执行 action，monitors 按时间检查健康状态。
 
 ## 第二步：展示方案
 
@@ -56,6 +80,7 @@ actions:
   <action_name>:
     on_fail: escalate    # 生产程序必须 escalate，禁止 stop
     steps:
+      # L1 exec 步骤（确定性，0 token）
       - id: <step_id>    # snake_case，字母开头
         label: <中文标签>
         run: <来自 program-authoring/rules/constraints.md 可靠命令库的命令>
@@ -65,10 +90,20 @@ actions:
         capture_stdout: true
         on_error_hint: <给 Guardian 的中文修复提示>
 
+      # L2 skill 步骤（AI 约束执行，按需加）
+      - id: <step_id>
+        type: skill
+        label: <中文标签>
+        skill: <skill-id>     # 必须是 data/skills/ 下已有的 Skill
+        goal: <一句话描述 AI 要完成什么>
+        when:                  # 强烈建议加 when，避免无谓 token 消耗
+          step: <前置步骤 id>
+          stdout_match: <匹配异常的正则>
+
       # 最后加 render step，手动触发时展示结果
       - id: render_result
         type: render
-        format: keyvalue   # 多行列表用 table，单对象详情用 keyvalue
+        format: keyvalue
         title: <标题>
         level: info
         items_from_steps:
@@ -76,8 +111,16 @@ actions:
             value_from: <step_id>
             suffix: "%"
 
+# L3 monitors（独立健康检查，按需加）
+monitors:
+  - id: <snake_case_id>
+    check: <shell 命令>
+    expect: { exit_code: 0 }   # 或 stdout_contains / stdout_match
+    interval: "*/5 * * * *"
+    action: <action_name>
+
 guardian:
-  skills: []           # 填 Rescue Skill id，无则留空（禁止写 guardian.enabled 字段）
+  skills: []           # 填 Rescue Skill id，无则留空
   max_actions_per_hour: 10
 ```
 
@@ -107,9 +150,14 @@ Program「<name>」创建成功
 
 ## 常见错误（写完自检）
 
+- [ ] ❌ action 没有 render step 结尾（**必须有**，结果导向）
 - [ ] ❌ `on_fail: stop` 用于生产监控（必须 `escalate`）
 - [ ] ❌ 用了 `top`、`vmstat`、`netstat`（用 `/proc/stat`、`/proc/meminfo`、`ss`）
 - [ ] ❌ 写了 `guardian.enabled` 字段（引擎不读）
 - [ ] ❌ `enabled: true`（默认 false）
 - [ ] ❌ verify 只写 `exit_code: 0` 没有 `stdout_match`
 - [ ] ❌ step id 含连字符或从数字开头
+- [ ] ❌ `type: skill` 步骤没有 `goal` 字段
+- [ ] ❌ `type: skill` 步骤没有 `when` 条件（浪费 token）
+- [ ] ❌ `type: skill` 引用了不存在的 Skill ID
+- [ ] ❌ monitor 的 `action` 引用了不存在的 action 名

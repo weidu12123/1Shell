@@ -11,11 +11,20 @@ const path = require('path');
 const { loadProgram } = require('./program-schema');
 
 function createProgramRegistry(programsDir) {
-  let programs = scan(programsDir);
-  let programMap = new Map(programs.map((p) => [p.id, p]));
+  let programs = [];
+  let programMap = new Map();
+  let lastErrors = [];
+
+  function doScan() {
+    const result = scan(programsDir);
+    programs = result.programs;
+    programMap = new Map(programs.map((p) => [p.id, p]));
+    lastErrors = result.errors;
+  }
+
+  doScan();
 
   function list() {
-    // 脱敏：不输出内部运行态，只输出 yaml 定义
     return programs.map((p) => ({ ...p, dir: undefined }));
   }
 
@@ -24,22 +33,26 @@ function createProgramRegistry(programsDir) {
   }
 
   function reload() {
-    programs = scan(programsDir);
-    programMap = new Map(programs.map((p) => [p.id, p]));
-    return programs.length;
+    doScan();
+    return { count: programs.length, errors: lastErrors };
   }
 
-  return { list, get, reload };
+  function getLastErrors() {
+    return lastErrors;
+  }
+
+  return { list, get, reload, getLastErrors };
 }
 
 function scan(programsDir) {
   if (!fs.existsSync(programsDir)) {
     fs.mkdirSync(programsDir, { recursive: true });
-    return [];
+    return { programs: [], errors: [] };
   }
 
   const entries = fs.readdirSync(programsDir, { withFileTypes: true });
   const programs = [];
+  const errors = [];
 
   for (const entry of entries) {
     if (!entry.isDirectory()) continue;
@@ -54,11 +67,13 @@ function scan(programsDir) {
         programs.push(program);
       }
     } catch (err) {
-      console.warn(`[program-registry] 跳过 ${entry.name}：${err.message}`);
+      const msg = `${entry.name}: ${err.message}`;
+      console.warn(`[program-registry] 跳过 ${msg}`);
+      errors.push(msg);
     }
   }
 
-  return programs;
+  return { programs, errors };
 }
 
 module.exports = { createProgramRegistry };

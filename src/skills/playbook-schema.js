@@ -5,11 +5,12 @@
  *
  * 设计目标：让 Skill 的"执行流"从自然语言工作流（workflows/*.md）转为
  * 结构化步骤列表，从而支持 L1 确定性执行器直跑（0 token），
- * 仅在某步失败时由 L2 Rescuer 介入修复。
+ * 仅在某步失败时由 L2 Skill AI 介入修复。
  *
- * 两种 step 类型：
+ * 三种 step 类型：
  *   - exec   : 在目标主机执行一条 shell 命令，带 verify 判定
  *   - render : 组装前面 step 的输出，直接调 render_result 推给前端（不过 AI）
+ *   - skill  : 调用指定 Skill 的 AI 能力，用于 L1 做不到的复杂判断/操作
  *
  * Schema 最小必要字段：
  *   goal       : 任务目标（一句话，Rescuer 介入时会读到）
@@ -128,8 +129,9 @@ function normalizeStep(step, idx, seenIds, sourcePath) {
 
   if (type === 'exec') return normalizeExecStep(step, id, idx, sourcePath);
   if (type === 'render') return normalizeRenderStep(step, id, idx, sourcePath);
+  if (type === 'skill') return normalizeSkillStep(step, id, idx, sourcePath);
 
-  throw new Error(`${sourcePath}: steps[${idx}] 未知 type "${type}"（支持 exec | render）`);
+  throw new Error(`${sourcePath}: steps[${idx}] 未知 type "${type}"（支持 exec | render | skill）`);
 }
 
 function normalizeExecStep(step, id, idx, sourcePath) {
@@ -214,6 +216,69 @@ function normalizeRenderStep(step, id, idx, sourcePath) {
   return out;
 }
 
+function normalizeSkillStep(step, id, idx, sourcePath) {
+  const skill = String(step.skill || '').trim();
+  if (!skill) {
+    throw new Error(`${sourcePath}: steps[${idx}](${id}) 类型为 skill，必须有 skill 字段指定 Skill ID`);
+  }
+  if (!/^[a-z0-9][a-z0-9-]*$/.test(skill)) {
+    throw new Error(`${sourcePath}: steps[${idx}](${id}) skill "${skill}" 不合法（必须 kebab-case）`);
+  }
+
+  const goal = String(step.goal || '').trim();
+  if (!goal) {
+    throw new Error(`${sourcePath}: steps[${idx}](${id}) 类型为 skill，必须有 goal 字段描述 AI 的任务目标`);
+  }
+
+  return {
+    id,
+    type: 'skill',
+    label: String(step.label || id),
+    skill,
+    goal,
+    when: normalizeWhen(step.when),
+    on_error_hint: step.on_error_hint ? String(step.on_error_hint) : '',
+    optional: step.optional === true || step.optional === 'true',
+    capture_stdout: step.capture_stdout !== false,
+  };
+}
+
+function normalizeWhen(w) {
+  if (!w || typeof w !== 'object') return null;
+  const step = String(w.step || '').trim();
+  if (!step) return null;
+
+  const out = { step };
+  if (w.exit_code != null) out.exit_code = Number(w.exit_code);
+  if (w.exit_code_not != null) out.exit_code_not = Number(w.exit_code_not);
+  if (w.stdout_contains) out.stdout_contains = String(w.stdout_contains);
+  if (w.stdout_match) out.stdout_match = String(w.stdout_match);
+  return out;
+}
+
+/**
+ * 根据 when 条件判断是否应执行该步骤。
+ * 所有条件 AND 关系；when 为 null 时总是执行。
+ * @param {object|null} when - normalizeWhen 的输出
+ * @param {Map} stepOutputs  - stepId → { stdout, stderr, exitCode, durationMs }
+ * @returns {boolean}
+ */
+function checkWhen(when, stepOutputs) {
+  if (!when) return true;
+  const ref = stepOutputs.get(when.step);
+  if (!ref) return false;
+
+  if (when.exit_code != null && ref.exitCode !== when.exit_code) return false;
+  if (when.exit_code_not != null && ref.exitCode === when.exit_code_not) return false;
+  if (when.stdout_contains && !(ref.stdout || '').includes(when.stdout_contains)) return false;
+  if (when.stdout_match) {
+    try {
+      if (!new RegExp(when.stdout_match).test((ref.stdout || '').replace(/[\r\n\s]+$/, ''))) return false;
+    } catch { return false; }
+  }
+  return true;
+}
+
 function normalizeVerify(v) {
   // 缺省：只看 exit code === 0
   if (!v || typeof v !== 'object') return { exit_code: 0 };
@@ -279,6 +344,7 @@ module.exports = {
   normalizePlaybook,
   normalizeStep,          // 供 Program Engine 复用（Program 的 step 语法与 Playbook 一致）
   checkVerify,
+  checkWhen,
   DEFAULT_BUDGET,
   DEFAULT_STEP_TIMEOUT_MS,
 };
