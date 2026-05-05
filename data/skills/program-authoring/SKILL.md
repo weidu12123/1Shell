@@ -45,3 +45,4 @@ inputs:
 3. `guardian.enabled` 字段引擎**未实现** → 不要写
 4. `verify` 只写 `exit_code: 0` = 没有验证 → 必须加 `stdout_match`
 5. 写完不要把 `enabled` 改成 `true`，让用户在 UI 里按实例启用
+6. 多 action 程序**必须**加 `ui.instance_actions`，否则用户只看到默认"触发"按钮

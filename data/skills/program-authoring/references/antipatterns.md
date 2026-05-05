@@ -49,15 +49,16 @@ actions:
 ```yaml
 # 错误
 guardian:
-  enabled: false    # 这个字段在引擎中未实现，写了也没用
+  enabled: true     # 这个字段在引擎中未实现，写了也没用
   skills: []
 ```
 
 **后果**：`guardian.enabled` 是死字段，引擎只看全局 guardianService 是否存在，
-不读 per-program 的 `enabled`。写了给用户造成"Guardian 已关闭"的错误预期。
+不读 per-program 的 `enabled`。写了给用户造成"Guardian 已关闭/开启"的错误预期。
+无论写 `true` 还是 `false` 都不生效——这个字段**不应该出现**。
 
 ```yaml
-# 正确
+# 正确（完全不写 enabled 字段）
 guardian:
   skills: []           # 只写 skills 和 max_actions_per_hour
   max_actions_per_hour: 10

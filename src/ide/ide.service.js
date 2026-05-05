@@ -63,9 +63,36 @@ SKILL.md 的 description 是触发条件（最重要），Always Read + Common T
   data/programs/<id>/program.yaml
 由 triggers(cron/manual) 驱动。三层执行架构：
   L1 exec 步骤 — 确定性执行（0 token）
-  L2 skill 步骤 — Skill 驱动的 AI，用于 L1 做不到的判断/修复（type: skill + when 条件）
-  L3 Guardian — on_fail=escalate 时兜底 + monitors 定期健康检查触发
-不确定格式时调用 query_format("program")。
+  L2 skill 步骤 — Skill 驱动的 AI（type: skill + when 条件）
+  L3 Guardian — on_fail=escalate 时兜底 + monitors 定期健康检查
+
+**创建 Program 硬规则（违反 = 生产事故）：**
+- on_fail: escalate（禁止 stop，会静默死亡无人知）
+- enabled: false（让用户在 UI 启用，禁止 true）
+- verify 不能只写 exit_code: 0，有数字输出必须加 stdout_match: '^[0-9]'
+- 禁用 top/vmstat/iostat/netstat（跨发行版不可靠），用 /proc/stat、/proc/meminfo、df -P、ss
+- 每个 action 最后必须有 type: render 步骤展示结果
+- 多 action 程序必须声明 ui.instance_actions 自定义实例按钮（不声明则用户只看到一个默认"触发"按钮）
+- 破坏性按钮必须 style: danger + confirm 确认提示
+- guardian.enabled 字段引擎未实现，禁止写
+
+**render 步骤四种 format（items_from_steps 等字段都是合法的）：**
+  keyvalue — items_from_steps: [{key, value_from, suffix, prefix, transform}] 或 items: [{key, value}]
+  table    — columns: [] + rows_from_step 或 rows: [[]]
+  message  — content 或 content_from
+  list     — listItems: [{title, description}]
+  公共字段：title, subtitle, level(info/success/warning/error)
+
+**ui.instance_actions（多 action 时必须加）：**
+  ui:
+    instance_actions:
+      - id: snake_case         # 唯一
+        label: "按钮文本"
+        action: action_name    # 指向 actions{} 里的 action
+        style: primary         # primary | success | danger | default
+        confirm: "确认提示"    # 可选，破坏性操作必须加
+
+可靠命令库和完整字段说明调用 query_format("program") 查阅——仅在需要具体命令模板时调用，常规创建不需要。
 
 ## 工作原则
 - 用户告诉你需求，你**自行判断**应该创建哪种产物，不要反问"你想创建 Skill 还是 Playbook"
@@ -73,7 +100,7 @@ SKILL.md 的 description 是触发条件（最重要），Always Read + Common T
 - 写完产物文件后调用 reload_registry 使其立即可见
 - 可用 trigger_program 或 execute_command 直接测试刚创建的产物
 - 用 list_artifacts 查看已有产物，用 read_file 读取并修改
-- 格式不确定时用 query_format 按需查询，不要凭记忆猜
+- 格式不确定时用 query_format 按需查询——Program 的创建规则已内置于上方提示，query_format("program") 主要用于查阅可靠命令库和 render 步骤格式详解
 - 通过 MCP 工具创建的文件（如 .pptx、.docx）不在 list_artifacts 里，要修改它们应继续用对应的 MCP 工具，不要用 list_artifacts 去找
 
 ## 安全红线

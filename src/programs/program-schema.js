@@ -111,6 +111,11 @@ function normalizeProgram(doc, id, sourcePath = 'program.yaml') {
     ? doc.monitors.map((m, idx) => normalizeMonitor(m, idx, actions, sourcePath)).filter(Boolean)
     : [];
 
+  // ui 配置（可选，自定义实例界面按钮等）
+  const ui = doc.ui && typeof doc.ui === 'object'
+    ? normalizeUi(doc.ui, actions, sourcePath)
+    : null;
+
   return {
     id,
     name,
@@ -121,6 +126,7 @@ function normalizeProgram(doc, id, sourcePath = 'program.yaml') {
     actions,
     guardian,
     monitors,
+    ui,
   };
 }
 
@@ -243,6 +249,37 @@ function normalizeGuardian(raw, sourcePath) {
     ? Math.min(maxPerHour, 1000)
     : 20;
   return { enabled, skills, max_actions_per_hour };
+}
+
+function normalizeUi(raw, actions, sourcePath) {
+  const result = {};
+
+  if (Array.isArray(raw.instance_actions) && raw.instance_actions.length > 0) {
+    const seenIds = new Set();
+    result.instance_actions = raw.instance_actions.map((item, idx) => {
+      if (!item || typeof item !== 'object') {
+        throw new Error(`${sourcePath}: ui.instance_actions[${idx}] 必须是对象`);
+      }
+      const id = String(item.id || '').trim();
+      if (!id) throw new Error(`${sourcePath}: ui.instance_actions[${idx}] 缺少 id`);
+      if (seenIds.has(id)) throw new Error(`${sourcePath}: ui.instance_actions[${idx}] id "${id}" 重复`);
+      seenIds.add(id);
+
+      const label = String(item.label || id).trim();
+      const action = String(item.action || '').trim();
+      if (!action) throw new Error(`${sourcePath}: ui.instance_actions[${idx}] 缺少 action`);
+      if (!actions[action]) {
+        throw new Error(`${sourcePath}: ui.instance_actions[${idx}] action "${action}" 未在 actions{} 里定义`);
+      }
+
+      const style = ['primary', 'success', 'danger', 'default'].includes(item.style) ? item.style : 'default';
+      const confirm = item.confirm ? String(item.confirm) : null;
+
+      return { id, label, action, style, confirm };
+    });
+  }
+
+  return Object.keys(result).length > 0 ? result : null;
 }
 
 module.exports = { loadProgram, normalizeProgram };

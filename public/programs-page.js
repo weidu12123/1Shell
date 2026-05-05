@@ -496,6 +496,8 @@
       return;
     }
 
+    const customActions = p.ui?.instance_actions;
+
     $instancesBody.innerHTML = rows.map((inst) => {
       const host = hosts.find((h) => h.id === inst.host_id);
       const hostName = host ? host.name : inst.host_id;
@@ -507,6 +509,16 @@
       const enableBtn = enabled
         ? `<button class="act-btn act-btn-danger btn-disable" data-hid="${escapeHtml(inst.host_id)}">停用</button>`
         : `<button class="act-btn act-btn-success btn-enable" data-hid="${escapeHtml(inst.host_id)}">启用</button>`;
+
+      const styleCls = { primary: 'act-btn-primary', success: 'act-btn-success', danger: 'act-btn-danger', default: 'act-btn-default' };
+      const actionBtns = customActions
+        ? customActions.map((a) => {
+            const cls = styleCls[a.style] || 'act-btn-default';
+            const disabledAttr = isActive ? ' disabled style="opacity:.5;cursor:not-allowed"' : '';
+            return `<button class="act-btn ${cls} btn-custom-action" data-hid="${escapeHtml(inst.host_id)}" data-action="${escapeHtml(a.action)}" data-confirm="${escapeHtml(a.confirm || '')}"${disabledAttr}>${escapeHtml(a.label)}</button>`;
+          }).join('')
+        : `<button class="act-btn act-btn-primary btn-trigger" data-hid="${escapeHtml(inst.host_id)}" ${isActive ? 'disabled style="opacity:.5;cursor:not-allowed"' : ''}>&#9654; 触发</button>`;
+
       return `
         <tr>
           <td><span class="font-semibold">${escapeHtml(hostName)}</span> <span class="text-[10px] text-slate-400">${escapeHtml(inst.host_id)}</span></td>
@@ -515,7 +527,7 @@
           <td class="text-[10px] text-slate-500 dark:text-slate-400">${escapeHtml(inst.last_run_at || '—')}</td>
           <td class="text-[10px] text-slate-500 dark:text-slate-400">${escapeHtml(inst.last_trigger_id || '—')}</td>
           <td class="text-right">
-            <button class="act-btn act-btn-primary btn-trigger" data-hid="${escapeHtml(inst.host_id)}" ${isActive ? 'disabled style="opacity:.5;cursor:not-allowed"' : ''}>&#9654; 触发</button>
+            ${actionBtns}
             ${enableBtn}
           </td>
         </tr>
@@ -524,6 +536,13 @@
 
     $instancesBody.querySelectorAll('.btn-trigger').forEach((btn) => {
       btn.addEventListener('click', () => triggerInstance(p.id, btn.dataset.hid));
+    });
+    $instancesBody.querySelectorAll('.btn-custom-action').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const confirmMsg = btn.dataset.confirm;
+        if (confirmMsg && !confirm(confirmMsg)) return;
+        triggerInstance(p.id, btn.dataset.hid, btn.dataset.action);
+      });
     });
     $instancesBody.querySelectorAll('.btn-enable').forEach((btn) => {
       btn.addEventListener('click', () => toggleInstance(p.id, btn.dataset.hid, true));
@@ -543,11 +562,13 @@
     return `<span class="badge badge-idle">${escapeHtml(status)}</span>`;
   }
 
-  async function triggerInstance(programId, hostId) {
+  async function triggerInstance(programId, hostId, actionName) {
     try {
+      const body = { hostId };
+      if (actionName) body.actionName = actionName;
       const res = await requestJson(`/api/programs/${encodeURIComponent(programId)}/trigger`, {
         method: 'POST',
-        body: JSON.stringify({ hostId }),
+        body: JSON.stringify(body),
       });
       showToast(`已触发（run #${(res.runIds || []).join(', ')}）`, 'success');
     } catch (err) { showErrorMessage(err); }

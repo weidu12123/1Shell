@@ -72,3 +72,51 @@ guardian:
 2. **不要改 `enabled`** — 启用/停用让用户在 UI 里操作
 3. **新增 step 必须加 `on_error_hint`** — Guardian 介入时会读
 4. **容器名确认** — 添加 Docker 相关 step 前先 `execute_command` 验证容器名
+
+---
+
+## 添加自定义实例按钮
+
+```yaml
+# 原来没有 ui 字段（前端显示默认"触发"按钮）
+
+# 改后（在 guardian 之后追加）
+ui:
+  instance_actions:
+    - id: check_now
+      label: "▶ 立即检查"
+      action: health_check
+      style: primary
+    - id: restart_svc
+      label: "⚠ 重启服务"
+      action: restart_service
+      style: danger
+      confirm: "确认要在此主机上重启服务吗？"
+```
+
+---
+
+## 给已有按钮追加新按钮
+
+```yaml
+# 原来
+ui:
+  instance_actions:
+    - id: check_now
+      label: "▶ 立即检查"
+      action: health_check
+      style: primary
+
+# 改后（追加，不替换原有按钮）
+ui:
+  instance_actions:
+    - id: check_now
+      label: "▶ 立即检查"
+      action: health_check
+      style: primary
+    - id: cleanup_logs
+      label: "🧹 清理日志"
+      action: log_cleanup
+      style: danger
+      confirm: "确认要清理日志吗？这将删除 7 天前的日志文件"
+```

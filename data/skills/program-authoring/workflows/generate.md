@@ -13,6 +13,7 @@
 - **触发方式**：cron 间隔（每分钟 / 每 5 分钟 / …）+ 是否需要手动触发
 - **目标主机**：指定 hostId 列表，还是 `all`
 - **告警阈值**（如有）：超过多少算异常
+- **操作种类**：只需一个默认"触发"按钮，还是需要多种操作入口（如检查 + 重启 + 清理）→ 决定是否加 `ui.instance_actions`
 
 如信息不足，用 `ask_user type=input` 询问，不要假设。
 
@@ -83,6 +84,20 @@ actions:
 guardian:
   skills: []            # 填写 Rescue Skill ID，无则留空
   max_actions_per_hour: 10
+
+# ui：自定义实例按钮（程序有多个 action 时必须加）
+# 不加 ui 则前端显示默认"触发"按钮（仅触发第一个 manual trigger 的 action）
+ui:
+  instance_actions:
+    - id: <snake_case>
+      label: <按钮文本>
+      action: <action_name>       # 必须指向 actions{} 里的 action
+      style: primary              # primary | success | danger | default
+    - id: <snake_case>
+      label: <按钮文本>
+      action: <另一个 action>
+      style: danger
+      confirm: <确认提示文本>     # 破坏性操作必须加
 ```
 
 ### 自检清单（写完后逐项检查）
@@ -95,6 +110,8 @@ guardian:
 - [ ] 有 manual trigger
 - [ ] step id 全部 snake_case（无连字符，无数字开头）
 - [ ] 有 `on_error_hint`（至少关键步骤）
+- [ ] 多 action 程序有 `ui.instance_actions`（否则用户只能看到默认"触发"按钮）
+- [ ] `ui.instance_actions` 中破坏性操作有 `style: danger` + `confirm`
 
 ---
 

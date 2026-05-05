@@ -21,6 +21,7 @@
 - **作用域**：一台主机 / 多台 / 所有已托管主机 → `hosts: all` 或 `[id1, id2]`
 - **步骤**：每次触发要干嘛？通常 2-5 个 step
 - **失败处理**：生产 Program **必须** `on_fail: escalate`，`on_fail: stop` 只用于开发测试
+- **操作种类**：程序有多种操作（检查 / 重启 / 清理）→ 需要 `ui.instance_actions` 自定义按钮
 - **L2 判断**：是否有步骤需要 AI 判断力？（见下方 L2 决策规则）
 - **L3 监控**：是否需要独立于 triggers 的健康检查？（如服务存活）
 
@@ -49,6 +50,14 @@
 - 日志异常 pattern
 
 monitors 与 triggers 独立运行：triggers 按时间执行 action，monitors 按时间检查健康状态。
+
+### UI 决策规则：何时加 `ui.instance_actions`
+
+当程序有 **≥2 个 action** 或需要给用户提供不同操作入口时：
+- **必须声明 `ui.instance_actions`**，为每个用户可触发的 action 配置一个按钮
+- 不加 `ui` 时前端只显示一个默认"触发"按钮，无法区分不同操作
+- 破坏性操作（重启、删除、清理）**必须** `style: danger` + `confirm` 确认提示
+- 只有 1 个 action 且默认按钮够用时可以不加
 
 ## 第二步：展示方案
 
@@ -122,6 +131,19 @@ monitors:
 guardian:
   skills: []           # 填 Rescue Skill id，无则留空
   max_actions_per_hour: 10
+
+# ui（多 action 程序必须加，单 action 可选）
+ui:
+  instance_actions:
+    - id: <snake_case>
+      label: <按钮文本>
+      action: <action_name>       # 指向 actions{} 里的 action
+      style: primary              # primary | success | danger | default
+    - id: <snake_case>
+      label: <按钮文本>
+      action: <另一个 action>
+      style: danger
+      confirm: <确认提示>         # 破坏性操作必须加
 ```
 
 ## 第四步：告知成功 + 保持对话
@@ -139,9 +161,9 @@ Program「<name>」创建成功
 
 **当用户在 Program 创建成功后继续发言时**，必须判断意图：
 
-- 用户说「还要加 xxx」/ 「没有做 xxx」/ 「漏了 xxx」→ **修改刚才写的 program.yaml**，用  覆盖原文件
+- 用户说「还要加 xxx」/ 「没有做 xxx」/ 「漏了 xxx」→ **修改刚才写的 program.yaml**，用 `write_local_file` 覆盖原文件
 - 绝对禁止：重新走 classify 决策树，把补充需求当成新任务，另建 Playbook/Skill
-- 修改完成后用  告知已更新哪些 step，再继续 
+- 修改完成后用 `render_result` 告知已更新哪些 step，再继续 `ask_user`
 
 ## 第五步：判断是否推荐配套 Rescue Skill
 
@@ -161,3 +183,5 @@ Program「<name>」创建成功
 - [ ] ❌ `type: skill` 步骤没有 `when` 条件（浪费 token）
 - [ ] ❌ `type: skill` 引用了不存在的 Skill ID
 - [ ] ❌ monitor 的 `action` 引用了不存在的 action 名
+- [ ] ❌ 多 action 程序没有 `ui.instance_actions`（用户只能看到默认"触发"按钮）
+- [ ] ❌ 破坏性按钮没有 `style: danger` 或缺少 `confirm` 确认提示

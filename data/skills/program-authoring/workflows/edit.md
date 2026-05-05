@@ -17,6 +17,7 @@
 - `actions.<action>.steps`：所有 step 的 id / run / verify
 - `guardian.skills`：已挂载的 Rescue Skill
 - `triggers`：触发周期
+- `ui.instance_actions`：已有的自定义实例按钮
 
 **必须完整读完再动手，不得跳过。**
 
@@ -34,6 +35,8 @@
 | 改触发频率 | 只改 `triggers[].schedule` |
 | 加 Rescue Skill | `guardian.skills` 追加 id |
 | 修改阈值/参数 | 只改对应 step `run` 内的参数值 |
+| 加自定义按钮 / 操作入口 | `ui.instance_actions` 追加或修改按钮 |
+| 改按钮文本 / 样式 | 只改对应 `ui.instance_actions[]` 的 `label` / `style` |
 
 如需探测新主机或新服务，用 `execute_command` 做 1-2 条只读探测。
 
@@ -68,4 +71,6 @@ render_result format=message level=success
 - [ ] 只改了用户描述的部分
 - [ ] 未删除用户未提及的 step
 - [ ] 未修改 `enabled` 字段（除非用户明确要求）
-- [ ] run 字段无 heredoc、无多行 Python（见 rules/constraints.md §10）
+- [ ] run 字段无 heredoc、无多行 Python（见 rules/constraints.md §11）
+- [ ] 新增/修改 `ui.instance_actions` 时，action 引用的 action 名在 `actions{}` 中存在
+- [ ] 破坏性按钮有 `style: danger` + `confirm`

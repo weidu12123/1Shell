@@ -1,190 +1,189 @@
-# Program Schema 参考
+# Program Schema — 快速参考
 
-## 什么是 Program
+> 本文档是 `query_format("program")` 的返回内容。
+> 创建规则已内置于系统提示，此处提供模板、render 格式和可靠命令库。
 
-Program 是 1Shell 的**长驻运维程序**（`data/programs/<id>/program.yaml`），由 triggers 驱动，
-在绑定的 hosts 上持续运行。与一次性的 Playbook 对比：
-
-| | Playbook | Program |
-|---|---|---|
-| 运行模式 | 点击"运行"执行一次 | 启用后常驻后台 |
-| 触发 | 手动 / 前端按钮 | cron / 手动 / (未来 watch/metric) |
-| 实例 | 单次 run | 每台绑定 host 一个持久实例 |
-| 异常处理 | 失败即停 / Rescuer 单次救援 | L2 Skill AI 约束执行 + L3 Guardian AI 全权介入 |
-| 典型场景 | 一次性部署、批量删除 | 监控、健康检查、自愈守护 |
-
-## 完整 schema
+## 模板
 
 ```yaml
-# ─── 顶层 ───────────────────────────────────────────────────────────────
-name: string          # 必填，人类可读名称
-description: string   # 可选，多行说明
-enabled: true         # 默认 true；新创建的建议填 false，让用户手动启用
+name: <中文名>
+description: |
+  <说明>
 
-# hosts：哪些主机上跑这个 Program
-#   'all'             → 所有已托管主机（每台独立实例）
-#   [hostId, ...]     → 指定主机 id 数组
-#   hostId (字符串)   → 单一主机
-hosts: all
+enabled: false          # 新创建必须 false
 
-# ─── triggers ─────────────────────────────────────────────────────────
-triggers:
-  - id: string          # 必填，唯一
-    type: cron          # cron | manual （watch/metric 目前不支持）
-    schedule: '*/5 * * * *'   # type=cron 必填，标准 cron 表达式（node-cron 语法）
-    action: string      # 必填，指向 actions 里的 action 名
-
-  - id: manual_check
-    type: manual
-    action: health_check
-
-# ─── actions ──────────────────────────────────────────────────────────
-# actions 是一个对象：{ action_name: { steps, on_fail } }
-actions:
-  health_check:
-    # on_fail 三选一：
-    #   stop      — 失败即终止本次 run（默认）
-    #   ignore    — 失败跳过，继续后续 step
-    #   escalate  — 调用 Guardian AI 介入诊断修复
-    on_fail: escalate
-
-    steps:
-      # steps 三种类型：exec（默认）| render | skill
-      # ─── exec 步骤（L1，确定性，0 token）─────────────────────
-      - id: string          # 必填，同 Playbook
-        type: exec          # 默认
-        label: string
-        run: string         # 必填（exec），shell 命令
-        timeout: 30000
-        optional: false
-        capture_stdout: true
-        verify:
-          exit_code: 0
-          stdout_match: '^[0-9]+$'
-          stdout_contains: 'active'
-          stderr_not_contains: 'Error'
-
-      # ─── skill 步骤（L2，Skill 驱动的 AI，约束执行）──────────
-      # 用于 L1 做不到的场景：需要判断力、多分支决策、复杂修复
-      - id: string
-        type: skill
-        label: string
-        skill: string       # 必填，Skill ID（data/skills/<id>/）
-        goal: string        # 必填，AI 的任务目标（一句话）
-        when:               # 可选，不满足则跳过此步
-          step: string      # 引用前置步骤的 id
-          exit_code: 0      # 可选，检查 exit_code
-          exit_code_not: 0  # 可选，检查 exit_code 不等于
-          stdout_contains: 'string'  # 可选
-          stdout_match: 'regex'      # 可选
-        optional: false
-        on_error_hint: string   # 可选，给 AI 的修复提示
-
-# ─── monitors（L3 声明式健康检查，可选）────────────────────────
-# 定期在每台绑定主机上执行检查命令，不符合预期时自动唤醒 Guardian AI
-monitors:
-  - id: string            # 必填，唯一
-    check: string         # 必填，要执行的 shell 命令
-    expect:               # 期望结果，不满足则触发 L3
-      exit_code: 0        # 默认检查 exit_code === 0
-      stdout_contains: 'string'  # 可选
-      stdout_match: 'regex'      # 可选
-    interval: '*/5 * * * *'  # 必填，cron 表达式
-    action: string        # 必填，触发哪个 action
-
-# ─── guardian (Phase 3) ────────────────────────────────────────────────
-# 当 action.on_fail === 'escalate' 时，Guardian AI 可以用以下 Skill 作为能力包：
-guardian:
-  enabled: true
-  skills:                   # 允许 Guardian 读取的 Skill 白名单（参考其 rules + workflows）
-    - docker-rescue
-    - nginx-troubleshoot
-  max_actions_per_hour: 20  # 每小时最多介入 N 次（滑动窗口），防止 AI 无限循环
-```
-
-## 完整示例
-
-```yaml
-name: VPS 健康监控
-description: 每 5 分钟检查 docker / 磁盘 / 负载，失败自动 AI 诊断
-enabled: false
-hosts: all
+hosts: all              # all | [hostId, ...] | hostId
 
 triggers:
-  - id: periodic_check
+  - id: <snake_case>
     type: cron
-    schedule: "*/5 * * * *"
-    action: health_check
-  - id: manual_check
+    schedule: "<cron 表达式>"    # node-cron 支持 5 位和 6 位（含秒）
+    action: <action_name>
+  - id: manual_run
     type: manual
-    action: health_check
+    action: <action_name>
 
 actions:
-  health_check:
-    on_fail: escalate
+  <action_name>:
+    on_fail: escalate           # 生产程序必须 escalate，禁止 stop
     steps:
-      - id: docker_up
-        label: Docker 存活
-        run: docker info --format '{{.ServerVersion}}' 2>&1
-        verify: { exit_code: 0 }
-        optional: true
-
-      - id: disk_root
-        label: 根分区使用率
-        run: df -P / | awk 'NR==2 {gsub("%",""); print $5}'
+      # ── exec 步骤（L1） ──
+      - id: <snake_case>        # 字母开头，下划线分隔，禁止连字符
+        label: <中文标签>
+        run: <shell 命令>       # 从下方可靠命令库选取
         verify:
           exit_code: 0
-          stdout_match: '^[0-9]+$'
-        capture_stdout: true
+          stdout_match: '^[0-9]'   # 有数字输出必须写
+        capture_stdout: true       # 值要用于 render 时加
+        on_error_hint: <给 Guardian 的诊断提示>
 
-      # L2 skill 步骤：磁盘使用率过高时用 AI 清理
-      - id: disk_cleanup
+      # ── skill 步骤（L2，按需加） ──
+      - id: <snake_case>
         type: skill
-        label: AI 磁盘清理
-        skill: disk-cleanup
-        goal: "清理磁盘空间，确保根分区使用率低于 80%"
-        when:
-          step: disk_root
-          stdout_match: '^[8-9][0-9]$|^100$'
+        label: <中文标签>
+        skill: <skill-id>          # 必须是 data/skills/ 下已有的 Skill
+        goal: <一句话描述 AI 任务>
+        when:                      # 强烈建议加 when，避免无谓 token 消耗
+          step: <前置步骤 id>
+          stdout_match: <匹配异常的正则>
 
-# L3 声明式健康检查：nginx 挂掉时自动唤醒 Guardian
+      # ── render 步骤（必须有，放最后） ──
+      - id: render_result
+        type: render
+        format: keyvalue           # keyvalue | table | message | list
+        title: <标题>
+        level: info                # info | success | warning | error
+        items_from_steps:
+          - key: <显示标签>
+            value_from: <step_id>  # 引用前面步骤的 stdout
+            suffix: "%"            # 可选
+
+# ── monitors（可选，L3 声明式健康检查） ──
 monitors:
-  - id: nginx_alive
-    check: "curl -sf http://localhost/ > /dev/null"
-    expect: { exit_code: 0 }
+  - id: <snake_case>
+    check: <shell 命令>
+    expect: { exit_code: 0 }       # 或 stdout_contains / stdout_match
     interval: "*/5 * * * *"
-    action: health_check
+    action: <action_name>
 
 guardian:
-  enabled: true
-  skills: [docker-rescue]
-  max_actions_per_hour: 10
+  skills: []                       # Rescue Skill ID 列表，无则留空
+  max_actions_per_hour: 10         # 推荐 5-15
+  # 注意：guardian.enabled 字段引擎未实现，禁止写
+
+# ── ui（多 action 程序必须加） ──
+ui:
+  instance_actions:
+    - id: <snake_case>
+      label: <按钮文本>
+      action: <action_name>        # 指向 actions{} 里的 action
+      style: primary               # primary | success | danger | default
+    - id: <snake_case>
+      label: <按钮文本>
+      action: <另一个 action>
+      style: danger
+      confirm: <确认提示>          # 破坏性操作必须加
 ```
 
-## 设计原则
+## render 步骤格式详解
 
-1. **结果导向**：每个 Program 的 action **必须**以 `type: render` 步骤结尾，将关键数据输出到前端「结果」Tab。用户看不到 render 就等于看不到程序在跑。手动触发时 render 是唯一的反馈。
-2. **三层渐进架构**：能用 L1（exec + verify）解决的不上 L2，L2（skill 步骤）解决不了的才 escalate 到 L3（Guardian）
-2. **L2 skill 步骤的使用场景**：
-   - 需要根据运行结果做判断（如"磁盘满了该删什么"）
-   - 有多种修复路径需要 AI 选择
-   - 操作复杂度超出单条 bash 命令
-   - 配合 `when` 条件实现"只在异常时才启动 AI"
-3. **monitors 的使用场景**：
-   - 关键服务存活检查（nginx、MySQL、Redis）
-   - 端口可达性检查
-   - 日志异常 pattern 检测
-   - 与 triggers 独立：triggers 按时间跑 action，monitors 按时间检查健康
-4. **steps 尽量短且独立**：每步只做一件小事，verify 要精确
-5. **on_fail 的选择**：
-   - 探测类 step → `optional: true`，失败跳过
-   - 关键 step → `on_fail: escalate`，交给 L3
-   - 清理类 step → `on_fail: ignore`
-6. **skill 步骤必须配合已有 Skill**：`skill` 字段必须指向 `data/skills/` 下的一个 Skill ID
+四种 format，公共字段：`title`、`subtitle`、`level`
 
-## 禁止事项
+### keyvalue — 键值对展示
+```yaml
+- id: render_status
+  type: render
+  format: keyvalue
+  title: 系统状态
+  level: info
+  items_from_steps:            # 从前面步骤的 stdout 取值
+    - key: "CPU 使用率"
+      value_from: cpu_usage    # step id
+      suffix: "%"
+      prefix: ""               # 可选
+      transform: trim          # 可选：trim | first_line | json_path:xxx
+    - key: "内存使用率"
+      value_from: mem_usage
+      suffix: "%"
+  items:                       # 或直接写死值（二者可共存）
+    - key: "检查时间"
+      value: "刚才"
+```
 
-- **禁止 enable: true 一开始就开**（除非用户明确要求）——新 Program 默认停用，由用户在 UI 上启用单个实例
-- **禁止 steps 里直接放破坏性命令**（rm -rf、dd、mkfs 等）——这类操作应该放在 Skill 里，让 Guardian 在 `ask_user` 确认后再执行
-- **禁止在 run 里用 ssh/scp** 去连接其他主机——Program 的每个实例已经绑定一个 host
-- **禁止在 hosts 里混入 `local` 和远程 VPS**（如果命令用了 Linux-only 语法）——Windows 本机跑不了 `df -P /`
+### table — 表格展示
+```yaml
+- id: render_table
+  type: render
+  format: table
+  title: 容器列表
+  columns: ["容器名", "状态", "端口"]
+  rows_from_step: list_containers   # 从某个 step 的 stdout 解析（JSON 数组）
+  # 或静态 rows:
+  # rows: [["nginx", "running", "80"], ["redis", "running", "6379"]]
+```
+
+### message — 文本消息
+```yaml
+- id: render_msg
+  type: render
+  format: message
+  title: 检查结果
+  level: success
+  content_from: check_output   # 从某个 step 的 stdout 取全文
+  # 或静态 content:
+  # content: "所有检查通过"
+```
+
+### list — 列表展示
+```yaml
+- id: render_list
+  type: render
+  format: list
+  title: 发现的问题
+  level: warning
+  listItems:
+    - title: "磁盘空间不足"
+      description: "根分区使用率超过 90%"
+```
+
+## 可靠命令库
+
+以下命令跨发行版可靠，零依赖。**禁止使用 `top`、`vmstat`、`iostat`、`netstat`。**
+
+```bash
+# CPU 使用率（单次快照，适合 ≥1min 间隔）
+awk '/^cpu /{u=$2+$4; t=$2+$3+$4+$5+$6+$7+$8; printf "%.1f", u/t*100}' /proc/stat
+
+# 内存使用率
+awk '/MemTotal/{t=$2}/MemAvailable/{a=$2}END{printf "%.1f",(t-a)/t*100}' /proc/meminfo
+
+# 内存用量（MB）
+free -m | awk 'NR==2{printf "%dMB / %dMB", $3, $2}'
+
+# 磁盘使用率
+df -P / | awk 'NR==2{gsub("%",""); print $5}'
+
+# 系统负载
+awk '{printf "%s / %s / %s", $1, $2, $3}' /proc/loadavg
+
+# Docker 存活
+docker info --format '{{.ServerVersion}}' 2>&1
+
+# 进程存活
+pgrep -x nginx > /dev/null && echo running || echo stopped
+
+# 端口监听
+ss -tlnp | grep -q ':80 ' && echo listening || echo closed
+```
+
+## 常见错误
+
+- `on_fail: stop` → 静默死亡，用 `escalate`
+- `guardian.enabled: true` → 引擎不读此字段，禁止写
+- `enabled: true` → 会立即在所有主机执行，用 `false`
+- `verify` 只写 `exit_code: 0` → 等于没验证，加 `stdout_match`
+- step id 用连字符 `cpu-usage` → 校验失败，用 `cpu_usage`
+- `type: skill` 没有 `when` → 每次都消耗 token，加条件
+- 多 action 没有 `ui.instance_actions` → 用户只看到一个默认"触发"按钮
+- `run` 里用 heredoc `<<'EOF'` → YAML 解析失败
+- `run` 里用多行 Python → 冒号触发 YAML mapping 解析，用单行或脚本文件
