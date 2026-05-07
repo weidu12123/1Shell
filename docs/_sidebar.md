@@ -1,0 +1,13 @@
+- [首页](/)
+- **基础功能**
+  - [登录与系统设置](sections/01-login-and-settings.md)
+  - [主机管理](sections/02-host-management.md)
+  - [SSH 终端](sections/03-ssh-terminal.md)
+  - [文件管理](sections/04-file-management.md)
+- **AI 能力**
+  - [AI 功能](sections/05-ai-features.md)
+  - [运维程序 Program](sections/06-program.md)
+  - [Skill / Playbook / 脚本库](sections/07-skill-playbook-scripts.md)
+- **扩展与安全**
+  - [MCP 接入与仓库](sections/08-mcp-warehouse.md)
+  - [安全体系与审计日志](sections/09-security-audit.md)
