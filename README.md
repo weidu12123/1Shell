@@ -12,6 +12,8 @@
 [![docker](https://img.shields.io/badge/docker-ready-2496ed?style=flat-square&logo=docker)](https://hub.docker.com)
 [![docs](https://img.shields.io/badge/docs-使用指南-blue?style=flat-square)](https://docs.1shell.pro)
 
+[**📖 完整使用指南 →**](https://docs.1shell.pro) | [**⬇ 下载 Release**](https://github.com/weidu12123/1Shell/releases/tag/v3.3.0)
+
 </div>
 
 ---
