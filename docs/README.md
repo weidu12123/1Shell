@@ -40,7 +40,13 @@
 # Linux 一键安装
 curl -fsSL https://raw.githubusercontent.com/weidu12123/1Shell/main/install.sh | bash
 
-# 或手动安装
+# 或 Docker 部署
+git clone https://github.com/weidu12123/1Shell.git
+cd 1Shell
+cp .env.example .env
+docker compose up -d
+
+# 或手动安装（Node.js 18+）
 git clone https://github.com/weidu12123/1Shell.git
 cd 1Shell
 npm install
