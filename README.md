@@ -344,3 +344,5 @@ PORT=3301
 
 [MIT](LICENSE) © 2025 weidu12123
 
+##友链
+http://linux.do
