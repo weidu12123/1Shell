@@ -10,6 +10,7 @@
 [![node](https://img.shields.io/badge/node-%3E%3D18-43a047?style=flat-square&logo=node.js)](https://nodejs.org)
 [![license](https://img.shields.io/badge/license-MIT-f9a825?style=flat-square)](LICENSE)
 [![docker](https://img.shields.io/badge/docker-ready-2496ed?style=flat-square&logo=docker)](https://hub.docker.com)
+[![docs](https://img.shields.io/badge/docs-使用指南-blue?style=flat-square)](https://docs.1shell.pro)
 
 </div>
 
