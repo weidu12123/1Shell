@@ -53,7 +53,7 @@ BRIDGE_TOKEN=$(head -c 32 /dev/urandom | base64 | tr -dc 'a-zA-Z0-9' | head -c 3
 
 echo ""
 echo -e "${BLUE}╔════════════════════════════════════════════════╗${NC}"
-echo -e "${BLUE}║         1Shell 一键安装脚本 v3.0.0            ║${NC}"
+echo -e "${BLUE}║         1Shell 一键安装脚本 v3.3.0            ║${NC}"
 echo -e "${BLUE}║     One Shell to rule them all.                ║${NC}"
 echo -e "${BLUE}╚════════════════════════════════════════════════╝${NC}"
 echo ""

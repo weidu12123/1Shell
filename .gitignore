@@ -28,3 +28,6 @@ deploy.js
 
 # Claude Code 本地配置
 .claude/
+
+# Release 打包产物
+release/
