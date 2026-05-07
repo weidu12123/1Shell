@@ -4,7 +4,7 @@
 
 **One Shell to rule them all.**
 
-基于 Web 的零侵入多服务器管理平台，内置三层渐进式 AI 运维引擎
+基于 Web 的零侵入多服务器管理平台，内置 1Shell AI 全局引擎与三层渐进式 AI 运维架构
 
 [![version](https://img.shields.io/badge/version-3.3.0-4f8cff?style=flat-square)](https://github.com/weidu12123/1Shell/releases)
 [![node](https://img.shields.io/badge/node-%3E%3D18-43a047?style=flat-square&logo=node.js)](https://nodejs.org)
@@ -27,7 +27,7 @@
 **三个核心特点：**
 
 - **零侵入** — 目标服务器不安装任何 Agent 或客户端，一条 SSH 链路复用终端、探针、文件浏览与 AI 协作
-- **AI 自动化** — 内置三层渐进式 AI 引擎，从检测到诊断到修复全程自动化，无需人工值守
+- **1Shell AI** — 自研全局 AI 引擎，将 1Shell 全部功能封装为 23 个 AI 工具，填一个 API Key 即可拥有一个操控所有服务器的 AI 运维工程师
 - **开放协作** — 自身通过 MCP 协议标准化输出，可与 Claude Code、Cursor 等外部 AI 工具双向协作
 
 ---
@@ -69,7 +69,45 @@
 
 ---
 
-## 核心创新：三层渐进式 AI 运维引擎
+## 核心创新一：1Shell AI — 全局 AI 运维引擎
+
+1Shell AI 是为 1Shell 自研的 AI 引擎——**1Shell 的全部功能就是 AI 的功能，AI 的能力就是 1Shell 的能力。**
+
+不同于 Claude Code 等外部工具通过 MCP 协议"远程调用"服务器能力，1Shell AI **原生内嵌于平台内部**，直接操控终端、文件、主机、程序等所有模块，零延迟、零中间层。
+
+```
+┌─────────────────────────────────────────────────────────┐
+│                      1Shell AI                          │
+│                                                         │
+│   用户说一句话 → AI 自动调用内置工具 → 直接在服务器上执行    │
+│                                                         │
+│   23 个内置工具：                                        │
+│   ├── execute_command     在任意主机执行命令              │
+│   ├── read_file / write_file   读写任意主机文件           │
+│   ├── list_hosts          查看所有主机状态                │
+│   ├── create_program      创建自动化运维程序              │
+│   ├── manage_website      创建/修改反向代理站点           │
+│   └── ...更多工具                                        │
+│                                                         │
+│   全局化：每个页面都可唤起，自动感知当前页面上下文          │
+│   安全模式：每步操作可审批，生产环境安全可控               │
+└─────────────────────────────────────────────────────────┘
+```
+
+**与外部 AI 工具的区别：**
+
+| | Claude Code / Cursor | 1Shell AI |
+|---|---|---|
+| 接入方式 | 通过 MCP 协议远程调用 | 原生内嵌，直接操控 |
+| 操作范围 | 仅限 MCP 暴露的 4 个工具 | 23 个内置工具，覆盖全部功能 |
+| 上下文 | 无页面感知 | 自动识别当前页面，适配能力 |
+| 使用门槛 | 需安装 CLI + 配置 MCP | 填一个 API Key 即可 |
+
+**使用方式：** 在 AI 配置中填入任意 OpenAI 兼容的 API Key（OpenAI、DeepSeek、OpenRouter 等均可），即可在任何页面展开 1Shell AI 对话。
+
+---
+
+## 核心创新二：三层渐进式 AI 运维引擎
 
 这是 1Shell 最重要的架构设计——**不是所有问题都需要 AI，但 AI 在需要时必须能介入。**
 
@@ -332,7 +370,8 @@ PORT=3301
 
 | | 传统面板（宝塔/1Panel） | Ansible/Terraform | 1Shell |
 |---|---|---|---|
-| AI 能力 | 无 | 无 | 三层渐进式 AI，检测→诊断→修复全自动 |
+| AI 能力 | 无 | 无 | 1Shell AI 全局引擎 + 三层渐进式自动运维 |
+| 使用门槛 | 需学习面板操作 | 需编写 Playbook | 填 API Key，说人话即可 |
 | 多机管理 | 需每台安装客户端 | Agentless 但无 Web UI | Agentless + Web 终端 + 实时监控 |
 | 自动化 | 预设脚本 | 声明式编排 | AI 根据实际情况动态决策 |
 | 扩展性 | 固定功能 | 模块化 | MCP 协议 + Skill 系统，能力可扩展 |
