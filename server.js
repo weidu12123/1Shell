@@ -235,7 +235,7 @@ app.use('/api', createProgramRouter({ registry: programRegistry, stateService: p
 // ─── Socket.IO ──────────────────────────────────────────────────────────
 io.use(authService.authenticateSocket);
 registerSessionSocketHandlers(io, { sessionService });
-registerAgentSocketHandlers(io, { agentPtyService, skillRegistry });
+registerAgentSocketHandlers(io, { agentPtyService });
 registerSkillSocketHandlers(io, { skillRunner });
 registerGuardianSocketHandlers(io, { guardianService, skillStepExecutor, programRegistry });
 registerIdeSocketHandlers(io, { ideService, ideTools, localMcpService, mcpRegistry });

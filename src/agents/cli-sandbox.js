@@ -19,13 +19,18 @@ function createCliSandbox({ dataDir, bridgeToken, port, proxyConfigStore }) {
   }
 
   function buildMcpEntry(cliId = null) {
-    if (cliId === 'opencode') {
+    // Codex / OpenCode：使用 stdio 桥接脚本（最通用的 MCP 传输方式）
+    if (cliId === 'codex' || cliId === 'opencode') {
       return {
-        type: 'remote',
-        url: `${serverOrigin}/mcp/sse`,
-        headers: { 'X-Bridge-Token': bridgeToken },
+        command: 'node',
+        args: [path.join(dataDir, '..', 'bin', '1shell-mcp-stdio.js')],
+        env: {
+          ONESHELL_URL: serverOrigin,
+          ONESHELL_TOKEN: bridgeToken,
+        },
       };
     }
+    // Claude Code：直接 SSE 连接
     return {
       type: 'sse',
       url: `${serverOrigin}/mcp/sse`,
@@ -269,12 +274,6 @@ function createCliSandbox({ dataDir, bridgeToken, port, proxyConfigStore }) {
         `wire_api = "responses"`,
         `base_url = "${serverOrigin}/api/proxy/codex"`,
         `requires_openai_auth = true`,
-        ``,
-        `[mcp_servers]`,
-        ``,
-        `[mcp_servers.1shell]`,
-        `url = "${serverOrigin}/mcp/sse"`,
-        `bearer_token_env_var = "1SHELL_MCP_TOKEN"`,
         ``,
         `[projects.'${projectsCwd}']`,
         `trust_level = "trusted"`,
