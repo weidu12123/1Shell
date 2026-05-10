@@ -14,7 +14,6 @@
     const clearBtnEl       = document.getElementById('agent-clear-btn');
     const setupBtnEl       = document.getElementById('agent-setup-btn');
     const providerSelectEl = document.getElementById('agent-provider-select');
-    const targetTextEl     = document.getElementById('agent-target-text');
     const statusTextEl     = document.getElementById('agent-status-text');
     const terminalWrapEl   = document.getElementById('agent-terminal-wrap');
     const agentTabsEl      = document.getElementById('agent-tabs');
@@ -23,7 +22,7 @@
      * 会话以 hostId 为键，一台主机对应一个 Claude Code 会话：
      * state.sessions: Map<hostId, {
      *   agentSessionId, terminal, fitAddon, containerEl, resizeObserver,
-     *   status, providerLabel, hostName
+     *   status, providerLabel, label
      * }>
      *
      * 竞态修复：agent:output 在 agent:start 回调前到达时缓冲到 pendingOutput，
@@ -35,11 +34,11 @@
       providerLoadPromise: null,
       visible:        false,
       socketBound:    false,
-      sessions:       new Map(), // hostId → session data + terminal
-      activeHostId:   null,
-      pendingOutput:  new Map(), // agentSessionId → string[]（早于回调到达的输出）
-      agentIdToHostId: new Map(), // agentSessionId → hostId 反向查找
-      providerMeta:   new Map(), // providerId → provider metadata
+      sessions:       new Map(), // sessionKey → session data + terminal
+      activeSessionKey: null,
+      pendingOutput:  new Map(), // agentSessionId → string[]
+      sessionCounter: 0,
+      providerMeta:   new Map(),
     };
 
     function getSocket() {
@@ -48,25 +47,13 @@
 
     // ─── Target / status display ───────────────────────────────────────────
 
-    function renderTarget() {
-      const host = getActiveHost?.();
-      if (!host) {
-        if (targetTextEl) targetTextEl.textContent = '当前目标：未选择主机';
-        return;
-      }
-      const meta = host.type === 'local'
-        ? '本机 / 控制节点'
-        : `${host.username}@${host.host}:${host.port}`;
-      if (targetTextEl) targetTextEl.textContent = `当前目标：${host.name} (${meta})`;
-    }
-
     function setStatus(text) {
       if (statusTextEl) statusTextEl.textContent = text;
     }
 
-    function appendSystemLine(text, hostId) {
-      const hid = hostId || state.activeHostId;
-      const sess = hid ? state.sessions.get(hid) : null;
+    function appendSystemLine(text, key) {
+      const k = key || state.activeSessionKey;
+      const sess = k ? state.sessions.get(k) : null;
       sess?.terminal?.writeln(`\x1b[36m${text}\x1b[0m`);
     }
 
@@ -75,23 +62,12 @@
       return d.innerHTML;
     }
 
-    // Banner 仅写入本地 xterm 显示，绝不发送到 Claude Code stdin
-    function buildLocalBanner(hostName, hostMeta) {
-      return [
-        '\x1b[36m┌─────────────────────────────────────────────────────\x1b[0m',
-        '\x1b[36m│ 1Shell 2.0.0 正式版 Agent · 目标主机\x1b[0m',
-        `\x1b[36m│ ${hostName} (${hostMeta})\x1b[0m`,
-        '\x1b[36m└─────────────────────────────────────────────────────\x1b[0m',
-        '',
-      ].join('\r\n');
-    }
+    // ─── Per-session terminal management ───────────────────────────────────
 
-    // ─── Per-host terminal management ─────────────────────────────────────
-
-    function createTerminalForHost(hostId) {
+    function createTerminalForSession(sessionKey) {
       const containerEl = document.createElement('div');
       containerEl.className = 'agent-session-term w-full h-full hidden rounded-lg overflow-hidden';
-      containerEl.dataset.hostId = hostId;
+      containerEl.dataset.sessionKey = sessionKey;
       terminalWrapEl.appendChild(containerEl);
 
       const terminal = new Terminal({
@@ -114,21 +90,19 @@
       fitAddon.fit();
 
       terminal.onData((data) => {
-        if (state.activeHostId !== hostId) return;
-        const agentSessionId = state.sessions.get(hostId)?.agentSessionId;
-        if (!agentSessionId) return;
-        getSocket()?.emit('agent:input', { agentSessionId, data });
+        const sess = state.sessions.get(sessionKey);
+        if (!sess?.agentSessionId || state.activeSessionKey !== sessionKey) return;
+        getSocket()?.emit('agent:input', { agentSessionId: sess.agentSessionId, data });
       });
 
       terminal.onResize(({ cols, rows }) => {
-        if (state.activeHostId !== hostId) return;
-        const agentSessionId = state.sessions.get(hostId)?.agentSessionId;
-        if (!agentSessionId) return;
-        getSocket()?.emit('agent:resize', { agentSessionId, cols, rows });
+        const sess = state.sessions.get(sessionKey);
+        if (!sess?.agentSessionId || state.activeSessionKey !== sessionKey) return;
+        getSocket()?.emit('agent:resize', { agentSessionId: sess.agentSessionId, cols, rows });
       });
 
       const resizeObserver = new ResizeObserver(() => {
-        if (state.activeHostId !== hostId) return;
+        if (state.activeSessionKey !== sessionKey) return;
         try { fitAddon.fit(); } catch { /* ignore */ }
       });
       resizeObserver.observe(containerEl);
@@ -136,38 +110,11 @@
       return { terminal, fitAddon, containerEl, resizeObserver };
     }
 
-    /**
-     * 注册/更新一个会话，并回放因竞态缓冲的输出。
-     * 若该 host 已有会话（重启场景）则复用终端容器，清屏后继续使用。
-     * banner 在缓冲输出之前写入，确保始终显示在最顶部且绝不发送给 Claude Code。
-     */
-    function registerSession(hostId, sessionData) {
-      let sess = state.sessions.get(hostId);
+    function registerSession(sessionKey, sessionData) {
+      const termData = createTerminalForSession(sessionKey);
+      const sess = { ...sessionData, ...termData };
+      state.sessions.set(sessionKey, sess);
 
-      if (!sess) {
-        // 首次：创建终端
-        const termData = createTerminalForHost(hostId);
-        sess = { ...sessionData, ...termData };
-        state.sessions.set(hostId, sess);
-      } else {
-        // 重启：清除旧会话 ID 的反向映射，复用终端，清屏
-        if (sess.agentSessionId && sess.agentSessionId !== sessionData.agentSessionId) {
-          state.agentIdToHostId.delete(sess.agentSessionId);
-          state.pendingOutput.delete(sess.agentSessionId);
-          sess.terminal?.clear();
-        }
-        Object.assign(sess, sessionData);
-      }
-
-      // 注册反向映射（供 agent:output / agent:status 快速查找）
-      state.agentIdToHostId.set(sessionData.agentSessionId, hostId);
-
-      // 先写入 banner（纯本地显示，不经过 PTY）
-      if (sessionData.banner && sess.terminal) {
-        sess.terminal.write(sessionData.banner);
-      }
-
-      // 回放竞态缓冲的输出
       const buffered = state.pendingOutput.get(sessionData.agentSessionId);
       if (buffered?.length && sess.terminal) {
         for (const chunk of buffered) sess.terminal.write(chunk);
@@ -175,25 +122,22 @@
       }
     }
 
-    function destroySession(hostId) {
-      const sess = state.sessions.get(hostId);
+    function destroySession(sessionKey) {
+      const sess = state.sessions.get(sessionKey);
       if (!sess) return;
-      if (sess.agentSessionId) {
-        state.agentIdToHostId.delete(sess.agentSessionId);
-        state.pendingOutput.delete(sess.agentSessionId);
-      }
+      if (sess.agentSessionId) state.pendingOutput.delete(sess.agentSessionId);
       sess.resizeObserver?.disconnect();
       sess.terminal?.dispose();
       sess.containerEl?.remove();
-      state.sessions.delete(hostId);
+      state.sessions.delete(sessionKey);
     }
 
-    function switchToSession(hostId) {
-      for (const [hid, sess] of state.sessions) {
-        sess.containerEl.classList.toggle('hidden', hid !== hostId);
+    function switchToSession(sessionKey) {
+      for (const [k, sess] of state.sessions) {
+        sess.containerEl.classList.toggle('hidden', k !== sessionKey);
       }
-      state.activeHostId = hostId;
-      const sess = state.sessions.get(hostId);
+      state.activeSessionKey = sessionKey;
+      const sess = state.sessions.get(sessionKey);
       if (sess) {
         if (sess.status === 'ready')   setStatus(`运行中 · ${sess.providerLabel || 'Agent'}`);
         else if (sess.status === 'stopped') setStatus('已停止');
@@ -210,27 +154,27 @@
       syncButtons();
     }
 
-    // ─── Tab rendering（标签显示主机名）─────────────────────────────────────
+    // ─── Tab rendering ───────────────────────────────────────────────────────
 
     function renderAgentTabs() {
       if (!agentTabsEl) return;
 
       let html = '';
-      for (const [hostId, sess] of state.sessions) {
-        const isActive  = hostId === state.activeHostId;
+      for (const [sessionKey, sess] of state.sessions) {
+        const isActive  = sessionKey === state.activeSessionKey;
         const dotColor  = sess.status === 'ready'    ? 'bg-purple-400'
                         : sess.status === 'starting' ? 'bg-amber-400'
                         : 'bg-red-400';
         const activeCls = isActive
           ? 'bg-white border-slate-200 shadow-sm text-slate-700'
           : 'bg-transparent border-transparent text-slate-400 hover:bg-slate-100 hover:text-slate-600';
-        const label = escapeHtml(sess.hostName || hostId);
+        const label = escapeHtml(sess.label || sessionKey);
 
         html +=
-          `<div data-agent-tab="${escapeHtml(hostId)}" class="flex items-center gap-1.5 h-7 px-2.5 rounded-lg border text-xs font-semibold cursor-pointer transition-all shrink-0 ${activeCls}">` +
+          `<div data-agent-tab="${escapeHtml(sessionKey)}" class="flex items-center gap-1.5 h-7 px-2.5 rounded-lg border text-xs font-semibold cursor-pointer transition-all shrink-0 ${activeCls}">` +
             `<span class="w-1.5 h-1.5 rounded-full ${dotColor}"></span>` +
             `<span class="truncate max-w-[80px]">${label}</span>` +
-            `<button data-agent-tab-close="${escapeHtml(hostId)}" class="ml-0.5 text-slate-300 hover:text-red-400 text-[10px] leading-none" title="停止并关闭">×</button>` +
+            `<button data-agent-tab-close="${escapeHtml(sessionKey)}" class="ml-0.5 text-slate-300 hover:text-red-400 text-[10px] leading-none" title="停止并关闭">×</button>` +
           `</div>`;
       }
 
@@ -238,7 +182,7 @@
       agentTabsEl.innerHTML = html;
 
       document.getElementById('agent-new-session-btn')?.addEventListener('click', () => {
-        Promise.resolve(startAgent()).catch(showErrorMessage);
+        Promise.resolve(runAgentStart({ forceNew: true })).catch(showErrorMessage);
       });
 
       for (const tabEl of agentTabsEl.querySelectorAll('[data-agent-tab]')) {
@@ -249,36 +193,36 @@
             stopAndRemoveSession(closeBtn.getAttribute('data-agent-tab-close'));
             return;
           }
-          const hid = tabEl.getAttribute('data-agent-tab');
-          if (hid && hid !== state.activeHostId) switchToSession(hid);
+          const key = tabEl.getAttribute('data-agent-tab');
+          if (key && key !== state.activeSessionKey) switchToSession(key);
         });
       }
     }
 
     // ─── Session lifecycle ─────────────────────────────────────────────────
 
-    function stopAndRemoveSession(hostId) {
+    function stopAndRemoveSession(sessionKey) {
       const socket = getSocket();
-      const sess   = state.sessions.get(hostId);
+      const sess   = state.sessions.get(sessionKey);
       if (socket && sess?.agentSessionId) {
         socket.emit('agent:stop', { agentSessionId: sess.agentSessionId });
       }
-      if (state.activeHostId === hostId) {
-        const remaining = [...state.sessions.keys()].filter((id) => id !== hostId);
+      if (state.activeSessionKey === sessionKey) {
+        const remaining = [...state.sessions.keys()].filter((k) => k !== sessionKey);
         if (remaining.length > 0) {
           switchToSession(remaining[remaining.length - 1]);
         } else {
-          state.activeHostId = null;
+          state.activeSessionKey = null;
           setStatus('未启动');
         }
       }
-      destroySession(hostId);
+      destroySession(sessionKey);
       renderAgentTabs();
       syncButtons();
     }
 
     function syncButtons() {
-      const activeSess = state.activeHostId ? state.sessions.get(state.activeHostId) : null;
+      const activeSess = state.activeSessionKey ? state.sessions.get(state.activeSessionKey) : null;
       const running    = activeSess?.status === 'ready';
       if (stopBtnEl) stopBtnEl.disabled = !running;
       if (startBtnEl) startBtnEl.disabled = false;
@@ -312,7 +256,7 @@
         return;
       }
 
-      const activeSess = state.activeHostId ? state.sessions.get(state.activeHostId) : null;
+      const activeSess = state.activeSessionKey ? state.sessions.get(state.activeSessionKey) : null;
       if (activeSess?.status === 'ready' || activeSess?.status === 'starting') {
         return;
       }
@@ -403,10 +347,9 @@
     function openPanel() {
       state.visible = true;
       window.setAgentPanelOpen?.(true);
-      renderTarget();
       setTimeout(() => {
-        if (state.activeHostId) {
-          try { state.sessions.get(state.activeHostId)?.fitAddon?.fit(); } catch { /* ignore */ }
+        if (state.activeSessionKey) {
+          try { state.sessions.get(state.activeSessionKey)?.fitAddon?.fit(); } catch { /* ignore */ }
         }
       }, 120);
     }
@@ -425,10 +368,11 @@
 
       socket.on('agent:status', (payload) => {
         if (!payload?.id) return;
-        const hostId = state.agentIdToHostId.get(payload.id);
-        if (!hostId) return; // 不在本面板管理范围内
+        let sessionKey = null;
+        for (const [k, s] of state.sessions) { if (s.agentSessionId === payload.id) { sessionKey = k; break; } }
+        if (!sessionKey) return;
 
-        const sess = state.sessions.get(hostId);
+        const sess = state.sessions.get(sessionKey);
         if (!sess) return;
 
         sess.status       = payload.status       || sess.status;
@@ -437,13 +381,13 @@
         if (typeof payload.useLocalEnv === 'boolean') sess.useLocalEnv = payload.useLocalEnv;
 
         if (payload.status === 'error' && payload.lastError) {
-          appendSystemLine(`[Agent Error] ${payload.lastError}`, hostId);
+          appendSystemLine(`[Agent Error] ${payload.lastError}`, sessionKey);
         }
         if (payload.status === 'stopped') {
-          appendSystemLine('[Agent] 会话已停止', hostId);
+          appendSystemLine('[Agent] 会话已停止', sessionKey);
         }
 
-        if (state.activeHostId === hostId) {
+        if (state.activeSessionKey === sessionKey) {
           if (payload.status === 'ready')   setStatus(`运行中 · ${payload.providerLabel || sess.providerLabel}`);
           else if (payload.status === 'stopped') setStatus('已停止');
           else if (payload.status === 'error')   setStatus(`错误：${payload.lastError || ''}`);
@@ -455,10 +399,10 @@
 
       socket.on('agent:output', (payload) => {
         if (!payload?.agentSessionId) return;
-        const hostId = state.agentIdToHostId.get(payload.agentSessionId);
+        let sessionKey = null;
+        for (const [k, s] of state.sessions) { if (s.agentSessionId === payload.agentSessionId) { sessionKey = k; break; } }
 
-        if (!hostId) {
-          // 会话尚未注册：缓冲输出，等待 agent:start 回调后回放
+        if (!sessionKey) {
           if (!state.pendingOutput.has(payload.agentSessionId)) {
             state.pendingOutput.set(payload.agentSessionId, []);
           }
@@ -466,7 +410,7 @@
           return;
         }
 
-        state.sessions.get(hostId)?.terminal?.write(payload.data || '');
+        state.sessions.get(sessionKey)?.terminal?.write(payload.data || '');
       });
 
       state.socketBound = true;
@@ -522,16 +466,14 @@
       return selected;
     }
 
-    async function runAgentStart({ useLocalEnv = false } = {}) {
+    async function runAgentStart({ useLocalEnv = false, forceNew = false } = {}) {
       const socket          = getSocket();
       const sessionTerminal = getSessionTerminalModule?.();
-      const host            = getActiveHost?.();
-      if (!socket || !sessionTerminal || !host) {
+      if (!socket || !sessionTerminal) {
         throw new Error('当前环境未就绪，无法启动 Agent');
       }
 
       const providerId = providerSelectEl?.value || 'claude-code';
-      const existing = state.sessions.get(host.id);
 
       bindSocketEvents();
       setStatus(useLocalEnv ? '本地启动中…' : '启动中…');
@@ -548,19 +490,13 @@
         throw error;
       }
 
-      const sameProvider = existing?.providerId === providerId;
-      const sameEnvMode = Boolean(existing?.useLocalEnv) === Boolean(useLocalEnv);
-      if (existing?.status === 'ready' && sameProvider && sameEnvMode && !sandboxPreparedNow) {
-        switchToSession(host.id);
-        return;
-      }
-      if (existing?.status === 'ready') {
-        stopAndRemoveSession(host.id);
-      }
+      const sessionKey = `s${++state.sessionCounter}`;
+      const providerMeta = state.providerMeta.get(providerId);
+      const label = `${providerMeta?.label || providerId} #${state.sessionCounter}`;
 
       socket.emit('agent:start', {
         providerId,
-        hostId:     host.id,
+        hostId:     'local',
         cols:       100,
         rows:       28,
         useLocalEnv,
@@ -571,21 +507,17 @@
         }
 
         const session = result.session;
-        const hostMeta = host.type === 'local'
-          ? '本机 / 控制节点'
-          : `${host.username}@${host.host}:${host.port}`;
 
-        registerSession(host.id, {
+        registerSession(sessionKey, {
           agentSessionId: session.id,
           providerId:     session.providerId,
           status:         session.status,
           providerLabel:  session.providerLabel,
-          hostName:       session.hostName || host.name,
+          label,
           useLocalEnv:    Boolean(session.useLocalEnv),
-          banner:         buildLocalBanner(host.name, hostMeta),
         });
 
-        const sess = state.sessions.get(host.id);
+        const sess = state.sessions.get(sessionKey);
         if (sess?.terminal) {
           const { cols, rows } = sess.terminal;
           if (cols !== 100 || rows !== 28) {
@@ -593,7 +525,7 @@
           }
         }
 
-        switchToSession(host.id);
+        switchToSession(sessionKey);
         setStatus(`运行中 · ${session.providerLabel || 'Agent'}${useLocalEnv ? ' · 本地环境' : ''}`);
         syncButtons();
         renderAgentTabs();
@@ -626,28 +558,12 @@
     }
 
     function stopAgent() {
-      if (state.activeHostId) stopAndRemoveSession(state.activeHostId);
+      if (state.activeSessionKey) stopAndRemoveSession(state.activeSessionKey);
     }
 
     function clearTerminal() {
-      const sess = state.activeHostId ? state.sessions.get(state.activeHostId) : null;
+      const sess = state.activeSessionKey ? state.sessions.get(state.activeSessionKey) : null;
       sess?.terminal?.clear();
-    }
-
-    // ─── Host sync（主终端切换主机时同步 Agent 视图）────────────────────────
-
-    function syncActiveHost() {
-      renderTarget();
-      if (!state.visible) return;
-      const host = getActiveHost?.();
-      if (!host) return;
-      // 若该主机有 Agent 会话则自动切换到它
-      if (state.sessions.has(host.id)) {
-        switchToSession(host.id);
-      } else {
-        // 没有会话时只更新按钮状态，不打扰用户
-        syncButtons();
-      }
     }
 
     // ─── Socket lifecycle ──────────────────────────────────────────────────
@@ -697,7 +613,6 @@
       const sessionTerminal = getSessionTerminalModule?.();
       sessionTerminal?.onLifecycle?.(({ type }) => handleSocketLifecycle(type));
 
-      renderTarget();
       setStatus('未启动');
       syncButtons();
       renderAgentTabs();
@@ -706,7 +621,6 @@
     return {
       closePanel,
       initialize,
-      syncActiveHost,
     };
   }
 

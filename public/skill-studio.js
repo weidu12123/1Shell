@@ -564,6 +564,20 @@
       });
     }
 
+    const $chkCC = document.getElementById('chk-cc-collab');
+    const $ccLabel = document.getElementById('cc-collab-label');
+    if ($chkCC) {
+      $chkCC.addEventListener('change', () => {
+        const enabled = $chkCC.checked;
+        if ($ccLabel) {
+          $ccLabel.className = enabled ? 'text-purple-500' : 'text-slate-400';
+        }
+        if (currentSessionId) {
+          socket.emit('ide:claude-code-collab', { sessionId: currentSessionId, enabled });
+        }
+      });
+    }
+
     // 历史抽屉 + 新建 + 清空
     $btnToggleHistory?.addEventListener('click', toggleHistoryDrawer);
     $btnNewSession?.addEventListener('click', startNewChat);
@@ -740,6 +754,9 @@
         socket.emit('ide:safe-mode', { sessionId: currentSessionId, enabled: safeMode });
         if (document.getElementById('chk-unlimited-turns')?.checked) {
           socket.emit('ide:unlimited-turns', { sessionId: currentSessionId, enabled: true });
+        }
+        if (document.getElementById('chk-cc-collab')?.checked) {
+          socket.emit('ide:claude-code-collab', { sessionId: currentSessionId, enabled: true });
         }
       }
     });

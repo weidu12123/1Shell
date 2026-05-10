@@ -198,7 +198,7 @@
         `<span class="w-1.5 h-1.5 rounded-full ${dotColor}"></span>` +
         `<span class="truncate max-w-[100px]">${escapeText(name)}</span>` +
         `<span class="text-[10px] text-slate-400 ml-0.5 hidden lg:inline">${escapeText(shortMeta)}</span>` +
-        (openHosts.length > 1 && !isActive ? `<button data-tab-close="${host.id}" class="ml-1 text-slate-300 hover:text-red-400 text-[10px] leading-none">×</button>` : '') +
+        `<button data-tab-close="${host.id}" class="ml-1 text-slate-300 hover:text-red-400 text-[10px] leading-none">×</button>` +
         `</div>`;
     }
 
@@ -231,7 +231,16 @@
         const session = findSessionForHost(hostId);
         if (session) {
           _stm.getSocket()?.emit('session:close', { sessionId: session.id });
+          _state.sessionMap.delete(session.id);
+          _state.sessionBuffers?.delete(session.id);
         }
+        if (_state.activeHostId === hostId) {
+          const remaining = [..._state.sessionMap.values()].filter(s => s.status !== 'closed');
+          if (remaining.length > 0) {
+            _stm.connectToHost(remaining[remaining.length - 1].hostId, false).catch(() => {});
+          }
+        }
+        renderTabs();
         return;
       }
 

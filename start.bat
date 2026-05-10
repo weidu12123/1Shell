@@ -4,7 +4,7 @@ title 1Shell - One Shell to rule them all
 
 echo.
 echo  +================================================+
-echo  ^|         1Shell v3.4.0                          ^|
+echo  ^|         1Shell v3.5.0                          ^|
 echo  ^|     One Shell to rule them all.                ^|
 echo  +================================================+
 echo.

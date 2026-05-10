@@ -212,17 +212,23 @@ SKILL.md 的 description 是触发条件（最重要），Always Read + Common T
       cancelled: false,
       safeMode: true,
       unlimitedTurns: false,
+      claudeCodeEnabled: false,
     };
     sessions.set(sessionId, session);
     return session;
   }
 
-  async function handleMessage({ socket, sessionId, message, context, safeMode }) {
+  async function handleMessage({ socket, sessionId, message, context, safeMode, claudeCodeEnabled, unlimitedTurns }) {
     const session = getOrCreateSession(sessionId, context);
 
-    // 首次创建时同步前端的 safeMode 状态
     if (safeMode !== undefined) {
       session.safeMode = safeMode !== false;
+    }
+    if (claudeCodeEnabled !== undefined) {
+      session.claudeCodeEnabled = !!claudeCodeEnabled;
+    }
+    if (unlimitedTurns !== undefined) {
+      session.unlimitedTurns = !!unlimitedTurns;
     }
 
     const userContent = session.messages.length === 0 && session.contextBlock
@@ -254,6 +260,14 @@ SKILL.md 的 description 是触发条件（最重要），Always Read + Common T
       if (seenToolNames.has(t.name)) continue;
       seenToolNames.add(t.name);
       allTools.push(t);
+    }
+    // Claude Code 协作：开关开启时注入工具
+    if (session.claudeCodeEnabled && ideTools.CLAUDE_CODE_TOOL) {
+      const t = ideTools.CLAUDE_CODE_TOOL;
+      if (!seenToolNames.has(t.name)) {
+        seenToolNames.add(t.name);
+        allTools.push(t);
+      }
     }
     if (localMcpService) {
       for (const t of localMcpService.getAllActiveTools()) {
@@ -389,7 +403,7 @@ SKILL.md 的 description 是触发条件（最重要），Always Read + Common T
               result = { content: `[ERROR] ${err.message}`, is_error: true };
             }
           } else {
-            result = await ideTools.handle(tc.name, tc.input || {}, { socket, sessionId, safeMode: session.safeMode });
+            result = await ideTools.handle(tc.name, tc.input || {}, { socket, sessionId, safeMode: session.safeMode, session });
           }
 
           socket.emit('ide:tool-end', {
@@ -428,6 +442,10 @@ SKILL.md 的 description 是触发条件（最重要），Always Read + Common T
       try { session.abortController.abort(); } catch { /* ignore */ }
       session.abortController = null;
     }
+    if (session.activeChildProcess) {
+      try { session.activeChildProcess.kill(); } catch { /* ignore */ }
+      session.activeChildProcess = null;
+    }
   }
 
   function deleteSession(sessionId) {
@@ -454,7 +472,12 @@ SKILL.md 的 description 是触发条件（最重要），Always Read + Common T
     if (session) session.unlimitedTurns = enabled;
   }
 
-  return { handleMessage, cancelSession, deleteSession, hasSession, setSafeMode, getSafeMode, setUnlimitedTurns };
+  function setClaudeCodeEnabled(sessionId, enabled) {
+    const session = sessions.get(sessionId);
+    if (session) session.claudeCodeEnabled = enabled;
+  }
+
+  return { handleMessage, cancelSession, deleteSession, hasSession, setSafeMode, getSafeMode, setUnlimitedTurns, setClaudeCodeEnabled };
 }
 
 module.exports = { createIdeService };

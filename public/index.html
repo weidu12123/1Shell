@@ -468,7 +468,6 @@
         <div class="agent-side-panel-header shrink-0 flex items-center justify-between gap-3 px-4 py-2 border-b border-slate-100">
           <div class="panel-title-block flex items-center gap-3">
             <span class="panel-title text-sm font-bold text-slate-700">AI Agent</span>
-            <span class="panel-subtitle text-[11px] text-slate-400" id="agent-target-text">当前目标：本机</span>
           </div>
           <button class="icon-btn h-6 px-2 rounded-md border border-slate-200 text-[11px] text-slate-500 hover:text-red-400 hover:border-red-200 transition-all" id="agent-panel-close-btn" type="button">关闭</button>
         </div>
@@ -503,6 +502,14 @@
             <label class="flex items-center gap-1 cursor-pointer select-none h-6 px-2 rounded-md border border-amber-300 text-[11px]" id="ide-safe-label" title="安全模式：写操作需审批">
               <input type="checkbox" id="ide-safe-toggle" checked style="accent-color:#f59e0b;width:11px;height:11px;margin:0">
               <span class="text-amber-500 font-medium">🛡 安全</span>
+            </label>
+            <label class="flex items-center gap-1 cursor-pointer select-none h-6 px-2 rounded-md border border-slate-200 text-[11px]" id="ide-cc-label" title="Claude Code 协作：允许调用 Claude Code 处理复杂创作任务">
+              <input type="checkbox" id="ide-cc-toggle" style="accent-color:#7c3aed;width:11px;height:11px;margin:0">
+              <span class="text-slate-400 font-medium" id="ide-cc-text">✦ CC</span>
+            </label>
+            <label class="flex items-center gap-1 cursor-pointer select-none h-6 px-2 rounded-md border border-slate-200 text-[11px]" id="ide-unlimited-label" title="不限轮次：取消 AI 工具调用 30 轮上限">
+              <input type="checkbox" id="ide-unlimited-toggle" style="accent-color:#3b82f6;width:11px;height:11px;margin:0">
+              <span class="text-slate-400 font-medium" id="ide-unlimited-text">∞ 轮次</span>
             </label>
             <button class="icon-btn h-6 px-2 rounded-md border border-slate-200 text-[11px] text-slate-500 hover:text-blue-500 hover:border-blue-200 transition-all" id="ide-clear-btn" type="button" title="清空对话">清空</button>
             <button class="icon-btn h-6 px-2 rounded-md border border-slate-200 text-[11px] text-slate-500 hover:text-red-400 hover:border-red-200 transition-all" id="ide-panel-close-btn" type="button">关闭</button>

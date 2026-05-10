@@ -33,6 +33,8 @@ function registerIdeSocketHandlers(io, { ideService, ideTools, localMcpService, 
         message,
         context: payload.context || null,
         safeMode: payload.safeMode,
+        claudeCodeEnabled: payload.claudeCodeEnabled,
+        unlimitedTurns: payload.unlimitedTurns,
       }).catch(() => {});
 
       reply({ ok: true });
@@ -56,6 +58,13 @@ function registerIdeSocketHandlers(io, { ideService, ideTools, localMcpService, 
       const enabled = payload.enabled !== false;
       if (sessionId) ideService.setUnlimitedTurns(sessionId, enabled);
       reply({ ok: true, unlimitedTurns: enabled });
+    });
+
+    socket.on('ide:claude-code-collab', (payload = {}, reply = () => {}) => {
+      const sessionId = String(payload.sessionId || '').trim();
+      const enabled = payload.enabled !== false;
+      if (sessionId) ideService.setClaudeCodeEnabled(sessionId, enabled);
+      reply({ ok: true, claudeCodeEnabled: enabled });
     });
 
     socket.on('ide:clear', (payload = {}, reply = () => {}) => {

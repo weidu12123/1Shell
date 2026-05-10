@@ -33,6 +33,7 @@
     let currentAiBody = null;
     let visible = false;
     let safeMode = true;
+    let claudeCodeEnabled = false;
 
     // ─── 安全模式开关 ──────────────────────────────────────────────────
     const $safeToggle = document.getElementById('ide-safe-toggle');
@@ -47,6 +48,37 @@
         }
         if (socket && sessionId) {
           socket.emit('ide:safe-mode', { sessionId, enabled: safeMode });
+        }
+      });
+    }
+
+    // ─── Claude Code 协作开关 ─────────────────────────────────────────
+    const $ccToggle = document.getElementById('ide-cc-toggle');
+    const $ccLabel = document.getElementById('ide-cc-label');
+    const $ccText = document.getElementById('ide-cc-text');
+    if ($ccToggle) {
+      $ccToggle.addEventListener('change', () => {
+        claudeCodeEnabled = $ccToggle.checked;
+        if ($ccLabel) $ccLabel.style.borderColor = claudeCodeEnabled ? '#7c3aed' : '#e2e8f0';
+        if ($ccText) $ccText.className = claudeCodeEnabled ? 'text-purple-500 font-medium' : 'text-slate-400 font-medium';
+        if (socket && sessionId) {
+          socket.emit('ide:claude-code-collab', { sessionId, enabled: claudeCodeEnabled });
+        }
+      });
+    }
+
+    // ─── 不限轮次开关 ─────────────────────────────────────────────────
+    let unlimitedTurns = false;
+    const $unlimitedToggle = document.getElementById('ide-unlimited-toggle');
+    const $unlimitedLabel = document.getElementById('ide-unlimited-label');
+    const $unlimitedText = document.getElementById('ide-unlimited-text');
+    if ($unlimitedToggle) {
+      $unlimitedToggle.addEventListener('change', () => {
+        unlimitedTurns = $unlimitedToggle.checked;
+        if ($unlimitedLabel) $unlimitedLabel.style.borderColor = unlimitedTurns ? '#3b82f6' : '#e2e8f0';
+        if ($unlimitedText) $unlimitedText.className = unlimitedTurns ? 'text-blue-500 font-medium' : 'text-slate-400 font-medium';
+        if (socket && sessionId) {
+          socket.emit('ide:unlimited-turns', { sessionId, enabled: unlimitedTurns });
         }
       });
     }
@@ -335,6 +367,8 @@
       if (!sessionId) {
         sessionId = genSessionId();
         socket.emit('ide:safe-mode', { sessionId, enabled: safeMode });
+        if (claudeCodeEnabled) socket.emit('ide:claude-code-collab', { sessionId, enabled: true });
+        if (unlimitedTurns) socket.emit('ide:unlimited-turns', { sessionId, enabled: true });
       }
 
       renderUserBubble(text);
@@ -349,6 +383,8 @@
         message: text,
         context: buildContext(),
         safeMode,
+        claudeCodeEnabled,
+        unlimitedTurns,
       }, (ack) => {
         if (!ack?.ok) {
           setStatus('启动失败');

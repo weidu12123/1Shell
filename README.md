@@ -6,13 +6,13 @@
 
 基于 Web 的零侵入多服务器管理平台，内置 1Shell AI 全局引擎与三层渐进式 AI 运维架构
 
-[![version](https://img.shields.io/badge/version-3.4.0-4f8cff?style=flat-square)](https://github.com/weidu12123/1Shell/releases)
+[![version](https://img.shields.io/badge/version-3.5.0-4f8cff?style=flat-square)](https://github.com/weidu12123/1Shell/releases)
 [![node](https://img.shields.io/badge/node-%3E%3D18-43a047?style=flat-square&logo=node.js)](https://nodejs.org)
 [![license](https://img.shields.io/badge/license-MIT-f9a825?style=flat-square)](LICENSE)
 [![docker](https://img.shields.io/badge/docker-ready-2496ed?style=flat-square&logo=docker)](https://hub.docker.com)
 [![docs](https://img.shields.io/badge/docs-使用指南-blue?style=flat-square)](https://docs.1shell.pro)
 
-[**📖 完整使用指南 →**](https://docs.1shell.pro) | [**⬇ 下载 Release**](https://github.com/weidu12123/1Shell/releases/tag/v3.4.0)
+[**📖 完整使用指南 →**](https://docs.1shell.pro) | [**⬇ 下载 Release**](https://github.com/weidu12123/1Shell/releases/tag/v3.5.0)
 
 </div>
 

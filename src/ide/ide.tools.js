@@ -15,7 +15,7 @@ function isPathAllowed(relPath) {
   });
 }
 
-function createIdeTools({ bridgeService, hostService, skillRegistry, programEngine, skillRunner, auditService, mcpRegistry, localMcpService, scriptService, probeService, siteScanService, dataDir, onFileWritten }) {
+function createIdeTools({ bridgeService, hostService, skillRegistry, programEngine, skillRunner, auditService, mcpRegistry, localMcpService, scriptService, probeService, siteScanService, dataDir, onFileWritten, cliSandbox }) {
 
   const TOOL_SCHEMAS = [
     {
@@ -347,7 +347,7 @@ function createIdeTools({ bridgeService, hostService, skillRegistry, programEngi
     return approvedCommands.get(sessionId)?.has(command.trim()) || false;
   }
 
-  async function handle(name, input, { socket, sessionId, safeMode }) {
+  async function handle(name, input, { socket, sessionId, safeMode, session }) {
     switch (name) {
 
       case 'execute_command': {
@@ -852,9 +852,103 @@ function createIdeTools({ bridgeService, hostService, skillRegistry, programEngi
         } catch (e) { return err(e.message); }
       }
 
+      case 'invoke_claude_code':
+        return handleInvokeClaudeCode(input, { session });
+
       default:
         return err(`未知工具: ${name}`);
     }
+  }
+
+  // ─── Claude Code 协作 ──────────────────────────────────────────────
+
+  const CLAUDE_CODE_TOOL = {
+    name: 'invoke_claude_code',
+    description:
+      '将复杂创作任务委托给 Claude Code（专业 AI 编程助手）执行。' +
+      '\nClaude Code 会通过 MCP 访问 1Shell 的所有主机，自主探测环境并完成任务。' +
+      '\n适用于：编写 Program / Skill、多步骤调试、复杂脚本生成、架构分析。' +
+      '\n拿到返回结果后，你用 write_file 保存产物，用 reload_registry 使其生效。' +
+      '\n注意：每次调用耗时较长（1-5 分钟），简单任务请自行处理。',
+    input_schema: {
+      type: 'object',
+      properties: {
+        task: { type: 'string', description: '清晰描述 Claude Code 需要完成的任务' },
+        hostId: { type: 'string', description: '目标主机 ID（可选，Claude Code 也可以自行 list_hosts 查看）' },
+      },
+      required: ['task'],
+    },
+  };
+
+  async function handleInvokeClaudeCode(input, { session }) {
+    const task = String(input.task || '').trim();
+    if (!task) return err('task 为空');
+
+    if (!cliSandbox) return err('CLI 沙箱未初始化，无法调用 Claude Code');
+
+    const os = require('os');
+    const { execFile } = require('child_process');
+    const isWin = os.platform() === 'win32';
+
+    try {
+      cliSandbox.ensureSandbox('claude-code', { cwd: ROOT_DIR });
+    } catch (e) {
+      return err(`沙箱初始化失败: ${e.message}`);
+    }
+
+    let command = 'claude';
+    let baseArgs = [];
+    if (isWin) {
+      const { findExecutableCommand } = require('../agents/windows-compat');
+      const resolved = findExecutableCommand('claude');
+      if (resolved) {
+        command = resolved.command;
+        baseArgs = resolved.args;
+      }
+    }
+
+    const launchArgs = cliSandbox.buildLaunchArgs('claude-code', { cwd: ROOT_DIR });
+    const launchEnv = cliSandbox.buildLaunchEnv('claude-code', { cwd: ROOT_DIR });
+
+    let prompt = task;
+    if (input.hostId) {
+      const host = hostService.findHost(input.hostId);
+      if (host) {
+        const desc = host.type === 'local' ? '本机' : `${host.username || 'root'}@${host.host}:${host.port || 22}`;
+        prompt = `目标主机: ${host.name} (${desc}), hostId="${host.id}"\n\n${task}`;
+      }
+    }
+
+    const args = [...baseArgs, ...launchArgs, '-p', prompt];
+    const env = { ...process.env, ...launchEnv, FORCE_COLOR: '0' };
+
+    const TIMEOUT = 5 * 60 * 1000;
+
+    const result = await new Promise((resolve) => {
+      const child = execFile(command, args, {
+        timeout: TIMEOUT,
+        maxBuffer: 10 * 1024 * 1024,
+        cwd: ROOT_DIR,
+        env,
+      }, (error, stdout, stderr) => {
+        if (session) session.activeChildProcess = null;
+        if (error && error.killed) {
+          resolve({ content: '[已中断] Claude Code 执行被取消或超时。', is_error: true });
+          return;
+        }
+        const output = (stdout || '').trim();
+        if (!output && error) {
+          resolve({ content: `[ERROR] Claude Code 执行失败: ${error.message}\n${(stderr || '').trim()}`, is_error: true });
+          return;
+        }
+        resolve({ content: output || '(Claude Code 无输出)', is_error: false });
+      });
+
+      if (session) session.activeChildProcess = child;
+    });
+
+    auditService?.log?.({ action: 'ide_invoke_claude_code', task: task.substring(0, 500) });
+    return result;
   }
 
   function ok(text)  { return { content: text, is_error: false }; }
@@ -964,7 +1058,7 @@ function createIdeTools({ bridgeService, hostService, skillRegistry, programEngi
     });
   }
 
-  return { TOOL_SCHEMAS, handle, approveCommand };
+  return { TOOL_SCHEMAS, CLAUDE_CODE_TOOL, handle, approveCommand };
 }
 
 module.exports = { createIdeTools };

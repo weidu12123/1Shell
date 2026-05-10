@@ -1,6 +1,6 @@
 {
   "name": "1shell",
-  "version": "3.4.0",
+  "version": "3.5.0",
   "description": "1Shell - One Shell to rule them all. 零侵入式多机管理中枢 + AI 云端总司令",
   "main": "server.js",
   "scripts": {

@@ -175,6 +175,7 @@ const ideTools = createIdeTools({
   probeService,
   siteScanService,
   dataDir,
+  cliSandbox,
   onFileWritten: () => {
     try { libraryService.reload(); } catch { /* ignore */ }
     try { programRegistry.reload(); } catch { /* ignore */ }

@@ -54,7 +54,6 @@
     activeHostMetaEl.textContent = formatHostMeta(host);
     aiContextTextEl.textContent = `当前上下文：${host?.name || '未选择主机'}`;
     aiChatModule?.syncActiveHost();
-    agentPanelModule?.syncActiveHost();
     fileBrowserModule?.syncActiveHost();
     // 事件总线广播，未来新模块只需 appBus.on('host:changed') 即可
     window.appBus?.emit('host:changed', host);
