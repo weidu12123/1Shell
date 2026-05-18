@@ -4,7 +4,7 @@
 
 **One Shell to rule them all.**
 
-基于 Web 的零侵入多服务器管理平台，内置 1Shell AI 全局引擎与三层渐进式 AI 运维架构
+基于 Web 的 AI 原生多服务器管理平台：终端、文件、探针、脚本、MCP、AI Agent 与三层自动运维集中在一个控制台。
 
 [![version](https://img.shields.io/badge/version-4.0.0-4f8cff?style=flat-square)](https://github.com/weidu12123/1Shell/releases)
 [![node](https://img.shields.io/badge/node-%3E%3D18-43a047?style=flat-square&logo=node.js)](https://nodejs.org)
@@ -12,7 +12,7 @@
 [![docker](https://img.shields.io/badge/docker-ready-2496ed?style=flat-square&logo=docker)](https://hub.docker.com)
 [![docs](https://img.shields.io/badge/docs-使用指南-blue?style=flat-square)](https://docs.1shell.pro)
 
-[**📖 完整使用指南 →**](https://docs.1shell.pro) | [**⬇ 下载 Release**](https://github.com/weidu12123/1Shell/releases/tag/v4.0.0)
+[**完整使用指南**](https://docs.1shell.pro) | [**下载 v4.0.0 Release**](https://github.com/weidu12123/1Shell/releases/tag/v4.0.0)
 
 </div>
 
@@ -20,15 +20,26 @@
 
 ## 什么是 1Shell？
 
-1Shell 是一个**多服务器集中管理平台**，用户通过浏览器就能同时管理多台云服务器，并借助 AI 实现自动巡检、故障发现和自主修复。
+1Shell 是一个面向个人开发者、小团队和轻量运维场景的**多服务器集中管理平台**。你可以通过浏览器统一管理多台 VPS / 云服务器，并让 AI 在授权范围内读取状态、执行命令、分析日志、修改文件、生成自动化程序和处理告警。
 
-它**不是**"又一个 Web SSH 面板"。传统面板解决的是"能连上"，1Shell 要解决的是**连上之后如何高效、持续、安全地管理整个服务器集群**。
+它不是传统的“Web SSH 面板”。传统面板解决的是“如何连上服务器”，1Shell 要解决的是**连上之后如何持续、安全、高效地管理一组服务器**。
 
-**三个核心特点：**
+v4.0 将 1Shell 从旧版页面全面升级为 Vue 3 控制台，并把主机、探针、AI、Skill、Program、脚本库、MCP 与 Agent 面板重新整合成一个统一工作台。
 
-- **零侵入** — 目标服务器不安装任何 Agent 或客户端，一条 SSH 链路复用终端、探针、文件浏览与 AI 协作
-- **1Shell AI** — 自研全局 AI 引擎，将 1Shell 全部功能封装为 23 个 AI 工具，填一个 API Key 即可拥有一个操控所有服务器的 AI 运维工程师
-- **开放协作** — 自身通过 MCP 协议标准化输出，可与 Claude Code、Cursor 等外部 AI 工具双向协作
+---
+
+## v4.0 重点更新
+
+- **全新 Vue 3 控制台**：前端重构为 Vue 3 + Vite + TypeScript SPA，新的首页、主控台、创作台、脚本库、MCP 仓库和设置页统一体验。
+- **主机视图升级**：首页支持世界地图 / 地球视图、主机地理位置、在线状态、GeoIP 提示、未解析主机提醒和主机详情浮层。
+- **主控台重构**：主机列表、终端、文件浏览器、AI Chat、1Shell AI、AI Agent 面板整合为一个多栏工作区，并保留常用页面状态，返回时无需重新从零加载。
+- **探针系统 4.0**：默认支持 Agentless SSH 探针，也支持一键部署 probe-agent / probe-relay-agent，提供趋势、样本、流量、告警、网络诊断和 Agent 生命周期真实校验。
+- **1Shell AI 全局助手**：右下角全局唤起，自动感知当前页面上下文，调用内置工具管理主机、文件、脚本、Program、MCP 和探针。
+- **Program 三层自动运维**：L1 确定性执行、L2 Skill 约束维护 / AI 功能层、L3 Guardian AI 危机升级，并保证任一终态都进入结果界面。
+- **Skill / Program / 脚本库重构**：支持 1Shell Skill Extension、Claude Code Skill 托管、Program 自动化流程和可复用脚本管理。
+- **MCP 仓库与 Bridge 能力增强**：1Shell 可作为 MCP Server 暴露主机、远程文件、脚本、审计、探针、告警、流量、诊断和 Agent 生命周期能力，也可在内部接入外部 MCP 工具供 1Shell AI 调用。
+- **AI CLI 面板**：在 Web 控制台内运行 Claude Code / OpenCode / Codex，并支持一键接入 1Shell 能力。
+- **安全体系补强**：登录认证、凭据加密、CSRF、防暴力破解、IP 访问控制、AI 安全模式、审计日志和 Bridge Token 隔离。
 
 ---
 
@@ -36,174 +47,118 @@
 
 ### 基础管理
 
-| 功能 | 描述 |
+| 功能 | 说明 |
 |------|------|
-| **多机 SSH 终端** | 本地 Shell + 远端 SSH，支持跳板机级联，多标签页切换 |
-| **SFTP 文件浏览** | 本地 + 远程双模式，目录导航、文件预览、上传下载、在线编辑 |
-| **Agentless 探针** | SSH 采集 CPU / 内存 / 磁盘 / 负载 / 网络，定时轮询，主机离线实时告警 |
-| **网站任意门** | 每台主机关联多个业务入口，一键直达 |
-| **审计日志** | 所有操作记录到 SQLite，分页查询，完整追溯 |
-| **轻量化** | 面板内存占用不到 80MB，单文件部署 |
+| **多机 SSH 终端** | 本地 Shell + 远程 SSH，多标签页切换，支持跳板机级联 |
+| **SFTP 文件浏览** | 本地 / 远程双模式，目录导航、文件预览、上传下载、在线编辑 |
+| **主机控制台** | 主机分组、状态卡片、连接管理、快捷入口、右侧 AI / Agent 工作区 |
+| **脚本库** | 脚本创建、编辑、执行、历史记录和跨主机运行 |
+| **审计日志** | 关键操作写入 SQLite，支持查询和追溯 |
+
+### 探针与监控
+
+| 功能 | 说明 |
+|------|------|
+| **Agentless 探针** | 通过 SSH 采集 CPU、内存、磁盘、负载、网络和系统信息，目标机无需预装组件 |
+| **probe-agent** | 可选的一键部署常驻探针，支持安装、自动更新重启、日志查看、卸载和运行状态校验 |
+| **probe-relay-agent** | 面向中继 / 内网场景的轻量 Relay Agent，帮助 1Shell 获取不可直连主机状态，并在卸载后清理 Relay 残留状态 |
+| **趋势与样本** | 多粒度时序数据、指标趋势图、历史样本、月度流量统计，页面返回时复用已加载状态 |
+| **告警与诊断** | 离线告警、阈值告警、一键忽略、Ping / DNS / HTTP 网络诊断 |
 
 ### AI 能力
 
-| 功能 | 描述 |
+| 功能 | 说明 |
 |------|------|
-| **1Shell AI（全局 AI 助手）** | 常驻右下角，在任何页面展开对话；拥有对所有服务器的执行权限、对所有产物的读写权限，相当于一个 7×24 小时的 AI 运维工程师 |
-| **AI 运维程序** | 用自然语言描述需求，AI 自动生成声明式 YAML 运维程序，定时在所有服务器上执行 |
-| **三层 AI 引擎** | L1 确定性执行 → L2 AI 约束修复 → L3 AI 全权介入，渐进式升级介入程度（详见下方） |
-| **创作工作台** | 可视化创建 Program（长驻程序）、Skill（AI 能力包）、Playbook（一次性脚本） |
-| **AI Chat** | OpenAI 兼容 API 接入，流式对话，终端上下文感知 |
-| **Ghost Text** | 终端输入时 AI 实时内联补全，Tab 采纳 |
-| **AI 命令建议** | 自然语言描述需求，AI 生成可执行命令，一键注入终端 |
-| **AI 选区分析** | 框选终端输出，AI 自动解读错误并给出修复命令 |
+| **1Shell AI** | 平台内置的全局 AI 运维助手，可调用 1Shell 工具完成跨主机操作 |
+| **AI Chat** | 独立的 OpenAI 兼容聊天入口，用于普通问答、解释和上下文分析 |
+| **Ghost Text** | 终端输入时提供 AI 内联补全，Tab 采纳 |
+| **命令建议** | 用自然语言描述目标，AI 生成可执行命令并注入终端 |
+| **选区分析** | 框选终端输出后让 AI 解释错误、总结日志并给出修复建议 |
+| **AI Agent 面板** | 在侧边栏运行 Claude Code / OpenCode / Codex 等 AI CLI 工具 |
 
-### 开放能力
+### 自动化与扩展
 
-| 功能 | 描述 |
+| 功能 | 说明 |
 |------|------|
-| **MCP Server** | 1Shell 自身暴露为 MCP Server，外部 AI 工具可直接调用多服务器管理能力 |
-| **MCP 工具扩展** | 支持接入外部 MCP 工具（天气、数据库、通知等），AI 运维过程中可调用 |
-| **Bridge API** | HTTP API 桥接 SSH 执行，适配任意 CLI 工具 |
-| **AI Agent 面板** | 侧边栏运行 Claude Code / OpenCode / Codex |
-
----
-
-## 核心创新一：1Shell AI — 全局 AI 运维引擎
-
-1Shell AI 是为 1Shell 自研的 AI 引擎——**1Shell 的全部功能就是 AI 的功能，AI 的能力就是 1Shell 的能力。**
-
-不同于 Claude Code 等外部工具通过 MCP 协议"远程调用"服务器能力，1Shell AI **原生内嵌于平台内部**，直接操控终端、文件、主机、程序等所有模块，零延迟、零中间层。
-
-```
-┌─────────────────────────────────────────────────────────┐
-│                      1Shell AI                          │
-│                                                         │
-│   用户说一句话 → AI 自动调用内置工具 → 直接在服务器上执行    │
-│                                                         │
-│   23 个内置工具：                                        │
-│   ├── execute_command     在任意主机执行命令              │
-│   ├── read_file / write_file   读写任意主机文件           │
-│   ├── list_hosts          查看所有主机状态                │
-│   ├── create_program      创建自动化运维程序              │
-│   ├── manage_website      创建/修改反向代理站点           │
-│   └── ...更多工具                                        │
-│                                                         │
-│   全局化：每个页面都可唤起，自动感知当前页面上下文          │
-│   安全模式：每步操作可审批，生产环境安全可控               │
-└─────────────────────────────────────────────────────────┘
-```
-
-**与外部 AI 工具的区别：**
-
-| | Claude Code / Cursor | 1Shell AI |
-|---|---|---|
-| 接入方式 | 通过 MCP 协议远程调用 | 原生内嵌，直接操控 |
-| 操作范围 | 仅限 MCP 暴露的 4 个工具 | 23 个内置工具，覆盖全部功能 |
-| 上下文 | 无页面感知 | 自动识别当前页面，适配能力 |
-| 使用门槛 | 需安装 CLI + 配置 MCP | 填一个 API Key 即可 |
-
-**使用方式：** 在 AI 配置中填入任意 OpenAI 兼容的 API Key（OpenAI、DeepSeek、OpenRouter 等均可），即可在任何页面展开 1Shell AI 对话。
-
----
-
-## 核心创新二：三层渐进式 AI 运维引擎
-
-这是 1Shell 最重要的架构设计——**不是所有问题都需要 AI，但 AI 在需要时必须能介入。**
-
-```
-正常运行                    异常发生
-   │                          │
-   ▼                          ▼
-┌──────────────┐    ┌──────────────────────┐
-│   L1 · 确定性执行  │───▶│ 执行预设命令 + verify │
-│   零 AI 消耗      │    │ 通过 → 继续          │
-└──────────────┘    │ 失败 ↓                   │
-                    └──────────────────────┘
-                              │
-                    ┌──────────────────────┐
-                    │   L2 · AI 约束执行     │
-                    │ 调用 Skill，限定范围修复 │
-                    │ 修好 → 继续             │
-                    │ 失败 ↓                  │
-                    └──────────────────────┘
-                              │
-                    ┌──────────────────────┐
-                    │   L3 · Guardian 全权介入│
-                    │ AI 获得完整诊断权限     │
-                    │ 自主分析 + 执行修复     │
-                    │ 频率限制防止失控循环     │
-                    └──────────────────────┘
-```
-
-| 层级 | 名称 | 做什么 | AI 消耗 | 约束机制 |
-|------|------|--------|---------|---------|
-| **L1** | 确定性执行 | 运行预设检查命令，用 verify 规则自动判定 | 零 | 明确的退出码 + 正则匹配 |
-| **L2** | AI 约束执行 | 当 L1 发现异常，调用 Skill 在限定范围内修复 | 少量 | when 条件触发，Skill 规则约束 |
-| **L3** | Guardian AI | L2 也解决不了时，AI 全权诊断修复 | 按需 | max_actions_per_hour 滑动窗口，危险命令强制人工确认 |
-
-**设计理念：** 能用简单规则解决的不动用 AI，需要判断力的才让 AI 介入。既省成本，又保安全。
-
----
-
-## 安全体系
-
-在赋予 AI 强大权限的同时，1Shell 设计了多层安全防护：
-
-| 安全机制 | 说明 |
-|---------|------|
-| **安全模式** | 开启后 AI 的每一步写操作都弹出审批框，用户逐条确认后才执行 |
-| **登录认证** | 用户名密码 + Session 管理，支持运行时修改凭据并即时生效 |
-| **凭据加密** | AES-256-GCM + scrypt 随机盐，SSH 密码和私钥加密存储 |
-| **CSRF 防护** | HttpOnly Session Cookie + JS 可读 CSRF Cookie 双 Token 机制 |
-| **暴力破解防护** | 同一 IP 连续失败 5 次自动锁定 60 秒 |
-| **时序安全** | 密码比对使用 `crypto.timingSafeEqual`，防时序攻击 |
-| **反向代理感知** | 可配置受信任代理 IP 白名单，防止 IP 伪造绕过锁定 |
-| **AI 频率限制** | Guardian 设有 `max_actions_per_hour` 滑动窗口，防 AI 失控循环 |
-| **安全红线** | AI 硬编码禁止 `rm -rf /`、`shutdown`、修改 SSH 配置等破坏性操作 |
-| **IP 访问控制** | 白名单 / 黑名单，CIDR 支持 |
-| **API 安全** | Helmet 安全头、CSP、AI 接口滑动窗口限流 |
-| **Bridge 鉴权** | 独立 Token，与 Web Session 完全隔离 |
+| **Program** | 声明式运维程序，可定时或手动在多台主机上执行 |
+| **三层 AI 引擎** | L1 规则执行 → L2 Skill 修复 → L3 Guardian AI 自主诊断 |
+| **Skill Extension** | 面向 1Shell runner / Program L2 的 AI 约束包，按 rules / workflows / references 分层组织 |
+| **Claude Code Skill 托管** | 统一管理标准 Claude Code Skill 的导入、启用/禁用、查看和更新 |
+| **Program 流程** | 将临时巡检、批量修复和交付任务统一沉淀为可执行运维程序 |
+| **MCP Server** | 将 1Shell 的主机、文件、脚本、探针等能力暴露给外部 AI 工具 |
+| **MCP 工具接入** | 让 1Shell 内部 AI 调用外部 MCP 工具，如数据库、通知、知识库等 |
+| **Bridge API** | 独立 Token 鉴权的 HTTP 桥接接口，适配自动化脚本和外部 CLI |
 
 ---
 
 ## 快速开始
 
-### 方式一：Docker（推荐）
+### 方式一：下载便携包
+
+v4.0 Release 提供 Windows 和 Linux x64 便携包。便携包已包含生产依赖和已构建前端，下载解压后不需要再执行 `npm install`，但运行机器仍需要安装 Node.js 18 或更高版本。
+
+| 平台 | 文件 | 启动方式 |
+|------|------|----------|
+| Windows x64 | `1Shell-v4.0.0-windows-x64.zip` | 解压后运行 `start.bat`，或执行 `node server.js` |
+| Linux x64 | `1Shell-v4.0.0-linux-x64.tar.gz` | 解压后运行 `bash start.sh`，或执行 `node server.js` |
+
+访问地址默认是 `http://localhost:3301`。
+
+### 方式二：一键安装 Linux 服务
 
 ```bash
-# 1. 克隆
-git clone https://github.com/weidu12123/1Shell.git
-cd 1Shell
-
-# 2. 配置
-cp .env.example .env
-# 编辑 .env，设置登录密码和密钥
-
-# 3. 启动
-docker compose up -d
-
-# 4. 访问
-# http://localhost:3301  →  默认账号 admin / admin（请立即修改）
+curl -fsSL https://raw.githubusercontent.com/weidu12123/1Shell/main/install.sh | bash
 ```
 
-### 方式二：直接运行（Node.js ≥ 18）
+可选参数：
+
+```bash
+bash install.sh --port 3301 --password change-me --dir /opt/1shell
+bash install.sh --docker
+```
+
+安装脚本会拉取代码、生成 `.env`、安装依赖，并在原生部署模式下创建 `systemd` 服务。
+
+### 方式三：Docker 部署
+
+```bash
+git clone https://github.com/weidu12123/1Shell.git
+cd 1Shell
+cp .env.example .env
+# 编辑 .env，设置登录密码、APP_SECRET、BRIDGE_TOKEN 和 AI 配置
+docker compose up -d
+```
+
+### 方式四：源码运行 / 开发
 
 ```bash
 git clone https://github.com/weidu12123/1Shell.git
 cd 1Shell
 npm install
 cp .env.example .env
-# 编辑 .env
 npm start
 ```
 
-### 方式三：开发模式
+前端开发：
 
 ```bash
-npm run dev   # nodemon 自动重启
-npm test      # 运行单元 / 集成测试
+cd frontend
+npm install
+npm run dev
+npm run build
 ```
+
+---
+
+## 首次配置
+
+浏览器打开 `http://服务器IP:3301` 后，建议先完成以下配置：
+
+1. **修改登录密码**：设置 → 账号设置。
+2. **配置 AI API**：AI 配置中填写任意 OpenAI 兼容 API Base、API Key 和模型名。
+3. **添加主机**：在主控台添加 SSH 主机，可选择密码、私钥、跳板机等连接方式。
+4. **启用探针**：先使用 Agentless 探针查看基础状态，需要更完整指标时再部署 probe-agent。
+5. **设置 Bridge Token**：如果要让 Claude Code、Cursor 或外部脚本调用 1Shell MCP / Bridge 能力，请配置独立 Token。
 
 ---
 
@@ -212,84 +167,218 @@ npm test      # 运行单元 / 集成测试
 复制 `.env.example` 后按需修改：
 
 ```env
-# ── 登录认证 ──────────────────────────────────
 APP_LOGIN_USERNAME=admin
-APP_LOGIN_PASSWORD=your-strong-password   # 必改
+APP_LOGIN_PASSWORD=change-me
 
-# ── 会话加密（必填，用于 SSH 凭据加密存储）────
-APP_SECRET=your-random-secret-64chars     # 必填
+APP_SECRET=replace-with-a-random-secret
 
-# ── AI API（Web UI 内也可配置）────────────────
 OPENAI_API_BASE=https://api.openai.com/v1
-OPENAI_API_KEY=sk-...
+OPENAI_API_KEY=replace-with-your-api-key
 OPENAI_MODEL=gpt-4o
 
-# ── MCP / Bridge API 鉴权 ─────────────────────
-BRIDGE_TOKEN=your-random-bridge-token     # 启用 MCP 时必填
-
-# ── 服务端口 ──────────────────────────────────
+BRIDGE_TOKEN=replace-with-your-bridge-token
 PORT=3301
 
-# ── 反向代理受信任 IP（Nginx 等场景）─────────
 # TRUSTED_PROXY_IPS=127.0.0.1
 ```
 
-> **安全提示**：生产环境请务必修改 `APP_LOGIN_PASSWORD` 和 `APP_SECRET`，并通过 HTTPS 访问。
+生产环境请务必修改 `APP_LOGIN_PASSWORD`、`APP_SECRET` 和 `BRIDGE_TOKEN`，并通过 HTTPS 访问。
 
 ---
 
-## AI CLI 接入（MCP）
+## 1Shell AI
 
-1Shell 内置 MCP Server，让 **Claude Code** 等工具直接操控你的远端主机：
+1Shell AI 是内置在平台内部的 AI 运维引擎。它不是外部工具通过 MCP 远程调用几个接口，而是直接拥有 1Shell 页面上下文和平台工具能力。
 
-**方式 A：Agent 面板一键接入**
+```text
+用户提出目标
+    ↓
+1Shell AI 感知当前页面、主机、文件、终端或 Program 上下文
+    ↓
+调用内置工具读取状态、执行命令、读写文件、运行脚本或管理自动化
+    ↓
+安全模式下逐步审批，审计日志记录关键操作
+```
 
-登录后点击顶栏 **AI Agent** → **⚡ 一键接入**，自动完成配置。
+与外部 AI 工具的区别：
 
-**方式 B：手动配置**
+| | Claude Code / Cursor 等外部工具 | 1Shell AI |
+|---|---|---|
+| 接入方式 | 通过 MCP / Bridge 调用 1Shell | 原生内嵌在 1Shell 控制台 |
+| 上下文 | 主要依赖工具返回和对话内容 | 自动感知当前页面、选中主机、终端、文件和操作区 |
+| 适合场景 | 代码协作、外部自动化、跨工具编排 | 日常运维、主机管理、故障处理、Program / Skill 创作 |
+| 权限控制 | Bridge Token / MCP 配置 | 登录会话 + 安全模式 + 审计日志 |
+
+AI Chat 与 1Shell AI 是两个入口：AI Chat 更适合普通聊天和解释，1Shell AI 更适合直接调用平台能力完成操作。
+
+---
+
+## Program：三层渐进式自动运维
+
+Program 是 1Shell 的声明式自动运维程序，用 YAML 描述检查、执行、验证、修复、AI 介入和结果输出。它的执行原则是：**L1 能确定执行就不上 AI；L2 能在 Skill 约束内修复就不上 L3；任一终态都必须进入结果界面。**
+
+```text
+Manual / Cron Trigger
+        ↓
+L1 · 确定性执行
+  运行 exec / verify / render，零 AI 消耗
+        ↓ verify 失败或显式 AI step
+L2 · Program Skill 约束层
+  作为维护兜底修复 L1 失败，或作为 Program 主动调用的 AI 功能库
+        ↓ 越界 / 高风险 / 需人工 / 疑似事故 / 重复失败
+L3 · Guardian / 1Shell AI
+  面向危机场景和意料之外异常，在审批、频率限制和审计下介入
+        ↓
+Result · 结果界面
+  成功显示数据；失败显示 L2/L3 的问题说明和下一步信息
+```
+
+| 层级 | 负责什么 | 典型触发 | 约束方式 |
+|------|----------|----------|----------|
+| L1 | 固定命令、verify 校验、key-value / table / message 渲染 | 手动触发、cron 触发、普通巡检步骤 | exit code、正则、阈值、结构化 verify |
+| L2 | L1 失败维护、环境差异适配、Program 显式 AI 功能 step | verify failed 后 `on_fail: repair`，或 step 声明 `type: skill` | Program 绑定 `l2.skill`，按 Skill 的 rules / workflows / references 执行 |
+| L3 | 危机升级、疑似攻击、高风险处置、超出 L2 边界的问题 | incident 命中、L2 返回 `risk_too_high` / `out_of_scope` / `needs_human_decision` / `suspected_incident`、重复修复失败、显式 escalate | Guardian 频率限制、危险命令拦截、人工审批、审计日志 |
+
+L2 的输出必须是结构化终态：`resolved` 表示已修复并继续后续步骤；`unresolved` 表示未解决但会在结果界面说明原因；`out_of_scope`、`risk_too_high`、`needs_human_decision` 和 `suspected_incident` 会作为 L3 升级依据。
+
+Program 的结果可以输出 key-value、表格、列表、消息和 AI 分析说明。即使运行失败，结果 Tab 也会生成终态说明，避免只给出“运行失败”而没有可执行信息。
+
+---
+
+## Skill / Program / 脚本库
+
+v4.0 将 Skill、Program 和脚本能力拆成更清晰的几类。Skill 采用双轨体系：**1Shell Skill Extension** 是 1Shell 自己的运行时能力包；**Claude Code Skill** 是标准 Claude Code 生态 Skill，1Shell 只负责托管和管理。
+
+### 1Shell Skill Extension
+
+用于 1Shell runner 和 Program L2 的 AI 约束包，负责在指定场景中约束和引导 AI 完成运维、排障、创作或自动化任务。一个 1Shell Skill Extension 是一个文件夹，而不是单个提示词文件：
+
+```text
+data/skills/<skill-id>/
+├── SKILL.md        # 能力入口和路由
+├── rules/          # 规则、约束、安全边界
+├── workflows/      # 可执行流程
+├── references/     # 背景资料、命令参考、排障手册
+├── data/           # 示例数据或静态资料
+├── scripts/        # 可调用脚本
+└── templates/      # 输出模板
+```
+
+普通 1Shell AI、全局悬浮 AI 和主控右栏 AI 不会自动加载所有 Skill。Skill runtime 只在用户手动运行 Skill、创作台显式调用 `run_skill`，或 Program step 声明 `type: skill` 时由 runner / Program L2 指定加载，避免上下文污染和越权调用。
+
+### Claude Code Skill 托管
+
+Claude Code Skill 是 Claude Code 生态的标准 Skill 包，通常来自外部 GitHub 仓库或插件市场。1Shell 可以像管理 MCP 一样托管它：导入仓库、扫描标准 `SKILL.md`、展示说明、启用/禁用、查看、更新或删除托管副本。
+
+Claude Code Skill 默认不进入 1Shell runner 执行链，不自动注入日常 1Shell AI，也不自动转换为 1Shell Skill Extension；标准 Skill 的制作和执行仍属于 Claude Code 生态。
+
+### Program 流程与脚本库
+
+- **Program 流程**：承载巡检、批量修复和交付任务，统一进入 Program 的执行、验证、结果输出和 AI 介入链路。
+- **脚本库**：可复用脚本资产，支持执行历史、详情查看和跨主机运行，也可作为 Program 的执行单元。
+
+---
+
+## MCP 与外部 AI 接入
+
+1Shell 同时支持“对外暴露能力”和“对内接入工具”。
+
+### 1Shell 作为 MCP Server
+
+Claude Code、Cursor 等外部 AI 工具可以通过 MCP 调用 1Shell 的多服务器能力，例如：
+
+- 列出主机和探针状态
+- 查询探针样本、时序、流量和告警
+- 执行 Ping / DNS / HTTP 网络诊断
+- 安装、重启、卸载 probe-agent
+- 在指定主机执行命令
+- 读取 / 写入远程文件
+- 上传 / 下载文件
+- 查询脚本、执行脚本
+- 查询审计和管理 MCP Server
+
+手动配置示例：
 
 ```json
-// ~/.claude/mcp_settings.json
 {
   "mcpServers": {
     "1shell": {
       "url": "http://your-server:3301/mcp/sse",
-      "headers": { "X-Bridge-Token": "your-bridge-token" }
+      "headers": { "X-Bridge-Token": "replace-with-your-bridge-token" }
     }
   }
 }
 ```
 
-可用 MCP 工具：
+也可以在 1Shell 的 AI Agent 面板中使用一键接入，让 Claude Code 自动获得当前 1Shell 的连接配置。
 
-| 工具 | 说明 |
-|------|------|
-| `execute_ssh_command` | 在指定主机执行命令，返回 stdout / stderr / exitCode |
-| `list_hosts` | 列出所有已配置主机 |
-| `list_mcp_tools` | 列出 1Shell 已接入的所有 MCP 工具 |
-| `call_mcp_tool` | 调用 1Shell 已接入的 MCP 工具 |
+### 1Shell 接入外部 MCP 工具
+
+MCP 仓库可以管理第三方 MCP Server。启用后，这些工具主要供 1Shell 内部 AI 使用，例如数据库查询、通知发送、知识库检索或自定义业务工具。
+
+---
+
+## 探针系统
+
+1Shell 支持两种探针模式：
+
+| 模式 | 是否在目标机安装组件 | 适合场景 |
+|------|----------------------|----------|
+| Agentless SSH 探针 | 否 | 快速接入、低侵入、基础监控 |
+| probe-agent | 是 | 长期监控、更稳定采样、更完整系统指标 |
+
+探针能力包括：
+
+- CPU、内存、磁盘、负载、网络、系统版本、平台架构采集
+- 多粒度趋势图和历史样本查询
+- 月度流量统计
+- 离线告警和阈值告警，支持一键忽略当前告警
+- Ping / DNS / HTTP 诊断
+- Agent 安装、自动更新重启、卸载、日志查看和状态展示
+- 安装 / 重启 / 卸载后的目标机真实校验，避免命令成功但服务未生效
+- Relay Agent 支持内网和中继场景，卸载后清理 Relay 残留状态
+
+---
+
+## 安全体系
+
+1Shell 在赋予 AI 运维能力的同时，内置多层安全控制：
+
+| 安全机制 | 说明 |
+|----------|------|
+| 登录认证 | 用户名密码、Session 管理、运行时修改凭据 |
+| 凭据加密 | SSH 密码和私钥使用 AES-256-GCM + scrypt 加密存储 |
+| CSRF 防护 | HttpOnly Session Cookie + CSRF Token |
+| 暴力破解防护 | 登录失败锁定策略，降低撞库风险 |
+| IP 访问控制 | 支持白名单、黑名单和 CIDR |
+| 反向代理感知 | 可配置受信任代理 IP，避免伪造来源 IP |
+| AI 安全模式 | 写操作和高风险操作可逐步审批 |
+| AI 安全红线 | 拦截明显破坏性命令和危险操作 |
+| Bridge 隔离 | Bridge Token 与 Web Session 分离 |
+| 审计日志 | 关键操作落库，便于追踪和复盘 |
 
 ---
 
 ## 架构概览
 
-```
-浏览器（xterm.js + Vanilla JS）
-    ↕  HTTP + WebSocket（Socket.IO）
-1Shell Server（Node.js + Express）
-    ├── Auth Service        Cookie Session + CSRF + 暴力破解防护
-    ├── Session Service     node-pty（本地）/ ssh2（远端）
-    ├── Probe Service       SSH exec 零侵入采集
-    ├── File Service        fs（本地）/ SFTP（远端）
-    ├── AI Service          OpenAI 兼容流式 API
-    ├── IDE Service         1Shell AI 引擎（全局 AI 助手）
-    ├── Program Engine      三层 AI 运维引擎（L1/L2/L3）
-    ├── Skill Runner        Skill 能力包执行器
-    ├── Bridge Service      SSH exec 命令桥接
-    ├── MCP Service         MCP SSE + JSON-RPC 2.0（双向）
-    ├── Agent Service       PTY 启动 AI CLI 工具
-    ├── Audit Service       SQLite 审计日志
-    └── IP Filter           白名单 / 黑名单
+```text
+Browser
+  └─ Vue 3 SPA / Vite / TypeScript / xterm.js
+        │ HTTP + WebSocket
+        ▼
+1Shell Server
+  ├─ Express + Socket.IO
+  ├─ Auth / CSRF / IP Filter / Audit
+  ├─ SSH Terminal: node-pty + ssh2
+  ├─ File Service: fs + SFTP
+  ├─ Probe Service: Agentless SSH + probe-agent + relay-agent
+  ├─ AI Service: OpenAI-compatible streaming API
+  ├─ 1Shell AI Tools: platform-native tool calling
+  ├─ Program Engine: L1 / L2 / L3
+  ├─ Skill Runner / Program Runner / Script Runner
+  ├─ MCP Server / MCP Warehouse / Bridge API
+  ├─ Agent Service: Claude Code / OpenCode / Codex PTY
+  └─ SQLite / repositories / migrations
 ```
 
 ---
@@ -297,85 +386,76 @@ PORT=3301
 ## 技术栈
 
 | 层 | 技术 |
-|---|---|
-| 运行时 | Node.js ≥ 18 |
-| Web 框架 | Express + Helmet |
-| 实时通信 | Socket.IO |
-| SSH | ssh2 + node-pty |
-| 终端渲染 | xterm.js 5 |
-| 数据库 | better-sqlite3 |
-| AI | OpenAI 兼容 API（任意兼容服务商） |
-| 协议 | MCP（Model Context Protocol） |
-| 容器化 | Docker + docker-compose |
+|----|------|
+| 前端 | Vue 3.5、Vite 5、TypeScript、Tailwind CSS、Pinia、Vue Router、xterm.js、页面状态持续化 |
+| 后端 | Node.js、Express、Socket.IO、Helmet |
+| 数据库 | SQLite、better-sqlite3 |
+| SSH / SFTP | ssh2、node-pty |
+| AI | OpenAI 兼容 API、流式对话、工具调用 |
+| 自动化 | Program Engine、Skill Runner、Program 流程、脚本库 |
+| 协议 | MCP、Bridge HTTP API |
+| 探针 | Agentless SSH、Go probe-agent、probe-relay-agent |
+| 部署 | Docker、docker-compose、systemd、便携包 |
 
 ---
 
 ## 项目结构
 
-```
+```text
 1Shell/
-├── server.js                   # 入口：服务装配与启动
+├── server.js                    # 服务入口
+├── frontend/                    # Vue 3 SPA
+│   ├── src/
+│   └── dist/                    # 生产构建产物
 ├── src/
-│   ├── services/               # 业务逻辑层
-│   │   ├── auth.service.js     # 认证与会话
-│   │   ├── session.service.js  # SSH / PTY 会话
-│   │   ├── host.service.js     # 主机管理与连接
-│   │   ├── probe.service.js    # Agentless 探针
-│   │   ├── file.service.js     # 文件浏览
-│   │   ├── ai.service.js       # AI 补全与对话
-│   │   ├── bridge.service.js   # SSH exec 桥接
-│   │   └── audit.service.js    # 审计日志
-│   ├── ide/                    # 1Shell AI 引擎
-│   │   ├── ide.service.js      # AI 会话管理与系统提示
-│   │   └── ide.tools.js        # 23 个内置 AI 工具
-│   ├── programs/               # 运维程序引擎
-│   │   ├── engine.js           # 三层执行架构
-│   │   ├── program-schema.js   # YAML schema 校验
-│   │   └── state.service.js    # 实例状态管理
-│   ├── skills/                 # Skill 系统
-│   │   ├── runner.js           # Skill 执行器
-│   │   └── playbook-schema.js  # Playbook schema
-│   ├── agents/                 # AI CLI PTY 服务
-│   ├── mcp/                    # MCP 协议实现
-│   ├── routes/                 # HTTP 路由
-│   ├── sockets/                # Socket.IO 事件
-│   ├── middleware/             # 限流、错误处理
-│   ├── repositories/           # 数据访问层
-│   └── database/               # SQLite 管理
+│   ├── agents/                  # AI CLI 面板与 PTY 管理
+│   ├── database/                # SQLite 初始化和迁移
+│   ├── ide/                     # 1Shell AI 会话和内置工具
+│   ├── mcp/                     # MCP Server / MCP 接入
+│   ├── middleware/              # 安全、限流、错误处理中间件
+│   ├── probes/                  # 探针、告警、诊断相关逻辑
+│   ├── programs/                # Program 三层执行引擎
+│   ├── repositories/            # 数据访问层
+│   ├── routes/                  # HTTP API 路由
+│   ├── services/                # 主机、终端、文件、AI、审计等服务
+│   ├── skills/                  # Skill runner 与自动化能力支持
+│   └── sockets/                 # WebSocket 事件
 ├── data/
-│   └── skills/                 # Skill 能力包
-│       ├── skill-authoring/    # 创作台元 Skill
-│       ├── program-authoring/  # 程序创作规范
-│       └── guardian-protocol/  # Guardian 协议
-├── public/                     # 前端（Vanilla JS）
-├── lib/                        # 工具库（加密、日志）
-├── test/                       # 测试用例
+│   ├── skills/                  # 1Shell Skill Extension
+│   ├── claude-code-skills/      # Claude Code Skill 托管目录
+│   └── geoip/                   # GeoIP 公开数据资源
+├── agent/                       # Go probe-agent / relay-agent 源码与构建脚本
+├── docs/                        # 使用指南和设计文档
+├── lib/                         # 通用工具库
+├── public/                      # 静态资源和兼容入口
 ├── Dockerfile
 ├── docker-compose.yml
-└── .github/workflows/ci.yml    # CI 流水线
+├── install.sh
+└── start.sh / start.bat
 ```
 
 ---
 
 ## 适用场景
 
-- 个人开发者或小团队拥有 3~10 台 VPS，需要统一管理入口
-- 不想在目标机器安装任何额外 Agent 或修改配置
-- 希望 AI 自动巡检服务器健康状态，异常时自动修复而非凌晨被告警叫醒
-- 需要让 Claude Code 等 AI 工具安全、可控地操控远端主机
+- 个人开发者或小团队有多台 VPS，需要统一入口管理终端、文件、脚本和监控。
+- 不希望在所有目标机预装复杂 Agent，但又希望保留可选常驻 Agent 的增强能力。
+- 希望 AI 能在安全审批下协助巡检、排障、执行命令、读写文件和生成自动化流程。
+- 想让 Claude Code、Cursor 等外部 AI 工具安全调用远程服务器能力。
+- 需要把日常运维经验沉淀成 Program、Skill 和脚本资产。
 
 ---
 
-## 与同类项目的区别
+## 与同类工具的区别
 
-| | 传统面板（宝塔/1Panel） | Ansible/Terraform | 1Shell |
+| | 传统面板 | Ansible / Terraform | 1Shell |
 |---|---|---|---|
-| AI 能力 | 无 | 无 | 1Shell AI 全局引擎 + 三层渐进式自动运维 |
-| 使用门槛 | 需学习面板操作 | 需编写 Playbook | 填 API Key，说人话即可 |
-| 多机管理 | 需每台安装客户端 | Agentless 但无 Web UI | Agentless + Web 终端 + 实时监控 |
-| 自动化 | 预设脚本 | 声明式编排 | AI 根据实际情况动态决策 |
-| 扩展性 | 固定功能 | 模块化 | MCP 协议 + Skill 系统，能力可扩展 |
-| 实时交互 | 有 | 无 | SSH 终端 + AI 对话 + 文件浏览一体化 |
+| 核心定位 | 服务器面板 | 声明式自动化 / 基础设施编排 | AI 原生多服务器控制台 |
+| 接入方式 | 通常需要安装服务端组件 | SSH / API / Provider | Web 控制台 + SSH + 可选 Agent |
+| 实时交互 | 有限 | 弱 | 终端、文件、AI、探针、脚本一体化 |
+| AI 能力 | 通常没有 | 通常没有 | 1Shell AI + AI Chat + AI Agent + Program L2/L3 |
+| 自动化沉淀 | 面板任务 | 声明式配置 / State | Program / Skill / Script |
+| 外部协作 | API 能力不一 | CLI / Provider | MCP Server + Bridge API |
 
 ---
 
@@ -383,5 +463,6 @@ PORT=3301
 
 [MIT](LICENSE) © 2025 weidu12123
 
-##友链
+## 友链
+
 http://linux.do
