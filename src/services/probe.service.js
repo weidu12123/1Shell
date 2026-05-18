@@ -26,7 +26,7 @@ const {
   parseProbeOutput,
 } = require('./probe/parsers');
 
-function createProbeService({ hostRepository, hostService, sshShellPool }) {
+function createProbeService({ hostRepository, hostService, sshShellPool, probeAgentService, probeRelayService, probeTrafficService }) {
   let lastLocalCpuSample = null;
   let latestSnapshot = {
     generatedAt: null,
@@ -601,13 +601,56 @@ function createProbeService({ hostRepository, hostService, sshShellPool }) {
     }
   }
 
+  function buildAgentOnlyPlaceholder(host, status, reason = 'agent_online') {
+    const isRelay = reason === 'relay_agent_online' || status.relaySource;
+    return {
+      hostId: host.id,
+      name: host.name,
+      hostname: host.host || host.name,
+      online: true,
+      source: isRelay ? 'relay_agent' : 'agent',
+      latencyMs: null,
+      cpuUsage: null,
+      memoryUsage: null,
+      diskUsage: null,
+      uptimeSec: null,
+      checkedAt: status.agentLastSeenAt || nowIso(),
+      lastSuccessAt: status.agentLastSeenAt || null,
+      stale: false,
+      error: null,
+      errorCode: null,
+      load1: null,
+      load5: null,
+      load15: null,
+      processCount: null,
+      keyProcesses: [],
+      bandwidthRxBps: null,
+      bandwidthTxBps: null,
+      diskReadBps: null,
+      diskWriteBps: null,
+      ...status,
+      sshSkipped: true,
+      sshSkipReason: reason,
+    };
+  }
+
   async function collectAllProbes() {
     const storedHosts = hostRepository.readStoredHosts();
+    const agentStatuses = probeAgentService ? probeAgentService.getAgentStatusMap() : new Map();
+    const relayStatuses = probeRelayService?.getRelayAgentStatusMap
+      ? probeRelayService.getRelayAgentStatusMap()
+      : new Map();
     const localProbe = await collectLocalProbe();
     const remoteProbes = await mapWithConcurrency(
       storedHosts,
       PROBE_REMOTE_CONCURRENCY,
       async (host) => {
+        const agentStatus = agentStatuses.get(host.id);
+        if (agentStatus?.agentTrusted) return buildAgentOnlyPlaceholder(host, agentStatus, 'agent_online');
+
+        const relayStatus = relayStatuses.get(host.id);
+        if (relayStatus?.agentTrusted) return buildAgentOnlyPlaceholder(host, relayStatus, 'relay_agent_online');
+
         const probe = await probeRemoteHost(host);
         return probe.online
           ? normalizeSuccessfulProbe(probe)
@@ -618,10 +661,42 @@ function createProbeService({ hostRepository, hostService, sshShellPool }) {
     return [localProbe, ...remoteProbes];
   }
 
-  function buildSnapshot(probes) {
+  function mergeRelayProbes(baseProbes, relayProbes = []) {
+    if (!Array.isArray(relayProbes) || relayProbes.length === 0) return baseProbes;
+    const byHostId = new Map(baseProbes.map((probe) => [probe.hostId, probe]));
+
+    for (const relayProbe of relayProbes) {
+      if (!relayProbe?.hostId) continue;
+      const existing = byHostId.get(relayProbe.hostId);
+      byHostId.set(relayProbe.hostId, existing ? {
+        ...existing,
+        ...relayProbe,
+        name: existing.name || relayProbe.name,
+        hostname: relayProbe.hostname || existing.hostname,
+        sshOnline: existing.online,
+        source: 'relay_agent',
+      } : {
+        ...relayProbe,
+        source: 'relay_agent',
+      });
+    }
+
+    return Array.from(byHostId.values());
+  }
+
+  function buildSnapshot(probes, relayProbes = []) {
+    const decorated = probeAgentService ? probeAgentService.decorateProbes(probes) : probes;
+    const merged = mergeRelayProbes(decorated, relayProbes);
+    const trafficMap = probeTrafficService?.getUsageMap?.() || null;
+    const withTraffic = trafficMap
+      ? merged.map((probe) => {
+          const usage = trafficMap.get(probe.hostId);
+          return usage ? { ...probe, ...usage } : probe;
+        })
+      : merged;
     latestSnapshot = {
       generatedAt: nowIso(),
-      probes,
+      probes: withTraffic,
       sampleIntervalMs: PROBE_INTERVAL_MS,
     };
     return latestSnapshot;
@@ -630,8 +705,11 @@ function createProbeService({ hostRepository, hostService, sshShellPool }) {
   async function refreshSnapshot() {
     if (refreshInFlight) return refreshInFlight;
 
-    refreshInFlight = collectAllProbes()
-      .then((probes) => buildSnapshot(probes))
+    refreshInFlight = (async () => {
+      const relayProbes = probeRelayService ? await probeRelayService.syncAll() : [];
+      const probes = await collectAllProbes();
+      return buildSnapshot(probes, relayProbes);
+    })()
       .finally(() => {
         refreshInFlight = null;
       });
@@ -672,6 +750,7 @@ function createProbeService({ hostRepository, hostService, sshShellPool }) {
   return {
     collectAllProbes,
     getSnapshot,
+    getLatestSnapshot: () => latestSnapshot,
     getSampleIntervalMs: () => PROBE_INTERVAL_MS,
     refreshSnapshot,
     startScheduler,

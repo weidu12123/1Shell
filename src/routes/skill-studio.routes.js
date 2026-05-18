@@ -97,7 +97,7 @@ function createSkillStudioRouter({ hostService, libraryService, mcpRegistry }) {
       .map((s) => {
         if (s && s.id && mcpRegistry) {
           const hit = mcpRegistry.listServersWithSecrets().find(x => x.id === s.id);
-          if (hit) {
+          if (hit && hit.enabled !== false && hit.exposeToIde !== false) {
             return {
               name: hit.name,
               url: hit.url,

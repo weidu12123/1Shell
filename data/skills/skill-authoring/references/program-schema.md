@@ -12,6 +12,18 @@ description: |
 
 enabled: false          # 新创建必须 false
 
+l2:
+  skill: program-maintenance       # L1 失败后的约束维护 Skill
+  max_repair_attempts: 1
+  escalate_after_failures: 2
+  allow_write_program: true
+
+l3:
+  skills:
+    - guardian-protocol            # L3 危机升级协议
+  max_actions_per_hour: 10
+  require_confirmation: true
+
 hosts: all              # all | [hostId, ...] | hostId
 
 triggers:
@@ -25,7 +37,7 @@ triggers:
 
 actions:
   <action_name>:
-    on_fail: escalate           # 生产程序必须 escalate，禁止 stop
+    on_fail: repair             # L1 失败先由 L2 维护，禁止 stop
     steps:
       # ── exec 步骤（L1） ──
       - id: <snake_case>        # 字母开头，下划线分隔，禁止连字符
@@ -58,18 +70,21 @@ actions:
             value_from: <step_id>  # 引用前面步骤的 stdout
             suffix: "%"            # 可选
 
-# ── monitors（可选，L3 声明式健康检查） ──
+# ── incidents（可选，只有危机场景才写） ──
+incidents:
+  - id: suspected_attack
+    when:
+      step: <step_id>
+      stdout_match: <危机条件正则>
+    severity: critical             # warning | critical | emergency
+    policy: ask_then_act           # ask_then_act | auto_diagnose | manual_only
+
+# ── monitors（可选，定时健康检查；失败后进入 L3） ──
 monitors:
   - id: <snake_case>
     check: <shell 命令>
-    expect: { exit_code: 0 }       # 或 stdout_contains / stdout_match
+    expect: { exit_code: 0 }       # 或 stdout_contains / stdout_match / number_gt
     interval: "*/5 * * * *"
-    action: <action_name>
-
-guardian:
-  skills: []                       # Rescue Skill ID 列表，无则留空
-  max_actions_per_hour: 10         # 推荐 5-15
-  # 注意：guardian.enabled 字段引擎未实现，禁止写
 
 # ── ui（多 action 程序必须加） ──
 ui:
@@ -178,8 +193,9 @@ ss -tlnp | grep -q ':80 ' && echo listening || echo closed
 
 ## 常见错误
 
-- `on_fail: stop` → 静默死亡，用 `escalate`
-- `guardian.enabled: true` → 引擎不读此字段，禁止写
+- `on_fail: stop` → 静默死亡，用 `repair`
+- `on_fail: escalate` → 跳过 L2，除非明确危机直升，否则用 `repair`
+- `guardian.enabled: true` → 旧字段，禁止写；用 `l3` 配置
 - `enabled: true` → 会立即在所有主机执行，用 `false`
 - `verify` 只写 `exit_code: 0` → 等于没验证，加 `stdout_match`
 - step id 用连字符 `cpu-usage` → 校验失败，用 `cpu_usage`

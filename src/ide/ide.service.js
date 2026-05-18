@@ -1,12 +1,181 @@
 'use strict';
 
 const fetch = require('node-fetch');
-const { parseAnthropicSSE } = require('../skills/runner');
+const {
+  ONESHELL_CORE_SYSTEM_PROMPT,
+  ONESHELL_AUTHORING_SYSTEM_PROMPT,
+  SAFE_MODE_ADDENDUM,
+} = require('../ai/oneshell-ai-prompt');
+
+// ─── 增量 SSE 解析（实时推送 text delta + 随时可中断） ─────────────────────
+/**
+ * 逐 chunk 解析 Anthropic SSE 流，实时 emit ide:text-delta 到前端。
+ * AbortController 在整个流读取期间保持有效，cancelSession 可随时 abort。
+ * 返回与 parseAnthropicSSE 相同结构的完整 message 对象。
+ */
+function streamAnthropicSSE(stream, abortController, session, socket, sessionId, runId) {
+  return new Promise((resolve, reject) => {
+    const blocks = [];
+    let stopReason = 'end_turn';
+    let stopSeq = null;
+    let modelId = '';
+    let inputTokens = 0, outputTokens = 0;
+    let emittedTextDelta = false;
+    let buffer = '';
+    let resolved = false;
+
+    function buildResult() {
+      return {
+        type: 'message',
+        role: 'assistant',
+        model: modelId,
+        content: blocks.filter(Boolean).map(blk => {
+          if (blk.type === 'text') return { type: 'text', text: blk.text };
+          if (blk.type === 'tool_use') {
+            let input = blk.input;
+            if (!input && blk._inputJson) {
+              try { input = JSON.parse(blk._inputJson); } catch { input = {}; }
+            }
+            return { type: 'tool_use', id: blk.id, name: blk.name, input: input || {} };
+          }
+          return blk;
+        }),
+        stop_reason: stopReason,
+        stop_sequence: stopSeq,
+        usage: { input_tokens: inputTokens, output_tokens: outputTokens },
+        _emittedTextDelta: emittedTextDelta,
+      };
+    }
+
+    function cleanup() {
+      abortController.signal.removeEventListener('abort', onAbort);
+    }
+
+    function finish() {
+      if (resolved) return;
+      resolved = true;
+      cleanup();
+      resolve(buildResult());
+    }
+
+    function processLine(line) {
+      if (resolved) return;
+      if (!line.startsWith('data: ')) return;
+      const raw = line.slice(6).trim();
+      if (!raw || raw === '[DONE]') return;
+      let evt;
+      try { evt = JSON.parse(raw); } catch { return; }
+      if (!evt.type) return;
+
+      if (evt.type === 'error') {
+        resolved = true;
+        reject(new Error(evt.error?.message || 'SSE error'));
+        return;
+      }
+      if (evt.type === 'message_start') {
+        modelId = evt.message?.model || modelId;
+        inputTokens = evt.message?.usage?.input_tokens || 0;
+        outputTokens = evt.message?.usage?.output_tokens || 0;
+        return;
+      }
+      if (evt.type === 'content_block_start') {
+        const cb = evt.content_block || {};
+        blocks[evt.index] = {
+          type: cb.type,
+          text: cb.text || '',
+          id: cb.id || '',
+          name: cb.name || '',
+          _inputJson: '',
+        };
+        return;
+      }
+      if (evt.type === 'content_block_delta') {
+        const blk = blocks[evt.index];
+        if (!blk) return;
+        const d = evt.delta || {};
+        if (d.type === 'text_delta' && d.text) {
+          blk.text += d.text;
+          emittedTextDelta = true;
+          if (session.currentRunId === runId && !session.cancelled) {
+            socket.emit('ide:text-delta', { sessionId, runId, delta: d.text });
+          }
+        }
+        if (d.type === 'input_json_delta') {
+          blk._inputJson += d.partial_json || '';
+        }
+        return;
+      }
+      if (evt.type === 'content_block_stop') {
+        const blk = blocks[evt.index];
+        if (blk && blk._inputJson) {
+          try { blk.input = JSON.parse(blk._inputJson); } catch { blk.input = {}; }
+          delete blk._inputJson;
+        }
+        return;
+      }
+      if (evt.type === 'message_delta') {
+        stopReason = evt.delta?.stop_reason || stopReason;
+        stopSeq = evt.delta?.stop_sequence || stopSeq;
+        outputTokens = evt.usage?.output_tokens || outputTokens;
+        return;
+      }
+      if (evt.type === 'message_stop') {
+        finish();
+      }
+    }
+
+    // 监听 abort — 流读取期间 cancelSession 触发时立即中断
+    const onAbort = () => {
+      if (resolved) return;
+      resolved = true;
+      try { stream.destroy(); } catch { /* ignore */ }
+      reject(Object.assign(new Error('Aborted'), { name: 'AbortError' }));
+    };
+    if (abortController.signal.aborted) {
+      onAbort();
+      return;
+    }
+    abortController.signal.addEventListener('abort', onAbort, { once: true });
+
+    stream.on('data', (chunk) => {
+      if (resolved) return;
+      buffer += chunk.toString();
+      const lines = buffer.split('\n');
+      buffer = lines.pop() || '';
+      for (const line of lines) {
+        processLine(line);
+        if (resolved) break;
+      }
+    });
+
+    stream.on('end', () => {
+      abortController.signal.removeEventListener('abort', onAbort);
+      finish();
+    });
+
+    stream.on('error', (err) => {
+      abortController.signal.removeEventListener('abort', onAbort);
+      if (resolved) return;
+      resolved = true;
+      reject(err);
+    });
+  });
+}
 
 // ─── 上下文压缩 ─────────────────────────────────────────────────────────
 // 保留最近 KEEP_RECENT 条消息完整，更早的 tool_result 截断到 TRUNCATE_TO 字符
 const KEEP_RECENT = 8;
 const TRUNCATE_TO = 200;
+
+function toolContentPreview(content) {
+  if (typeof content === 'string') return content;
+  if (!Array.isArray(content)) return '';
+  return content.map((block) => {
+    if (block?.type === 'text') return block.text || '';
+    if (block?.type === 'image') return '[image]';
+    return JSON.stringify(block);
+  }).join('\n');
+}
 
 function compactMessages(messages) {
   if (messages.length <= KEEP_RECENT) return messages;
@@ -18,12 +187,23 @@ function compactMessages(messages) {
 
     const compacted = msg.content.map((block) => {
       if (block.type !== 'tool_result') return block;
-      const text = typeof block.content === 'string' ? block.content : '';
+      const text = toolContentPreview(block.content);
       if (text.length <= TRUNCATE_TO) return block;
       return { ...block, content: text.slice(0, TRUNCATE_TO) + `\n...(已压缩，原 ${text.length} 字符)` };
     });
     return { ...msg, content: compacted };
   });
+}
+
+function normalizePromptEntry(entry) {
+  const value = String(entry || '').trim().toLowerCase();
+  return value === 'studio' || value === 'authoring' || value === 'skill-studio' ? 'studio' : 'core';
+}
+
+function promptForEntry(entry) {
+  return normalizePromptEntry(entry) === 'studio'
+    ? ONESHELL_AUTHORING_SYSTEM_PROMPT
+    : ONESHELL_CORE_SYSTEM_PROMPT;
 }
 
 /**
@@ -40,95 +220,58 @@ function createIdeService({ ideTools, proxyConfigStore, port, hostService, audit
   // sessionId → { messages[], system, hostId, abortController }
   const sessions = new Map();
 
-  const SYSTEM_PROMPT = `你是 1Shell IDE 创作助手。你通过工具调用帮用户在真实主机上完成运维任务、创建和迭代 1Shell 产物。
-
-## 你是谁
-你运行在 1Shell 平台内部，拥有对已托管主机的完整 SSH 执行权限和对 1Shell 产物文件系统的读写权限。
-
-## 核心认知：1Shell 的两种产物
-
-### Skill（AI 能力包）
-Skill 是**文件夹，不是文件**。结构：
-  data/skills/<skill-id>/
-    SKILL.md              — 路由中心（≤100 行），只做导航不做百科
-    rules/                — 硬约束（安全红线、禁止操作），AI 执行时不可违反
-    workflows/            — 软规则（执行步骤），AI 可读取并按需修订
-    references/           — 参考资料（领域知识、命令模板），按需加载
-
-四类内容**严格分离**，不混写。
-SKILL.md 的 description 是触发条件（最重要），Always Read + Common Tasks 是路由表。
-不确定格式时调用 query_format("skill") 获取完整规范。
-
-### Program（长驻 / 单次任务）
-  data/programs/<id>/program.yaml
-由 triggers(cron/manual) 驱动。三层执行架构：
-  L1 exec 步骤 — 确定性执行（0 token）
-  L2 skill 步骤 — Skill 驱动的 AI（type: skill + when 条件）
-  L3 Guardian — on_fail=escalate 时兜底 + monitors 定期健康检查
-
-**创建 Program 硬规则（违反 = 生产事故）：**
-- on_fail: escalate（禁止 stop，会静默死亡无人知）
-- enabled: false（让用户在 UI 启用，禁止 true）
-- verify 不能只写 exit_code: 0，有数字输出必须加 stdout_match: '^[0-9]'
-- 禁用 top/vmstat/iostat/netstat（跨发行版不可靠），用 /proc/stat、/proc/meminfo、df -P、ss
-- 每个 action 最后必须有 type: render 步骤展示结果
-- 多 action 程序必须声明 ui.instance_actions 自定义实例按钮（不声明则用户只看到一个默认"触发"按钮）
-- 破坏性按钮必须 style: danger + confirm 确认提示
-- guardian.enabled 字段引擎未实现，禁止写
-
-**render 步骤四种 format（items_from_steps 等字段都是合法的）：**
-  keyvalue — items_from_steps: [{key, value_from, suffix, prefix, transform}] 或 items: [{key, value}]
-  table    — columns: [] + rows_from_step 或 rows: [[]]
-  message  — content 或 content_from
-  list     — listItems: [{title, description}]
-  公共字段：title, subtitle, level(info/success/warning/error)
-
-**ui.instance_actions（多 action 时必须加）：**
-  ui:
-    instance_actions:
-      - id: snake_case         # 唯一
-        label: "按钮文本"
-        action: action_name    # 指向 actions{} 里的 action
-        style: primary         # primary | success | danger | default
-        confirm: "确认提示"    # 可选，破坏性操作必须加
-
-可靠命令库和完整字段说明调用 query_format("program") 查阅——仅在需要具体命令模板时调用，常规创建不需要。
-
-## 工作原则
-- 用户告诉你需求，你**自行判断**应该创建哪种产物，不要反问"你想创建 Skill 还是 Playbook"
-- 创建产物前先用 execute_command 探测目标主机环境（OS、已装软件、路径结构）
-- 写完产物文件后调用 reload_registry 使其立即可见
-- 可用 trigger_program 或 execute_command 直接测试刚创建的产物
-- 用 list_artifacts 查看已有产物，用 read_file 读取并修改
-- 格式不确定时用 query_format 按需查询——Program 的创建规则已内置于上方提示，query_format("program") 主要用于查阅可靠命令库和 render 步骤格式详解
-- 通过 MCP 工具创建的文件（如 .pptx、.docx）不在 list_artifacts 里，要修改它们应继续用对应的 MCP 工具，不要用 list_artifacts 去找
-
-## 安全红线
-- 禁止 rm -rf /、dd if=、mkfs、fork bomb、shutdown、reboot
-- 禁止操作名称包含 "1shell" 的容器/服务/文件
-- 禁止修改 /etc/ssh/ 下任何文件
-- 破坏性操作执行前必须先告知用户
-
-## MCP Server 管理
-1Shell 有自己的 MCP Server 仓库（data/mcp-servers.json），通过 list_mcp_servers / add_mcp_server / remove_mcp_server 工具管理。
-支持两种类型：
-- **远程 MCP**：http(s):// URL 端点，用 add_mcp_server 时提供 url 参数
-- **本地 MCP**：部署在本机的 MCP Server，通过 stdio 通信。用 deploy_local_mcp 从 GitHub 一键部署（clone → install → 注册），或用 add_mcp_server 时提供 command 参数手动注册
-当用户要求"导入 MCP"、"添加 MCP"、"部署 MCP"时，优先使用 deploy_local_mcp 或 add_mcp_server 工具
-不要去修改 Claude Code 等外部工具的配置文件来注册 MCP
-已部署的本地 MCP 工具会以 mcp__<mcpId>__<toolName> 的格式直接出现在你的可用工具中，直接调用即可`;
-
-  const SAFE_MODE_ADDENDUM = `
-
-## ⚠ 安全模式已开启
-当前处于安全模式。你可以正常调用工具，但所有写操作（执行命令、写入文件等）会在执行前弹出审批框，由用户决定是否允许。
-你不需要额外确认或停顿——直接调用工具即可，系统会自动暂停等待用户审批。
-用户可能会拒绝操作或给出自定义回复，请根据返回结果调整行为。`;
-
   const READONLY_TOOLS = new Set([
     'list_hosts', 'read_file', 'list_artifacts', 'query_format',
-    'reload_registry', 'list_mcp_servers',
+    'reload_registry', 'list_mcp_servers', 'list_scripts', 'query_audit',
+    'query_probe', 'list_probes', 'get_probe', 'get_probe_samples',
+    'get_probe_timeseries', 'get_probe_traffic', 'list_probe_alerts',
+    'list_remote_dir', 'read_remote_file',
   ]);
+
+  function makeAbortError(message = 'Cancelled') {
+    const err = new Error(message);
+    err.name = 'AbortError';
+    err.code = 'CANCELLED';
+    return err;
+  }
+
+  function isAbortError(err) {
+    return err?.name === 'AbortError' || err?.code === 'CANCELLED' || err?.code === 'RUN_REPLACED';
+  }
+
+  function newRunId() {
+    return `run-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 7)}`;
+  }
+
+  function ensureSessionCancellation(session) {
+    if (!session.cancelHandlers) session.cancelHandlers = new Set();
+    if (!session.activeSkillRunIds) session.activeSkillRunIds = new Set();
+  }
+
+  function registerCancelHandler(session, handler) {
+    ensureSessionCancellation(session);
+    session.cancelHandlers.add(handler);
+    return () => session.cancelHandlers?.delete(handler);
+  }
+
+  function isRunCurrent(session, runId) {
+    return session.currentRunId === runId && !session.cancelled;
+  }
+
+  function throwIfStopped(session, runId) {
+    if (session.currentRunId !== runId) {
+      const err = makeAbortError('Run replaced');
+      err.code = 'RUN_REPLACED';
+      throw err;
+    }
+    if (session.cancelled) throw makeAbortError();
+  }
+
+  function emitCancelledOnce(session, sessionId, socket = session?.socket, runId = session?.currentRunId) {
+    if (!session || session.cancelNotified) return;
+    session.cancelNotified = true;
+    try { socket?.emit?.('ide:cancelled', { sessionId, runId }); } catch { /* ignore */ }
+  }
 
   function getApprovalSummary(tc) {
     const input = tc.input || {};
@@ -144,36 +287,65 @@ SKILL.md 的 description 是触发条件（最重要），Always Read + Common T
     }
   }
 
-  function waitForApproval(socket, sessionId, tc) {
-    return new Promise((resolve) => {
+  function waitForApproval(socket, sessionId, tc, session, runId) {
+    return new Promise((resolve, reject) => {
       const requestId = `apr-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
       const summary = getApprovalSummary(tc);
+      let unregisterCancel = null;
+      let settled = false;
+
+      const cleanup = () => {
+        socket.off('ide:approve-response', handler);
+        clearTimeout(timer);
+        if (unregisterCancel) unregisterCancel();
+      };
+
+      const settle = (fn, value) => {
+        if (settled) return;
+        settled = true;
+        cleanup();
+        fn(value);
+      };
 
       const handler = (resp) => {
         if (resp.requestId !== requestId) return;
-        socket.off('ide:approve-response', handler);
-        clearTimeout(timer);
-        resolve(resp);
+        settle(resolve, resp);
       };
       socket.on('ide:approve-response', handler);
 
-      const timer = setTimeout(() => {
-        socket.off('ide:approve-response', handler);
-        resolve({ action: 'deny' });
-      }, 5 * 60 * 1000);
+      const timer = setTimeout(() => settle(resolve, { action: 'deny' }), 5 * 60 * 1000);
+      unregisterCancel = registerCancelHandler(session, () => settle(reject, makeAbortError()));
 
-      socket.emit('ide:approve-request', {
-        sessionId,
-        requestId,
-        toolName: tc.name,
-        title: summary.title,
-        detail: summary.detail,
-      });
+      try {
+        throwIfStopped(session, runId);
+        socket.emit('ide:approve-request', {
+          sessionId,
+          runId,
+          requestId,
+          toolName: tc.name,
+          title: summary.title,
+          detail: summary.detail,
+        });
+      } catch (err) {
+        settle(reject, err);
+      }
     });
   }
 
-  function getOrCreateSession(sessionId, context) {
-    if (sessions.has(sessionId)) return sessions.get(sessionId);
+  function applyPromptEntry(session, entry) {
+    if (entry == null || String(entry).trim() === '') return;
+    const nextEntry = normalizePromptEntry(entry);
+    if (session.entry === nextEntry) return;
+    session.entry = nextEntry;
+    session.system = promptForEntry(nextEntry);
+  }
+
+  function getOrCreateSession(sessionId, context, entry) {
+    if (sessions.has(sessionId)) {
+      const session = sessions.get(sessionId);
+      applyPromptEntry(session, entry);
+      return session;
+    }
 
     let contextBlock = '';
     if (context) {
@@ -203,13 +375,22 @@ SKILL.md 的 description 是触发条件（最重要），Always Read + Common T
       if (parts.length > 0) contextBlock = parts.join('\n') + '\n\n';
     }
 
+    const promptEntry = normalizePromptEntry(entry);
     const session = {
       messages: [],
-      system: SYSTEM_PROMPT,
+      entry: promptEntry,
+      system: promptForEntry(promptEntry),
       contextBlock,
       hostId: context?.hosts?.[0]?.id || 'local',
       abortController: null,
+      activeChildProcess: null,
+      activeSkillRunIds: new Set(),
+      cancelHandlers: new Set(),
+      cancelNotified: false,
       cancelled: false,
+      currentRunId: null,
+      socket: null,
+      socketId: null,
       safeMode: true,
       unlimitedTurns: false,
       claudeCodeEnabled: false,
@@ -218,8 +399,15 @@ SKILL.md 的 description 是触发条件（最重要），Always Read + Common T
     return session;
   }
 
-  async function handleMessage({ socket, sessionId, message, context, safeMode, claudeCodeEnabled, unlimitedTurns }) {
-    const session = getOrCreateSession(sessionId, context);
+  async function handleMessage({ socket, sessionId, message, context, safeMode, claudeCodeEnabled, unlimitedTurns, entry }) {
+    const session = getOrCreateSession(sessionId, context, entry);
+    ensureSessionCancellation(session);
+    const runId = newRunId();
+    session.currentRunId = runId;
+    session.cancelled = false;
+    session.cancelNotified = false;
+    session.socket = socket;
+    session.socketId = socket.id;
 
     if (safeMode !== undefined) {
       session.safeMode = safeMode !== false;
@@ -236,19 +424,18 @@ SKILL.md 的 description 是触发条件（最重要），Always Read + Common T
       : message;
 
     session.messages.push({ role: 'user', content: userContent });
-    session.cancelled = false;
 
     const provider = proxyConfigStore.getActiveProvider('skills')
                   || proxyConfigStore.getActiveProvider('claude-code');
     if (!provider?.apiBase || !provider?.apiKey) {
-      socket.emit('ide:error', { sessionId, error: 'AI Provider 未配置。请先在"AI 配置"页添加 Provider。' });
+      socket.emit('ide:error', { sessionId, runId, error: 'AI Provider 未配置。请先在"AI 配置"页添加 Provider。' });
       return;
     }
 
     const model = provider.model || 'claude-sonnet-4-20250514';
     const proxyUrl = `http://127.0.0.1:${port}/api/proxy/skills/v1/messages`;
 
-    socket.emit('ide:thinking', { sessionId });
+    socket.emit('ide:thinking', { sessionId, runId });
 
     auditService?.log?.({ action: 'ide_message', sessionId, message: message.substring(0, 500) });
 
@@ -270,7 +457,10 @@ SKILL.md 的 description 是触发条件（最重要），Always Read + Common T
       }
     }
     if (localMcpService) {
-      for (const t of localMcpService.getAllActiveTools()) {
+      const ideMcpIds = mcpRegistry
+        ? mcpRegistry.listServers().filter((s) => s.enabled && s.exposeToIde).map((s) => s.id)
+        : undefined;
+      for (const t of localMcpService.getAllActiveTools({ allowedIds: ideMcpIds })) {
         if (seenToolNames.has(t.name)) continue;
         seenToolNames.add(t.name);
         mcpToolMap.set(t.name, { mcpId: t._mcpId, mcpToolName: t._mcpToolName });
@@ -287,10 +477,7 @@ SKILL.md 的 description 是触发条件（最重要），Always Read + Common T
       while (round < MAX_TOOL_ROUNDS) {
         round++;
 
-        if (session.cancelled) {
-          socket.emit('ide:cancelled', { sessionId });
-          return;
-        }
+        throwIfStopped(session, runId);
 
         let data;
         try {
@@ -305,7 +492,6 @@ SKILL.md 的 description 是触发条件（最重要），Always Read + Common T
           });
 
           const MAX_RETRIES = 2;
-          let lastErr;
           for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
             const ac = new AbortController();
             session.abortController = ac;
@@ -316,30 +502,32 @@ SKILL.md 的 description 是触发条件（最重要），Always Read + Common T
                 body: apiBody,
                 signal: ac.signal,
               });
-              session.abortController = null;
 
               if (!resp.ok) {
+                session.abortController = null;
                 const errText = await resp.text().catch(() => '');
                 throw new Error(`Provider 返回 ${resp.status}: ${errText.substring(0, 300)}`);
               }
 
-              data = await parseAnthropicSSE(resp.body);
-              lastErr = null;
+              // 增量 SSE 解析 — 实时推送 text delta 到前端
+              data = await streamAnthropicSSE(resp.body, ac, session, socket, sessionId, runId);
+              session.abortController = null;
               break;
             } catch (retryErr) {
               session.abortController = null;
               if (retryErr.name === 'AbortError') throw retryErr;
-              lastErr = retryErr;
               const isRetryable = /premature close|ECONNRESET|socket hang up|ETIMEDOUT/i.test(retryErr.message);
               if (!isRetryable || attempt >= MAX_RETRIES) throw retryErr;
-              socket.emit('ide:text', { sessionId, text: `\n[连接中断，第 ${attempt + 1} 次重试...]\n` });
+              if (isRunCurrent(session, runId)) {
+                socket.emit('ide:text-delta', { sessionId, runId, delta: `\n[连接中断，第 ${attempt + 1} 次重试...]\n` });
+              }
               await new Promise(r => setTimeout(r, 1000 * (attempt + 1)));
             }
           }
         } catch (err) {
           session.abortController = null;
-          if (err.name === 'AbortError') {
-            socket.emit('ide:cancelled', { sessionId });
+          if (isAbortError(err)) {
+            if (session.currentRunId === runId) emitCancelledOnce(session, sessionId, socket);
             return;
           }
           throw err;
@@ -349,45 +537,48 @@ SKILL.md 的 description 是触发条件（最重要），Always Read + Common T
           throw new Error(data.error?.message || 'API error');
         }
 
-        // 提取文本
+        throwIfStopped(session, runId);
+
         const textParts = data.content.filter(b => b.type === 'text').map(b => b.text);
         const toolCalls = data.content.filter(b => b.type === 'tool_use');
 
+        // ide:text 仍发一次完整文本（兼容旧前端 / 历史记录用途）
         if (textParts.length > 0) {
-          socket.emit('ide:text', { sessionId, text: textParts.join('') });
+          const fullText = textParts.join('');
+          if (!data._emittedTextDelta) {
+            socket.emit('ide:text-delta', { sessionId, runId, delta: fullText });
+          }
+          socket.emit('ide:text', { sessionId, runId, text: fullText });
         }
 
-        // 追加 assistant 消息到历史
         session.messages.push({ role: 'assistant', content: data.content });
 
         if (toolCalls.length === 0 || data.stop_reason === 'end_turn') {
-          socket.emit('ide:done', { sessionId, round });
+          if (isRunCurrent(session, runId)) socket.emit('ide:done', { sessionId, runId, round });
           return;
         }
 
         // 执行工具调用
         const toolResults = [];
         for (const tc of toolCalls) {
-          if (session.cancelled) {
-            socket.emit('ide:cancelled', { sessionId });
-            return;
-          }
+          throwIfStopped(session, runId);
 
-          socket.emit('ide:tool-start', { sessionId, toolUseId: tc.id, name: tc.name, input: tc.input });
+          socket.emit('ide:tool-start', { sessionId, runId, toolUseId: tc.id, name: tc.name, input: tc.input });
 
           // 安全模式审批门：非只读工具暂停等待用户审批
           let result;
           if (session.safeMode && !READONLY_TOOLS.has(tc.name)) {
-            const approval = await waitForApproval(socket, sessionId, tc);
+            const approval = await waitForApproval(socket, sessionId, tc, session, runId);
+            throwIfStopped(session, runId);
             if (approval.action === 'deny') {
               result = { content: '[用户拒绝了此操作]', is_error: true };
-              socket.emit('ide:tool-end', { sessionId, toolUseId: tc.id, name: tc.name, result: result.content, is_error: true });
+              socket.emit('ide:tool-end', { sessionId, runId, toolUseId: tc.id, name: tc.name, result: result.content, is_error: true });
               toolResults.push({ type: 'tool_result', tool_use_id: tc.id, content: result.content, is_error: true });
               continue;
             }
             if (approval.action === 'custom') {
               result = { content: approval.text || '[用户自定义回复]', is_error: false };
-              socket.emit('ide:tool-end', { sessionId, toolUseId: tc.id, name: tc.name, result: result.content, is_error: false });
+              socket.emit('ide:tool-end', { sessionId, runId, toolUseId: tc.id, name: tc.name, result: result.content, is_error: false });
               toolResults.push({ type: 'tool_result', tool_use_id: tc.id, content: result.content });
               continue;
             }
@@ -395,22 +586,41 @@ SKILL.md 的 description 是触发条件（最重要），Always Read + Common T
           }
 
           // MCP 工具通过 mcpToolMap 路由到 localMcpService，其余走内置 handler
-          const mcpInfo = mcpToolMap.get(tc.name);
-          if (mcpInfo && localMcpService) {
-            try {
-              result = await localMcpService.callTool(mcpInfo.mcpId, mcpInfo.mcpToolName, tc.input || {});
-            } catch (err) {
-              result = { content: `[ERROR] ${err.message}`, is_error: true };
+          const toolAc = new AbortController();
+          const unregisterToolCancel = registerCancelHandler(session, () => toolAc.abort());
+          try {
+            const mcpInfo = mcpToolMap.get(tc.name);
+            if (mcpInfo && localMcpService) {
+              try {
+                result = await localMcpService.callTool(mcpInfo.mcpId, mcpInfo.mcpToolName, tc.input || {}, {
+                  signal: toolAc.signal,
+                  killOnAbort: true,
+                });
+              } catch (err) {
+                if (isAbortError(err) || toolAc.signal.aborted) throw makeAbortError();
+                result = { content: `[ERROR] ${err.message}`, is_error: true };
+              }
+            } else {
+              result = await ideTools.handle(tc.name, tc.input || {}, {
+                socket,
+                sessionId,
+                safeMode: session.safeMode,
+                session,
+                signal: toolAc.signal,
+              });
             }
-          } else {
-            result = await ideTools.handle(tc.name, tc.input || {}, { socket, sessionId, safeMode: session.safeMode, session });
+          } finally {
+            unregisterToolCancel();
           }
+
+          throwIfStopped(session, runId);
 
           socket.emit('ide:tool-end', {
             sessionId,
+            runId,
             toolUseId: tc.id,
             name: tc.name,
-            result: result.content.substring(0, 4000),
+            result: toolContentPreview(result.content).substring(0, 4000),
             is_error: result.is_error,
           });
 
@@ -422,35 +632,57 @@ SKILL.md 的 description 是触发条件（最重要），Always Read + Common T
           });
         }
 
+        throwIfStopped(session, runId);
         session.messages.push({ role: 'user', content: toolResults });
 
-        socket.emit('ide:thinking', { sessionId });
+        if (isRunCurrent(session, runId)) socket.emit('ide:thinking', { sessionId, runId });
       }
 
-      socket.emit('ide:error', { sessionId, error: `工具调用轮次过多 (${MAX_TOOL_ROUNDS})，已中断。` });
+      if (isRunCurrent(session, runId)) {
+        socket.emit('ide:error', { sessionId, runId, error: `工具调用轮次过多 (${MAX_TOOL_ROUNDS})，已中断。` });
+      }
     } catch (err) {
+      if (isAbortError(err)) {
+        if (session.currentRunId === runId) emitCancelledOnce(session, sessionId, socket);
+        return;
+      }
       logger?.error?.('IDE 执行异常', { sessionId, error: err.message });
-      socket.emit('ide:error', { sessionId, error: err.message });
+      if (isRunCurrent(session, runId)) socket.emit('ide:error', { sessionId, runId, error: err.message });
     }
   }
 
   function cancelSession(sessionId) {
     const session = sessions.get(sessionId);
-    if (!session) return;
+    if (!session) return false;
+    ensureSessionCancellation(session);
     session.cancelled = true;
     if (session.abortController) {
       try { session.abortController.abort(); } catch { /* ignore */ }
       session.abortController = null;
     }
+    for (const handler of [...session.cancelHandlers]) {
+      try { handler(); } catch { /* ignore */ }
+    }
+    for (const runId of [...session.activeSkillRunIds]) {
+      try { session.skillRunner?.cancelRun?.(runId); } catch { /* ignore */ }
+    }
     if (session.activeChildProcess) {
       try { session.activeChildProcess.kill(); } catch { /* ignore */ }
       session.activeChildProcess = null;
     }
+    emitCancelledOnce(session, sessionId);
+    return true;
   }
 
   function deleteSession(sessionId) {
     cancelSession(sessionId);
     sessions.delete(sessionId);
+  }
+
+  function cancelSessionsForSocket(socketId) {
+    for (const [sessionId, session] of sessions) {
+      if (session.socketId === socketId) cancelSession(sessionId);
+    }
   }
 
   function hasSession(sessionId) {
@@ -477,7 +709,7 @@ SKILL.md 的 description 是触发条件（最重要），Always Read + Common T
     if (session) session.claudeCodeEnabled = enabled;
   }
 
-  return { handleMessage, cancelSession, deleteSession, hasSession, setSafeMode, getSafeMode, setUnlimitedTurns, setClaudeCodeEnabled };
+  return { handleMessage, cancelSession, cancelSessionsForSocket, deleteSession, hasSession, setSafeMode, getSafeMode, setUnlimitedTurns, setClaudeCodeEnabled };
 }
 
 module.exports = { createIdeService };

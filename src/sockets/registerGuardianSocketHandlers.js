@@ -11,7 +11,8 @@
  */
 function registerGuardianSocketHandlers(io, { guardianService, skillStepExecutor, programRegistry }) {
   io.on('connection', (socket) => {
-    socket.on('guardian:answer', (payload = {}, reply = () => {}) => {
+    socket.on('guardian:answer', (payload = {}, reply) => {
+      if (typeof reply !== 'function') reply = () => {};
       try {
         const sessionId = String(payload.sessionId || '').trim();
         const toolUseId = String(payload.toolUseId || '').trim();
@@ -25,7 +26,8 @@ function registerGuardianSocketHandlers(io, { guardianService, skillStepExecutor
       }
     });
 
-    socket.on('guardian:cancel', (payload = {}, reply = () => {}) => {
+    socket.on('guardian:cancel', (payload = {}, reply) => {
+      if (typeof reply !== 'function') reply = () => {};
       try {
         const sessionId = String(payload.sessionId || '').trim();
         if (!sessionId) return reply({ ok: false, error: 'sessionId 必填' });
@@ -36,29 +38,34 @@ function registerGuardianSocketHandlers(io, { guardianService, skillStepExecutor
       }
     });
 
-    socket.on('guardian:set-unlimited-turns', (payload = {}, reply = () => {}) => {
+    socket.on('guardian:set-unlimited-turns', (payload = {}, reply) => {
+      if (typeof reply !== 'function') reply = () => {};
       const enabled = payload.enabled !== false;
       guardianService.setUnlimitedTurns(enabled);
       reply({ ok: true, unlimitedTurns: enabled });
     });
 
-    socket.on('guardian:get-unlimited-turns', (payload = {}, reply = () => {}) => {
+    socket.on('guardian:get-unlimited-turns', (payload = {}, reply) => {
+      if (typeof reply !== 'function') reply = () => {};
       reply({ ok: true, unlimitedTurns: guardianService.getUnlimitedTurns() });
     });
 
     // ─── L2 Skill Step Executor ────────────────────────────────────
     if (skillStepExecutor) {
-      socket.on('l2:set-unlimited-turns', (payload = {}, reply = () => {}) => {
+      socket.on('l2:set-unlimited-turns', (payload = {}, reply) => {
+        if (typeof reply !== 'function') reply = () => {};
         const enabled = payload.enabled !== false;
         skillStepExecutor.setUnlimitedTurns(enabled);
         reply({ ok: true, unlimitedTurns: enabled });
       });
 
-      socket.on('l2:get-unlimited-turns', (payload = {}, reply = () => {}) => {
+      socket.on('l2:get-unlimited-turns', (payload = {}, reply) => {
+        if (typeof reply !== 'function') reply = () => {};
         reply({ ok: true, unlimitedTurns: skillStepExecutor.getUnlimitedTurns() });
       });
 
-      socket.on('l2:improve', async (payload = {}, reply = () => {}) => {
+      socket.on('l2:improve', async (payload = {}, reply) => {
+        if (typeof reply !== 'function') reply = () => {};
         try {
           const { programId, hostId, skillId, goal, execLog } = payload;
           if (!programId || !skillId) return reply({ ok: false, error: 'programId / skillId 必填' });

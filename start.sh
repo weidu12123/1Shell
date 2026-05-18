@@ -18,7 +18,7 @@ err()  { echo -e "${RED}[ERROR]${NC} $*" >&2; }
 
 echo ""
 echo -e "${GREEN}╔════════════════════════════════════════════════╗${NC}"
-echo -e "${GREEN}║         1Shell v3.3.0                          ║${NC}"
+echo -e "${GREEN}║         1Shell v4.0.0                          ║${NC}"
 echo -e "${GREEN}║     One Shell to rule them all.                ║${NC}"
 echo -e "${GREEN}╚════════════════════════════════════════════════╝${NC}"
 echo ""

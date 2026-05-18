@@ -20,7 +20,7 @@ inputs:
     label: 你想做什么？
     type: string
     required: true
-    placeholder: 例如：每 5 分钟监控证书过期；删除一个网站；列出所有容器…
+    placeholder: 例如：每 5 分钟监控证书过期；自动备份数据库；检测异常进程…
 
   - name: mode
     label: 产物类型

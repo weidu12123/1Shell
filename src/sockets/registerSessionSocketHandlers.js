@@ -17,7 +17,8 @@ function registerSessionSocketHandlers(io, { sessionService }) {
   io.on('connection', (socket) => {
     log.info('WS 连接', { socketId: socket.id });
 
-    socket.on('session:create', (payload = {}, reply = () => {}) => {
+    socket.on('session:create', (payload = {}, reply) => {
+      if (typeof reply !== 'function') reply = () => {};
       try {
         const validated = validateSessionCreatePayload(payload);
         const cols = normalizePort(validated.cols, DEFAULT_COLS);

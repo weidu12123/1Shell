@@ -18,6 +18,11 @@ const path = require('path');
  */
 function createMcpRegistry({ dataDir }) {
   const filePath = path.join(dataDir, 'mcp-servers.json');
+  const DEFAULT_FLAGS = {
+    enabled: true,
+    autoStart: false,
+    exposeToIde: true,
+  };
 
   function ensureFile() {
     if (!fs.existsSync(filePath)) {
@@ -31,7 +36,7 @@ function createMcpRegistry({ dataDir }) {
       const raw = fs.readFileSync(filePath, 'utf8');
       const parsed = JSON.parse(raw);
       if (!parsed || !Array.isArray(parsed.servers)) return { servers: [] };
-      return parsed;
+      return { ...parsed, servers: parsed.servers.map(normalizeServer) };
     } catch {
       return { servers: [] };
     }
@@ -77,6 +82,9 @@ function createMcpRegistry({ dataDir }) {
       authToken: typeof input.authToken === 'string' ? input.authToken : '',
       description: typeof input.description === 'string' ? input.description : '',
       tags: Array.isArray(input.tags) ? input.tags.map(String) : [],
+      enabled: input.enabled !== false,
+      autoStart: input.autoStart === true,
+      exposeToIde: input.exposeToIde !== false,
       createdAt: new Date().toISOString(),
     };
     data.servers.push(server);
@@ -95,8 +103,18 @@ function createMcpRegistry({ dataDir }) {
       s.url = patch.url.trim();
     }
     if (typeof patch.authToken === 'string') s.authToken = patch.authToken;
+    if (typeof patch.command === 'string' && patch.command.trim()) {
+      s.type = 'local';
+      s.command = patch.command.trim();
+      s.url = '';
+    }
+    if (typeof patch.installDir === 'string') s.installDir = patch.installDir;
     if (typeof patch.description === 'string') s.description = patch.description;
     if (Array.isArray(patch.tags)) s.tags = patch.tags.map(String);
+    if (typeof patch.enabled === 'boolean') s.enabled = patch.enabled;
+    if (typeof patch.autoStart === 'boolean') s.autoStart = patch.autoStart;
+    if (typeof patch.exposeToIde === 'boolean') s.exposeToIde = patch.exposeToIde;
+    delete s.exposeToExternalMcp;
     _write(data);
     return maskIfNeeded(s);
   }
@@ -112,6 +130,19 @@ function createMcpRegistry({ dataDir }) {
 
   function kebab(s) {
     return String(s).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'mcp';
+  }
+
+  function normalizeServer(s) {
+    const { exposeToExternalMcp, ...rest } = s || {};
+    void exposeToExternalMcp;
+    return {
+      ...DEFAULT_FLAGS,
+      ...rest,
+      tags: Array.isArray(s?.tags) ? s.tags.map(String) : [],
+      enabled: s?.enabled !== false,
+      autoStart: s?.autoStart === true,
+      exposeToIde: s?.exposeToIde !== false,
+    };
   }
 
   function maskIfNeeded(s) {

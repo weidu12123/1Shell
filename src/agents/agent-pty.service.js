@@ -177,6 +177,16 @@ function createAgentPtyService({ hostService, providerRegistry }) {
 
       const sanitizedEnv = stripAiEnvVars(process.env, useLocalEnv);
 
+      const log = require('../../lib/logger');
+      log.info('[agent-pty] spawn', {
+        sessionId: session.id,
+        providerId: provider.id,
+        command,
+        args,
+        useLocalEnv: Boolean(useLocalEnv),
+        envKeys: Object.keys(resolvedProviderEnv),
+      });
+
       const ptyProcess = pty.spawn(command, args, {
         name: 'xterm-256color',
         cols,
@@ -187,6 +197,10 @@ function createAgentPtyService({ hostService, providerRegistry }) {
           ...resolvedProviderEnv,
         },
       });
+
+      const spawnedAt = Date.now();
+      let firstDataLogged = false;
+      let totalBytes = 0;
 
       session.process = ptyProcess;
       session.write = (data) => {
@@ -206,11 +220,28 @@ function createAgentPtyService({ hostService, providerRegistry }) {
       };
 
       ptyProcess.onData((data) => {
+        if (!firstDataLogged) {
+          firstDataLogged = true;
+          log.info('[agent-pty] first data', {
+            sessionId: session.id,
+            elapsedMs: Date.now() - spawnedAt,
+            firstBytes: Buffer.byteLength(data, 'utf8'),
+            preview: data.slice(0, 80).replace(/[\x00-\x1f]/g, c => '\\x' + c.charCodeAt(0).toString(16).padStart(2, '0')),
+          });
+        }
+        totalBytes += Buffer.byteLength(data, 'utf8');
         if (session.isFinalized) return;
         emitAgentOutput(socket, session, data, 'stdout');
       });
 
       ptyProcess.onExit(({ exitCode, signal }) => {
+        log.info('[agent-pty] exit', {
+          sessionId: session.id,
+          exitCode, signal,
+          totalBytes,
+          firstDataReceived: firstDataLogged,
+          aliveMs: Date.now() - spawnedAt,
+        });
         if (session.isFinalized) return;
         finalizeAgentSession(socket, session, 'stopped', {
           exitCode,

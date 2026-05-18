@@ -13,7 +13,8 @@ const {
 
 function registerAgentSocketHandlers(io, { agentPtyService }) {
   io.on('connection', (socket) => {
-    socket.on('agent:providers', (reply = () => {}) => {
+    socket.on('agent:providers', (reply) => {
+      if (typeof reply !== 'function') reply = () => {};
       try {
         reply({
           ok: true,
@@ -25,7 +26,8 @@ function registerAgentSocketHandlers(io, { agentPtyService }) {
       }
     });
 
-    socket.on('agent:start', (payload = {}, reply = () => {}) => {
+    socket.on('agent:start', (payload = {}, reply) => {
+      if (typeof reply !== 'function') reply = () => {};
       try {
         const validated = validateAgentStartPayload(payload);
         const session = agentPtyService.createAgentSession(socket, validated);
@@ -53,7 +55,8 @@ function registerAgentSocketHandlers(io, { agentPtyService }) {
       }
     });
 
-    socket.on('agent:focus-host', (payload = {}, reply = () => {}) => {
+    socket.on('agent:focus-host', (payload = {}, reply) => {
+      if (typeof reply !== 'function') reply = () => {};
       try {
         const validated = validateAgentFocusPayload(payload);
         agentPtyService.focusAgentHost(socket, validated.agentSessionId, validated.hostId);

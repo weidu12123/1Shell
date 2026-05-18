@@ -39,23 +39,25 @@ function errResponse(res, code, msg, format) {
   return res.status(code).json({ error: { message: msg } });
 }
 
-async function callOpenAIUpstream(base, apiKey, body) {
+async function callOpenAIUpstream(base, apiKey, body, signal) {
   return fetch(`${normalizeBase(base)}/chat/completions`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
     body: JSON.stringify(body),
+    signal,
   });
 }
 
-async function callOpenAIResponsesUpstream(base, apiKey, body) {
+async function callOpenAIResponsesUpstream(base, apiKey, body, signal) {
   return fetch(`${normalizeBase(base)}/responses`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
     body: JSON.stringify(body),
+    signal,
   });
 }
 
-async function callAnthropicUpstream(base, apiKey, body, extraHeaders) {
+async function callAnthropicUpstream(base, apiKey, body, extraHeaders, signal) {
   let url = base.replace(/\/$/, '');
   if (!/\/v1$/.test(url)) url += '/v1';
   const headers = {
@@ -72,7 +74,37 @@ async function callAnthropicUpstream(base, apiKey, body, extraHeaders) {
     method: 'POST',
     headers,
     body: JSON.stringify(body),
+    signal,
   });
+}
+
+function createRequestAbort(req, res) {
+  const ac = new AbortController();
+  const abort = () => {
+    if (!res.writableEnded) ac.abort();
+  };
+  req.on('aborted', abort);
+  res.on('close', abort);
+  return {
+    signal: ac.signal,
+    cleanup: () => {
+      req.off?.('aborted', abort);
+      res.off?.('close', abort);
+    },
+  };
+}
+
+function destroyStreamOnClose(res, stream, cleanup) {
+  const onClose = () => {
+    if (!res.writableEnded) {
+      try { stream.destroy?.(); } catch { /* ignore */ }
+    }
+  };
+  res.on('close', onClose);
+  return () => {
+    res.off?.('close', onClose);
+    cleanup?.();
+  };
 }
 
 // ═══════════════════════════════════════════════════════════════════════
@@ -286,7 +318,8 @@ function mergeOpenAIToolName(currentName, nextChunk) {
   return normalizeOpenAIToolName(current + next);
 }
 
-function streamOpenAIToAnthropic(res, stream, requestModel) {
+function streamOpenAIToAnthropic(res, stream, requestModel, cleanupRequest) {
+  const cleanupClose = destroyStreamOnClose(res, stream, cleanupRequest);
   res.setHeader('Content-Type', 'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache');
   res.setHeader('Connection', 'keep-alive');
@@ -315,6 +348,7 @@ function streamOpenAIToAnthropic(res, stream, requestModel) {
       if (!line.startsWith('data: ')) continue;
       const data = line.slice(6).trim();
       if (data === '[DONE]') {
+        cleanupClose();
         flushAndFinishAnthropic(res, outputTokens, textBlockStarted, toolBlocks, finishReason);
         return;
       }
@@ -383,9 +417,11 @@ function streamOpenAIToAnthropic(res, stream, requestModel) {
     }
   });
   stream.on('end', () => {
+    cleanupClose();
     if (!res.writableEnded) flushAndFinishAnthropic(res, outputTokens, textBlockStarted, toolBlocks, finishReason);
   });
   stream.on('error', (err) => {
+    cleanupClose();
     log.error('代理流错误', { error: err.message });
     if (!res.writableEnded) { sendSSE(res, 'error', { type: 'error', error: { message: err.message } }); res.end(); }
   });
@@ -427,10 +463,17 @@ function flushAndFinishAnthropic(res, outputTokens, textBlockStarted, toolBlocks
 //  OpenAI / Anthropic 流式透传
 // ═══════════════════════════════════════════════════════════════════════
 
-function streamPassthrough(res, stream, contentType) {
+function streamPassthrough(res, stream, contentType, cleanupRequest) {
+  const cleanupClose = destroyStreamOnClose(res, stream, cleanupRequest);
   res.setHeader('Content-Type', contentType || 'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache');
   res.setHeader('Connection', 'keep-alive');
+  stream.on('end', cleanupClose);
+  stream.on('error', (err) => {
+    cleanupClose();
+    log.error('代理透传流错误', { error: err.message });
+    if (!res.writableEnded) res.end();
+  });
   stream.pipe(res);
 }
 
@@ -464,18 +507,21 @@ function createProxyRouter({ proxyConfigStore }) {
     const body = req.body || {};
     const isStream = body.stream === true;
     const upstream = provider.upstreamProtocol || 'openai';
+    const requestAbort = createRequestAbort(req, res);
 
     if (upstream === 'anthropic') {
       // 透传到 Anthropic API
       try {
-        const upResp = await callAnthropicUpstream(provider.apiBase, provider.apiKey, body);
+        const upResp = await callAnthropicUpstream(provider.apiBase, provider.apiKey, body, undefined, requestAbort.signal);
         if (isStream) {
-          streamPassthrough(res, upResp.body, 'text/event-stream');
+          streamPassthrough(res, upResp.body, 'text/event-stream', requestAbort.cleanup);
         } else {
           const data = await upResp.json();
+          requestAbort.cleanup();
           res.status(upResp.status).json(data);
         }
       } catch (err) {
+        requestAbort.cleanup();
         log.error(`${cliLabel} Anthropic 透传失败`, { error: err.message });
         errResponse(res, 502, `代理请求失败: ${err.message}`, 'anthropic');
       }
@@ -496,18 +542,21 @@ function createProxyRouter({ proxyConfigStore }) {
         openaiBody.tool_choice = 'auto';
       }
       try {
-        const upResp = await callOpenAIUpstream(provider.apiBase, provider.apiKey, openaiBody);
+        const upResp = await callOpenAIUpstream(provider.apiBase, provider.apiKey, openaiBody, requestAbort.signal);
         if (!upResp.ok) {
           const errText = await upResp.text().catch(() => '');
+          requestAbort.cleanup();
           return errResponse(res, upResp.status, `上游 API 返回 ${upResp.status}: ${errText.substring(0, 500)}`, 'anthropic');
         }
         if (isStream) {
-          streamOpenAIToAnthropic(res, upResp.body, body.model || targetModel);
+          streamOpenAIToAnthropic(res, upResp.body, body.model || targetModel, requestAbort.cleanup);
         } else {
           const data = await upResp.json();
+          requestAbort.cleanup();
           res.json(openaiToAnthropicResponse(data, body.model || targetModel));
         }
       } catch (err) {
+        requestAbort.cleanup();
         log.error(`${cliLabel} 代理请求失败`, { error: err.message });
         errResponse(res, 502, `代理请求失败: ${err.message}`, 'anthropic');
       }
@@ -529,6 +578,7 @@ function createProxyRouter({ proxyConfigStore }) {
     const body = req.body || {};
     const isStream = body.stream === true;
     const upstream = active.upstreamProtocol || 'openai';
+    const requestAbort = createRequestAbort(req, res);
 
     if (upstream === 'anthropic') {
       try {
@@ -537,14 +587,16 @@ function createProxyRouter({ proxyConfigStore }) {
         if (Array.isArray(body.mcp_servers) && body.mcp_servers.length > 0) {
           extra['anthropic-beta'] = 'mcp-client-2025-04-04';
         }
-        const upResp = await callAnthropicUpstream(active.apiBase, active.apiKey, body, extra);
+        const upResp = await callAnthropicUpstream(active.apiBase, active.apiKey, body, extra, requestAbort.signal);
         if (isStream) {
-          streamPassthrough(res, upResp.body, 'text/event-stream');
+          streamPassthrough(res, upResp.body, 'text/event-stream', requestAbort.cleanup);
         } else {
           const data = await upResp.json();
+          requestAbort.cleanup();
           res.status(upResp.status).json(data);
         }
       } catch (err) {
+        requestAbort.cleanup();
         log.error('Skill Runner Anthropic 透传失败', { error: err.message });
         errResponse(res, 502, `代理请求失败: ${err.message}`, 'anthropic');
       }
@@ -564,18 +616,21 @@ function createProxyRouter({ proxyConfigStore }) {
         openaiBody.tool_choice = 'auto';
       }
       try {
-        const upResp = await callOpenAIUpstream(active.apiBase, active.apiKey, openaiBody);
+        const upResp = await callOpenAIUpstream(active.apiBase, active.apiKey, openaiBody, requestAbort.signal);
         if (!upResp.ok) {
           const errText = await upResp.text().catch(() => '');
+          requestAbort.cleanup();
           return errResponse(res, upResp.status, `上游 API 返回 ${upResp.status}: ${errText.substring(0, 500)}`, 'anthropic');
         }
         if (isStream) {
-          streamOpenAIToAnthropic(res, upResp.body, body.model || targetModel);
+          streamOpenAIToAnthropic(res, upResp.body, body.model || targetModel, requestAbort.cleanup);
         } else {
           const data = await upResp.json();
+          requestAbort.cleanup();
           res.json(openaiToAnthropicResponse(data, body.model || targetModel));
         }
       } catch (err) {
+        requestAbort.cleanup();
         log.error('Skill Runner 代理请求失败', { error: err.message });
         errResponse(res, 502, `代理请求失败: ${err.message}`, 'anthropic');
       }
@@ -601,18 +656,27 @@ function createProxyRouter({ proxyConfigStore }) {
     const body = req.body || {};
     const isStream = body.stream === true;
     const upstream = provider.upstreamProtocol || 'openai';
+    const requestAbort = createRequestAbort(req, res);
 
     if (upstream === 'openai') {
       // 透传
       if (provider.model) body.model = provider.model;
       try {
-        const upResp = await callOpenAIUpstream(provider.apiBase, provider.apiKey, { ...body, stream: isStream });
+        const upResp = await callOpenAIUpstream(provider.apiBase, provider.apiKey, { ...body, stream: isStream }, requestAbort.signal);
         if (!upResp.ok) {
           const errText = await upResp.text().catch(() => '');
+          requestAbort.cleanup();
           return errResponse(res, upResp.status, `上游 API 返回 ${upResp.status}: ${errText.substring(0, 500)}`, 'openai');
         }
-        if (isStream) { streamPassthrough(res, upResp.body); } else { res.json(await upResp.json()); }
+        if (isStream) {
+          streamPassthrough(res, upResp.body, undefined, requestAbort.cleanup);
+        } else {
+          const data = await upResp.json();
+          requestAbort.cleanup();
+          res.json(data);
+        }
       } catch (err) {
+        requestAbort.cleanup();
         log.error(`${cliLabel} 透传失败`, { error: err.message });
         errResponse(res, 502, `代理请求失败: ${err.message}`, 'openai');
       }
@@ -631,18 +695,21 @@ function createProxyRouter({ proxyConfigStore }) {
       if (body.top_p != null) anthropicBody.top_p = body.top_p;
       if (anthropicTools && anthropicTools.length > 0) anthropicBody.tools = anthropicTools;
       try {
-        const upResp = await callAnthropicUpstream(provider.apiBase, provider.apiKey, anthropicBody);
+        const upResp = await callAnthropicUpstream(provider.apiBase, provider.apiKey, anthropicBody, undefined, requestAbort.signal);
         if (!upResp.ok) {
           const errText = await upResp.text().catch(() => '');
+          requestAbort.cleanup();
           return errResponse(res, upResp.status, `上游 Anthropic API 返回 ${upResp.status}: ${errText.substring(0, 500)}`, 'openai');
         }
         if (isStream) {
-          streamAnthropicToOpenAI(res, upResp.body);
+          streamAnthropicToOpenAI(res, upResp.body, requestAbort.cleanup);
         } else {
           const data = await upResp.json();
+          requestAbort.cleanup();
           res.json(anthropicToOpenAIResponse(data));
         }
       } catch (err) {
+        requestAbort.cleanup();
         log.error(`${cliLabel} Anthropic 转换失败`, { error: err.message });
         errResponse(res, 502, `代理请求失败: ${err.message}`, 'openai');
       }
@@ -665,22 +732,26 @@ function createProxyRouter({ proxyConfigStore }) {
     const body = req.body || {};
     const isStream = body.stream === true;
     const upstream = provider.upstreamProtocol || 'openai';
+    const requestAbort = createRequestAbort(req, res);
 
     if (upstream !== 'openai') {
+      requestAbort.cleanup();
       return errResponse(res, 400, `Responses API 目前仅支持 OpenAI 兼容上游，当前上游协议: ${upstream}`, 'openai');
     }
 
     if (provider.model) body.model = provider.model;
     try {
-      const upResp = await callOpenAIResponsesUpstream(provider.apiBase, provider.apiKey, body);
+      const upResp = await callOpenAIResponsesUpstream(provider.apiBase, provider.apiKey, body, requestAbort.signal);
       if (!upResp.ok) {
         const errText = await upResp.text().catch(() => '');
         return errResponse(res, upResp.status, `上游 API 返回 ${upResp.status}: ${errText.substring(0, 500)}`, 'openai');
       }
       if (isStream) {
-        streamPassthrough(res, upResp.body);
+        streamPassthrough(res, upResp.body, undefined, requestAbort.cleanup);
       } else {
-        res.json(await upResp.json());
+        const data = await upResp.json();
+        requestAbort.cleanup();
+        res.json(data);
       }
     } catch (err) {
       log.error(`${cliLabel} Responses API 透传失败`, { error: err.message });
@@ -751,7 +822,8 @@ function anthropicToOpenAIResponse(anthropicResp) {
   };
 }
 
-function streamAnthropicToOpenAI(res, stream) {
+function streamAnthropicToOpenAI(res, stream, cleanupRequest) {
+  const cleanupClose = destroyStreamOnClose(res, stream, cleanupRequest);
   res.setHeader('Content-Type', 'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache');
   res.setHeader('Connection', 'keep-alive');
@@ -810,6 +882,7 @@ function streamAnthropicToOpenAI(res, stream) {
           })}\n\n`);
 
         } else if (parsed.type === 'message_stop') {
+          cleanupClose();
           res.write('data: [DONE]\n\n');
           res.end();
           return;
@@ -818,9 +891,11 @@ function streamAnthropicToOpenAI(res, stream) {
     }
   });
   stream.on('end', () => {
+    cleanupClose();
     if (!res.writableEnded) { res.write('data: [DONE]\n\n'); res.end(); }
   });
   stream.on('error', (err) => {
+    cleanupClose();
     log.error('Anthropic→OpenAI 流错误', { error: err.message });
     if (!res.writableEnded) res.end();
   });

@@ -29,5 +29,20 @@ deploy.js
 # Claude Code 本地配置
 .claude/
 
+# 后端 agent-panel 运行时工作目录
+data/cli-sandbox/
+
+# 用户私有 program 配置（含 host UUID 等）
+data/programs/
+
+# 外部 Claude Code Skill 托管仓库（运行时 clone，不入库）
+data/claude-code-skills/
+
+# 视觉审查截图（不入库）
+/*.png
+
+# Playwright MCP 调试产物
+.playwright-mcp/
+
 # Release 打包产物
 release/

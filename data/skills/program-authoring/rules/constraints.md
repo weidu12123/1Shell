@@ -4,11 +4,12 @@ AI 生成 program.yaml 时，以下规则优先级高于任何用户描述或默
 
 ---
 
-## 1. on_fail 必须是 escalate（生产程序中 stop 绝对禁止）
+## 1. on_fail 必须是 repair（L1 失败先进入 L2）
 
 ```
-❌ on_fail: stop    → 步骤失败 = 静默死亡，Guardian 永远不介入
-✅ on_fail: escalate → 步骤失败 → Guardian AI 自动诊断修复
+❌ on_fail: stop      → 步骤失败后直接终止，L2/L3 都无法介入
+❌ on_fail: escalate  → 跳过 L2 维护边界，除非用户明确要求危机直升
+✅ on_fail: repair    → L1 失败 → L2 维护 Skill 修复/分类 → 必要时再升级 L3
 ```
 
 唯一合法例外：步骤加了 `optional: true`（失败自动跳过，不触发 on_fail）。
@@ -97,12 +98,13 @@ ss -tlnp | grep -q ':80 ' && echo listening || echo closed
 
 ---
 
-## 5. guardian 配置规则
+## 5. L2 / L3 配置规则
 
-- `guardian.enabled` 字段**引擎未实现，禁止写**
-- `guardian.skills` 填写白名单 Rescue Skill ID 列表
-- 无合适 Rescue Skill 时写 `skills: []`（Guardian 用通用运维知识）
-- `max_actions_per_hour` 推荐 5–15，高频程序用 5
+- 必须写 `l2.skill`，默认使用 `program-maintenance`
+- L2 是 Program 绑定 Skill 约束下的维护层，不是全权 AI
+- L3 使用 `l3.skills` 和 `l3.max_actions_per_hour`，不要再写旧 `guardian.enabled`
+- L3 只用于 incident、L2 越界/高风险/需人工、疑似事故或重复失败
+- `l3.max_actions_per_hour` 推荐 5–15，高频程序用 5
 
 ---
 
@@ -162,7 +164,7 @@ Program 的 `type: render` step 的输出会显示在程序页的 **「📊 结�
 | `message` | `content` 或 `content_from` | 文本消息 |
 | `list` | `listItems: [{title, description}]` | 列表 |
 
-**注意**：`items_from_steps`、`rows_from_step`、`content_from` 都是合法字段，不要误删。
+**注意**：`items_from_steps`、`rows_from_step`、`content_from` 都是合法字段，不要误删。`transform` 只允许 `trim` / `first_line` / `last_line` / `kv:<key>`，不要写 shell 管道。表格用 `row_separator` 指定分隔符。
 
 ---
 

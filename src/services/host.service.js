@@ -61,6 +61,7 @@ function createHostService({ hostRepository }) {
       authType: 'local',
       description: config.description || '部署当前项目的控制节点',
       links: config.links || [],
+      manualLocation: config.manualLocation || null,
       createdAt: null,
       updatedAt: null,
     };
@@ -83,6 +84,7 @@ function createHostService({ hostRepository }) {
       authType: host.authType,
       proxyHostId: host.proxyHostId || null,
       links: normalizeHostLinks(host.links),
+      manualLocation: host.manualLocation || null,
       hasPassword: Boolean(host.encryptedPassword),
       hasPrivateKey: Boolean(host.encryptedPrivateKey),
       hasPassphrase: Boolean(host.encryptedPassphrase),
@@ -120,6 +122,9 @@ function createHostService({ hostRepository }) {
         ? (String(payload.proxyHostId || '').trim() || null)
         : (existing?.proxyHostId || null),
       links: normalizeHostLinks(hasOwn(payload, 'links') ? payload.links : existing?.links),
+      manualLocation: hasOwn(payload, 'manualLocation')
+        ? payload.manualLocation
+        : (existing?.manualLocation || null),
       createdAt: existing?.createdAt || timestamp,
       updatedAt: timestamp,
       encryptedPassword: null,
@@ -281,6 +286,14 @@ function createHostService({ hostRepository }) {
     });
   }
 
+  function updateLocalHostManualLocation(manualLocation) {
+    const existing = loadLocalHostConfig();
+    saveLocalHostConfig({
+      ...existing,
+      manualLocation: manualLocation || null,
+    });
+  }
+
   return {
     buildConnectionConfig,
     buildStoredHost,
@@ -291,6 +304,7 @@ function createHostService({ hostRepository }) {
     listHosts,
     saveLocalHostConfig,
     toPublicHost,
+    updateLocalHostManualLocation,
   };
 }
 

@@ -390,14 +390,63 @@ function buildUserMessage(skill, inputs, skillRegistry) {
 //
 // 若上游是 OpenAI（经 proxy 转换为 Anthropic SSE），格式相同。
 //
-function parseAnthropicSSE(stream) {
+function parseAnthropicSSE(stream, signal) {
   return new Promise((resolve, reject) => {
+    if (signal?.aborted) {
+      try { stream.destroy?.(); } catch { /* ignore */ }
+      const err = new Error('Aborted');
+      err.name = 'AbortError';
+      return reject(err);
+    }
     const blocks = [];          // content blocks，按 index 索引
     let stopReason = 'end_turn';
     let stopSeq = null;
     let modelId = '';
     let inputTokens = 0, outputTokens = 0;
     let buffer = '';
+    let settled = false;
+
+    function buildMessage() {
+      const content = blocks.filter(Boolean).map(blk => {
+        if (blk.type === 'text') return { type: 'text', text: blk.text };
+        if (blk.type === 'tool_use') {
+          let input = blk.input;
+          if (!input && blk._inputJson) {
+            try { input = JSON.parse(blk._inputJson); } catch { input = {}; }
+          }
+          return { type: 'tool_use', id: blk.id, name: blk.name, input: input || {} };
+        }
+        return blk;
+      });
+      return {
+        type: 'message',
+        role: 'assistant',
+        model: modelId,
+        content,
+        stop_reason: stopReason,
+        stop_sequence: stopSeq,
+        usage: { input_tokens: inputTokens, output_tokens: outputTokens },
+      };
+    }
+
+    function cleanup() {
+      signal?.removeEventListener?.('abort', onAbort);
+    }
+
+    function settle(fn, value) {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      fn(value);
+    }
+
+    function onAbort() {
+      try { stream.destroy?.(); } catch { /* ignore */ }
+      const err = new Error('Aborted');
+      err.name = 'AbortError';
+      settle(reject, err);
+    }
+    signal?.addEventListener?.('abort', onAbort, { once: true });
 
     function processLine(line) {
       if (!line.startsWith('data: ')) return;
@@ -409,7 +458,7 @@ function parseAnthropicSSE(stream) {
       if (!evt.type) return;
 
       if (evt.type === 'error') {
-        reject(new Error(evt.error?.message || 'SSE error'));
+        settle(reject, new Error(evt.error?.message || 'SSE error'));
         return;
       }
       if (evt.type === 'message_start') {
@@ -454,27 +503,12 @@ function parseAnthropicSSE(stream) {
         return;
       }
       if (evt.type === 'message_stop') {
-        // 流结束，整理 content
-        const content = blocks
-          .filter(Boolean)
-          .map(blk => {
-            if (blk.type === 'text') return { type: 'text', text: blk.text };
-            if (blk.type === 'tool_use') return { type: 'tool_use', id: blk.id, name: blk.name, input: blk.input || {} };
-            return blk;
-          });
-        resolve({
-          type: 'message',
-          role: 'assistant',
-          model: modelId,
-          content,
-          stop_reason: stopReason,
-          stop_sequence: stopSeq,
-          usage: { input_tokens: inputTokens, output_tokens: outputTokens },
-        });
+        settle(resolve, buildMessage());
       }
     }
 
     stream.on('data', (chunk) => {
+      if (settled) return;
       buffer += chunk.toString();
       const lines = buffer.split('\n');
       buffer = lines.pop() || '';
@@ -482,31 +516,10 @@ function parseAnthropicSSE(stream) {
     });
 
     stream.on('end', () => {
-      // 若 message_stop 没收到（异常截断），尝试用已收集的数据构造
-      // resolve 只会被调用一次
-      const content = blocks.filter(Boolean).map(blk => {
-        if (blk.type === 'text') return { type: 'text', text: blk.text };
-        if (blk.type === 'tool_use') {
-          let input = blk.input;
-          if (!input && blk._inputJson) {
-            try { input = JSON.parse(blk._inputJson); } catch { input = {}; }
-          }
-          return { type: 'tool_use', id: blk.id, name: blk.name, input: input || {} };
-        }
-        return blk;
-      });
-      resolve({
-        type: 'message',
-        role: 'assistant',
-        model: modelId,
-        content,
-        stop_reason: stopReason,
-        stop_sequence: stopSeq,
-        usage: { input_tokens: inputTokens, output_tokens: outputTokens },
-      });
+      settle(resolve, buildMessage());
     });
 
-    stream.on('error', reject);
+    stream.on('error', (err) => settle(reject, err));
   });
 }
 
@@ -527,10 +540,15 @@ function decodeWindowsOutput(buf) {
   return buf.toString('utf8').replace(/\uFFFD/g, '?');
 }
 
-function execLocal(command, timeoutMs) {
+function execLocal(command, timeoutMs, signal) {
   const timeout = Math.max(1000, Number(timeoutMs) || DEFAULT_EXEC_TIMEOUT_MS);
   const startAt = Date.now();
-  return new Promise((resolve) => {
+  return new Promise((resolve, reject) => {
+    if (signal?.aborted) {
+      const err = new Error('Aborted');
+      err.name = 'AbortError';
+      return reject(err);
+    }
     // Windows：不指定 encoding，拿 Buffer 再自行解码（默认 GBK）
     const opts = {
       timeout,
@@ -538,7 +556,22 @@ function execLocal(command, timeoutMs) {
       cwd: ROOT_DIR,
       ...(IS_WINDOWS ? {} : { encoding: 'utf8' }),
     };
-    childExec(command, opts, (err, stdout, stderr) => {
+    let settled = false;
+    let child = null;
+    const cleanup = () => signal?.removeEventListener?.('abort', onAbort);
+    const onAbort = () => {
+      if (settled) return;
+      settled = true;
+      try { child?.kill?.('SIGKILL'); } catch { /* ignore */ }
+      cleanup();
+      const abortErr = new Error('Aborted');
+      abortErr.name = 'AbortError';
+      reject(abortErr);
+    };
+    child = childExec(command, opts, (err, stdout, stderr) => {
+      if (settled) return;
+      settled = true;
+      cleanup();
       const decodeOut = IS_WINDOWS
         ? decodeWindowsOutput(stdout)
         : (stdout || '');
@@ -552,6 +585,7 @@ function execLocal(command, timeoutMs) {
         durationMs: Date.now() - startAt,
       });
     });
+    signal?.addEventListener?.('abort', onAbort, { once: true });
   });
 }
 
@@ -780,7 +814,6 @@ function createSkillRunner({
             body: reqBody,
             signal: ac.signal,
           });
-          runState.abortController = null;
 
           if (!resp.ok) {
             const errText = await resp.text().catch(() => '');
@@ -788,7 +821,8 @@ function createSkillRunner({
           }
 
           // 解析 Anthropic SSE 流 → 还原成完整 message 对象
-          data = await parseAnthropicSSE(resp.body);
+          data = await parseAnthropicSSE(resp.body, ac.signal);
+          runState.abortController = null;
 
         } catch (err) {
           runState.abortController = null;
@@ -918,11 +952,14 @@ function createSkillRunner({
     runState.socket.emit('skill:exec', { runId, toolUseId, command, timeout, hostId: targetHostId });
 
     let result;
+    const ac = new AbortController();
     try {
+      runState.toolAbortController = ac;
+      if (runState.cancelled) ac.abort();
       if (targetHostId === 'local') {
-        result = await execLocal(command, timeout);
+        result = await execLocal(command, timeout, ac.signal);
       } else {
-        result = await bridgeService.execOnHost(targetHostId, command, timeout, { source: 'skill' });
+        result = await bridgeService.execOnHost(targetHostId, command, timeout, { source: 'skill', signal: ac.signal });
       }
     } catch (err) {
       runState.socket.emit('skill:exec-result', {
@@ -934,6 +971,8 @@ function createSkillRunner({
         content: `[ERROR] ${err.message}`,
         is_error: true,
       };
+    } finally {
+      if (runState.toolAbortController === ac) runState.toolAbortController = null;
     }
 
     runState.socket.emit('skill:exec-result', {
@@ -1037,6 +1076,10 @@ function createSkillRunner({
     if (state.abortController) {
       try { state.abortController.abort(); } catch { /* ignore */ }
       state.abortController = null;
+    }
+    if (state.toolAbortController) {
+      try { state.toolAbortController.abort(); } catch { /* ignore */ }
+      state.toolAbortController = null;
     }
     if (state.pendingAsk) {
       const { reject } = state.pendingAsk;

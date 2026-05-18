@@ -3,7 +3,9 @@
 const crypto = require('crypto');
 const { createId } = require('../utils/common');
 const { BRIDGE_TOKEN } = require('../config/env');
-const { TOOLS, makeTextContent, formatExecResult } = require('./mcp.tools');
+const { toMcpToolResult } = require('./mcp.tools');
+const { createOneShellCoreTools } = require('../tools/oneshell-core.tools');
+const log = require('../../lib/logger');
 
 const MCP_PROTOCOL_VERSION = '2024-11-05';
 const SERVER_INFO = { name: '1shell-bridge', version: '1.0.0' };
@@ -25,7 +27,10 @@ const SERVER_INFO = { name: '1shell-bridge', version: '1.0.0' };
  *   - tools/list
  *   - tools/call
  */
-function createMcpService({ bridgeService, hostService, auditService, bridgeToken, localMcpService, mcpRegistry }) {
+function createMcpService(deps = {}) {
+  const coreTools = createOneShellCoreTools(deps);
+  const TOOLS = coreTools.getToolSchemas('mcp');
+
   // Map<sessionId, { res: Response, initialized: boolean }>
   const sessions = new Map();
 
@@ -56,100 +61,30 @@ function createMcpService({ bridgeService, hostService, auditService, bridgeToke
   // ─── 工具调用分发 ─────────────────────────────────────────────────────────
 
   async function callTool(name, args) {
-    if (name === 'list_hosts') {
-      const hosts = hostService.listHosts()
-        .filter((h) => h.type === 'ssh')
-        .map((h) => `id=${h.id}  name=${h.name}  ${h.host}:${h.port || 22}`);
-
-      const text = hosts.length > 0
-        ? hosts.join('\n')
-        : '（当前没有已配置的远程 SSH 主机）';
-
-      return { content: makeTextContent(text), isError: false };
-    }
-
-    if (name === 'execute_ssh_command') {
-      const { hostId, command, timeout } = args || {};
-
-      if (!hostId || !command) {
-        return {
-          content: makeTextContent('hostId 和 command 为必填参数', true),
-          isError: true,
-        };
-      }
-
+    const startedAt = Date.now();
+    const argSummary = (() => {
       try {
-        const result = await bridgeService.execOnHost(hostId, command, timeout, { source: 'mcp' });
-        return {
-          content: makeTextContent(formatExecResult(result)),
-          isError: result.exitCode !== 0,
-        };
-      } catch (err) {
-        return {
-          content: makeTextContent(err.message, true),
-          isError: true,
-        };
-      }
-    }
+        const s = JSON.stringify(args || {});
+        return s.length > 200 ? s.slice(0, 200) + '…' : s;
+      } catch { return '<unserializable>'; }
+    })();
+    log.info('[mcp] tools/call IN', { name, args: argSummary });
 
-    if (name === 'list_mcp_tools') {
-      const lines = [];
-      // 列出仓库中的本地 MCP
-      const servers = mcpRegistry ? mcpRegistry.listServers().filter(s => s.type === 'local' || s.command) : [];
-      if (servers.length === 0) {
-        return { content: makeTextContent('1Shell 平台上暂无已注册的本地 MCP Server。'), isError: false };
-      }
-      for (const s of servers) {
-        const status = localMcpService ? localMcpService.getStatus(s.id) : { status: 'unavailable', tools: [] };
-        lines.push(`\n## ${s.name} (id: ${s.id})`);
-        lines.push(`状态: ${status.status} | 命令: ${s.command || '(无)'}`);
-        if (s.description) lines.push(`描述: ${s.description}`);
-        if (status.tools.length > 0) {
-          lines.push(`工具 (${status.tools.length}):`);
-          for (const t of status.tools) {
-            lines.push(`  - ${t.name}: ${(t.description || '').slice(0, 100)}`);
-          }
-        } else if (status.status === 'running') {
-          lines.push('工具: (无)');
-        } else {
-          lines.push('工具: (未启动，调用 call_mcp_tool 时会自动启动)');
-        }
-      }
-      return { content: makeTextContent(lines.join('\n')), isError: false };
+    let result;
+    try {
+      result = await callToolImpl(name, args);
+      log.info('[mcp] tools/call OUT', { name, durationMs: Date.now() - startedAt, isError: !!result?.isError });
+    } catch (err) {
+      log.error('[mcp] tools/call THROW', { name, durationMs: Date.now() - startedAt, error: err.message });
+      throw err;
     }
+    return result;
+  }
 
-    if (name === 'call_mcp_tool') {
-      const { mcpId, toolName, args: toolArgs } = args || {};
-      if (!mcpId || !toolName) {
-        return { content: makeTextContent('mcpId 和 toolName 为必填参数', true), isError: true };
-      }
-      if (!localMcpService) {
-        return { content: makeTextContent('本地 MCP 服务未初始化', true), isError: true };
-      }
-      // 如果未运行，自动启动
-      const status = localMcpService.getStatus(mcpId);
-      if (status.status !== 'running') {
-        const server = mcpRegistry ? mcpRegistry.getServer(mcpId) : null;
-        if (!server || (!server.command && server.type !== 'local')) {
-          return { content: makeTextContent(`MCP "${mcpId}" 不存在或不是本地类型`, true), isError: true };
-        }
-        const startResult = await localMcpService.start(mcpId, server.command, { cwd: server.installDir || undefined });
-        if (!startResult.ok) {
-          return { content: makeTextContent(`MCP "${mcpId}" 启动失败: ${startResult.error}`, true), isError: true };
-        }
-      }
-      try {
-        const result = await localMcpService.callTool(mcpId, toolName, toolArgs || {});
-        return { content: makeTextContent(result.content), isError: result.is_error || false };
-      } catch (err) {
-        return { content: makeTextContent(err.message, true), isError: true };
-      }
-    }
-
-    return {
-      content: makeTextContent(`未知工具: ${name}`, true),
-      isError: true,
-    };
+  async function callToolImpl(name, args) {
+    const toolName = name === 'execute_ssh_command' ? 'host_exec' : name;
+    const result = await coreTools.handle(toolName, args || {}, { source: 'mcp' });
+    return toMcpToolResult(result);
   }
 
   // ─── JSON-RPC 消息处理 ────────────────────────────────────────────────────

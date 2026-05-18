@@ -32,17 +32,26 @@ function createSshShellPool({ hostService }) {
     return `__1SHELL_MARKER_${crypto.randomBytes(6).toString('hex')}__`;
   }
 
-  function destroyEntry(hostId) {
+  function makeAbortError() {
+    const err = new Error('Cancelled');
+    err.name = 'AbortError';
+    err.code = 'CANCELLED';
+    return err;
+  }
+
+  function destroyEntry(hostId, reason) {
+    const closeError = reason || new Error('shell connection closed');
     const entry = pool.get(hostId);
     if (!entry) return;
     pool.delete(hostId);
     if (entry.idleTimer) clearTimeout(entry.idleTimer);
     if (entry.pendingCmd) {
-      entry.pendingCmd.reject(new Error('shell connection closed'));
+      entry.pendingCmd.reject(closeError);
       entry.pendingCmd = null;
     }
     for (const q of (entry.queue || [])) {
-      q.reject(new Error('shell connection closed'));
+      q.cleanup?.();
+      q.reject(closeError);
     }
     entry.queue = [];
     try { entry.shell?.close(); } catch { /* ignore */ }
@@ -110,7 +119,13 @@ function createSshShellPool({ hostService }) {
     if (!entry || entry.busy || !entry.queue || entry.queue.length === 0) return;
     const next = entry.queue.shift();
     // 通过 exec 调度，但跳过排队（shell 已就绪）
-    _execOnEntry(hostId, entry, next.command, next.timeoutMs, next.startAt)
+    next.cleanup?.();
+    if (next.signal?.aborted) {
+      next.reject(makeAbortError());
+      processQueue(hostId);
+      return;
+    }
+    _execOnEntry(hostId, entry, next.command, next.timeoutMs, next.startAt, next.signal)
       .then(next.resolve)
       .catch(next.reject);
   }
@@ -180,7 +195,8 @@ function createSshShellPool({ hostService }) {
    * @param {number} [timeoutMs=30000]
    * @returns {Promise<{stdout: string, stderr: string, exitCode: number, durationMs: number}>}
    */
-  async function exec(hostId, command, timeoutMs = 30000) {
+  async function exec(hostId, command, timeoutMs = 30000, { signal } = {}) {
+    if (signal?.aborted) throw makeAbortError();
     const startAt = Date.now();
 
     let entry = pool.get(hostId);
@@ -188,7 +204,14 @@ function createSshShellPool({ hostService }) {
     // shell 正忙 → 排队等待，不销毁正在运行的命令
     if (entry && entry.busy) {
       return new Promise((resolve, reject) => {
-        entry.queue.push({ command, timeoutMs, startAt, resolve, reject });
+        const queued = { command, timeoutMs, startAt, resolve, reject, signal };
+        const onAbort = () => {
+          entry.queue = entry.queue.filter((item) => item !== queued);
+          reject(makeAbortError());
+        };
+        queued.cleanup = () => signal?.removeEventListener?.('abort', onAbort);
+        signal?.addEventListener?.('abort', onAbort, { once: true });
+        entry.queue.push(queued);
       });
     }
 
@@ -197,10 +220,11 @@ function createSshShellPool({ hostService }) {
       entry = await createShellEntry(hostId);
     }
 
-    return _execOnEntry(hostId, entry, command, timeoutMs, startAt);
+    return _execOnEntry(hostId, entry, command, timeoutMs, startAt, signal);
   }
 
-  function _execOnEntry(hostId, entry, command, timeoutMs, startAt) {
+  function _execOnEntry(hostId, entry, command, timeoutMs, startAt, signal) {
+    if (signal?.aborted) return Promise.reject(makeAbortError());
     const startMarker = makeMarker();
     const endMarker   = makeMarker();
 
@@ -208,6 +232,14 @@ function createSshShellPool({ hostService }) {
       entry.busy = true;
       entry.buffer = '';
 
+      const onAbort = () => {
+        if (!entry.pendingCmd) return;
+        const err = makeAbortError();
+        entry.pendingCmd = null;
+        entry.busy = false;
+        destroyEntry(hostId, err);
+        reject(err);
+      };
       const timer = setTimeout(() => {
         if (entry.pendingCmd) {
           entry.pendingCmd = null;
@@ -219,12 +251,20 @@ function createSshShellPool({ hostService }) {
         err.code = 'EXEC_TIMEOUT';
         reject(err);
       }, timeoutMs);
+      signal?.addEventListener?.('abort', onAbort, { once: true });
 
       entry.pendingCmd = {
         startMarker,
         endMarker,
-        resolve: (result) => resolve({ ...result, durationMs: Date.now() - startAt }),
-        reject: (err) => { clearTimeout(timer); reject(err); },
+        resolve: (result) => {
+          signal?.removeEventListener?.('abort', onAbort);
+          resolve({ ...result, durationMs: Date.now() - startAt });
+        },
+        reject: (err) => {
+          signal?.removeEventListener?.('abort', onAbort);
+          clearTimeout(timer);
+          reject(err);
+        },
         timer,
       };
 

@@ -241,7 +241,7 @@ function createCliSandbox({ dataDir, bridgeToken, port, proxyConfigStore }) {
       return buildClaudeSettingsContent(configFile);
     }
     if (fileName === 'config.json') {
-      return { primaryApiKey: 'sk-1shell-proxy' };
+      return { primaryApiKey: 'oneshell-proxy-placeholder' };
     }
     if (fileName === 'mcp-config.json') {
       return buildClaudeMcpConfig();
@@ -254,7 +254,7 @@ function createCliSandbox({ dataDir, bridgeToken, port, proxyConfigStore }) {
       return buildClaudeConfigContent(fileName, configFile);
     }
     if (cliId === 'codex' && fileName === 'auth.json') {
-      return { OPENAI_API_KEY: 'sk-1shell-proxy' };
+      return { OPENAI_API_KEY: 'oneshell-proxy-placeholder' };
     }
     return {};
   }

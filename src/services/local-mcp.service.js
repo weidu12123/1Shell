@@ -35,6 +35,7 @@ function createLocalMcpService({ logger }) {
       status: 'starting',
       error: null,
       buffer: '',
+      stderrTail: '',
       pending: new Map(),
     };
     instances.set(mcpId, inst);
@@ -43,17 +44,26 @@ function createLocalMcpService({ logger }) {
       const parts = parseCommand(command);
       if (parts.length === 0) throw new Error('command 为空');
 
-      const child = spawn(parts[0], parts.slice(1), {
-        cwd: cwd || undefined,
-        env: { ...process.env, ...(env || {}) },
-        stdio: ['pipe', 'pipe', 'pipe'],
-        shell: true,
-        windowsHide: true,
-      });
+      const child = process.platform === 'win32'
+        ? spawn(command, [], {
+          cwd: cwd ? path.resolve(cwd) : undefined,
+          env: { ...process.env, ...(env || {}) },
+          stdio: ['pipe', 'pipe', 'pipe'],
+          shell: true,
+          windowsHide: true,
+        })
+        : spawn(parts[0], parts.slice(1), {
+          cwd: cwd || undefined,
+          env: { ...process.env, ...(env || {}) },
+          stdio: ['pipe', 'pipe', 'pipe'],
+          shell: true,
+          windowsHide: true,
+        });
       inst.process = child;
 
       child.stderr.on('data', (chunk) => {
         const text = chunk.toString();
+        inst.stderrTail = `${inst.stderrTail}${text}`.slice(-4000);
         logger?.debug?.(`[local-mcp:${mcpId}] stderr: ${text.slice(0, 200)}`);
       });
 
@@ -71,7 +81,7 @@ function createLocalMcpService({ logger }) {
       child.on('exit', (code) => {
         if (inst.status !== 'stopped') {
           inst.status = 'exited';
-          inst.error = `进程退出 code=${code}`;
+          inst.error = inst.stderrTail.trim() || `进程退出 code=${code}`;
         }
         for (const [, p] of inst.pending) {
           p.reject(new Error('MCP 进程已退出'));
@@ -99,10 +109,10 @@ function createLocalMcpService({ logger }) {
 
     } catch (err) {
       inst.status = 'error';
-      inst.error = err.message;
+      inst.error = inst.stderrTail.trim() || err.message;
       killProcess(inst);
-      logger?.error?.(`[local-mcp:${mcpId}] start failed`, err.message);
-      return { ok: false, error: err.message };
+      logger?.error?.(`[local-mcp:${mcpId}] start failed`, inst.error);
+      return { ok: false, error: inst.error };
     }
   }
 
@@ -129,12 +139,14 @@ function createLocalMcpService({ logger }) {
    * 获取所有运行中实例的工具，转为 Anthropic tool 格式。
    * 工具名加前缀 `mcp__<mcpId>__`，总长 ≤ 64 字符（Anthropic 限制）。
    */
-  function getAllActiveTools() {
+  function getAllActiveTools({ allowedIds } = {}) {
     const MAX_NAME = 64;
     const OVERHEAD = 'mcp____'.length; // mcp__ + __
     const result = [];
     const seen = new Set();
+    const allowed = allowedIds ? new Set(allowedIds) : null;
     for (const [mcpId, inst] of instances) {
+      if (allowed && !allowed.has(mcpId)) continue;
       if (inst.status !== 'running') continue;
       const sid = sanitizeId(mcpId);
       const maxToolLen = Math.max(...inst.tools.map(t => t.name.length), 0);
@@ -163,7 +175,10 @@ function createLocalMcpService({ logger }) {
   /**
    * 调用本地 MCP 的工具。
    */
-  async function callTool(mcpId, toolName, args, timeout = 60000) {
+  async function callTool(mcpId, toolName, args, options = {}) {
+    const timeout = typeof options === 'number' ? options : (options.timeout || 60000);
+    const signal = typeof options === 'object' ? options.signal : undefined;
+    const killOnAbort = typeof options === 'object' ? options.killOnAbort === true : false;
     const inst = instances.get(mcpId);
     if (!inst || inst.status !== 'running') {
       throw new Error(`MCP "${mcpId}" 未运行`);
@@ -172,16 +187,10 @@ function createLocalMcpService({ logger }) {
     const result = await sendRequest(inst, 'tools/call', {
       name: toolName,
       arguments: args || {},
-    }, timeout);
+    }, timeout, { signal, onAbort: killOnAbort ? () => stop(mcpId) : undefined });
 
-    const content = Array.isArray(result?.content) ? result.content : [];
-    const text = content.map(c => {
-      if (c.type === 'text') return c.text;
-      if (c.type === 'image') return '[image]';
-      return JSON.stringify(c);
-    }).join('\n');
-
-    return { content: text || '(empty)', is_error: result?.isError || false };
+    const content = normalizeToolResultContent(result);
+    return { content, is_error: result?.isError || false };
   }
 
   /**
@@ -211,21 +220,36 @@ function createLocalMcpService({ logger }) {
 
   // ─── stdio JSON-RPC helpers ─────────────────────────────────────────
 
-  function sendRequest(inst, method, params, timeout = 30000) {
+  function sendRequest(inst, method, params, timeout = 30000, { signal, onAbort } = {}) {
     return new Promise((resolve, reject) => {
+      if (signal?.aborted) return reject(makeAbortError());
       if (!inst.process?.stdin?.writable) {
         return reject(new Error('stdin 不可写'));
       }
       const id = nextReqId++;
-      const timer = setTimeout(() => {
+      let settled = false;
+      const cleanup = () => signal?.removeEventListener?.('abort', abortHandler);
+      const settle = (fn, value) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        cleanup();
         inst.pending.delete(id);
-        reject(new Error(`${method} 超时 (${timeout}ms)`));
+        fn(value);
+      };
+      const abortHandler = () => {
+        try { onAbort?.(); } catch { /* ignore */ }
+        settle(reject, makeAbortError());
+      };
+      const timer = setTimeout(() => {
+        settle(reject, new Error(`${method} 超时 (${timeout}ms)`));
       }, timeout);
 
       inst.pending.set(id, {
-        resolve: (val) => { clearTimeout(timer); resolve(val); },
-        reject: (err) => { clearTimeout(timer); reject(err); },
+        resolve: (val) => settle(resolve, val),
+        reject: (err) => settle(reject, err),
       });
+      signal?.addEventListener?.('abort', abortHandler, { once: true });
 
       const msg = JSON.stringify({ jsonrpc: '2.0', id, method, params }) + '\n';
       inst.process.stdin.write(msg);
@@ -236,6 +260,42 @@ function createLocalMcpService({ logger }) {
     if (!inst.process?.stdin?.writable) return;
     const msg = JSON.stringify({ jsonrpc: '2.0', method, params }) + '\n';
     inst.process.stdin.write(msg);
+  }
+
+  function normalizeToolResultContent(result) {
+    const blocks = [];
+    const content = Array.isArray(result?.content) ? result.content : [];
+    for (const item of content) {
+      if (!item || typeof item !== 'object') continue;
+      if (item.type === 'text') {
+        blocks.push({ type: 'text', text: String(item.text || '') });
+        continue;
+      }
+      if (item.type === 'image' && (item.data || item.base64)) {
+        blocks.push({
+          type: 'image',
+          source: {
+            type: 'base64',
+            media_type: item.mimeType || item.mime_type || 'image/png',
+            data: item.data || item.base64,
+          },
+        });
+        continue;
+      }
+      blocks.push({ type: 'text', text: JSON.stringify(item) });
+    }
+
+    const extras = {};
+    if (result?.structuredContent !== undefined) extras.structuredContent = result.structuredContent;
+    if (result?._meta !== undefined) extras._meta = result._meta;
+    if (Object.keys(extras).length > 0) {
+      blocks.push({ type: 'text', text: JSON.stringify(extras, null, 2) });
+    }
+
+    if (blocks.length === 0) return '(empty)';
+    return blocks.every((block) => block.type === 'text')
+      ? blocks.map((block) => block.text).join('\n')
+      : blocks;
   }
 
   function drainBuffer(inst) {
@@ -259,6 +319,13 @@ function createLocalMcpService({ logger }) {
         // not JSON, ignore (might be startup logs)
       }
     }
+  }
+
+  function makeAbortError() {
+    const err = new Error('Cancelled');
+    err.name = 'AbortError';
+    err.code = 'CANCELLED';
+    return err;
   }
 
   function killProcess(inst) {

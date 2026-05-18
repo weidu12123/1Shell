@@ -2,6 +2,12 @@
 
 const path = require('path');
 
+// 先加载 .env，让 .env 中的 BRIDGE_TOKEN 成为权威源。
+// 必须在 ensureBridgeToken / env.js 之前，
+// 否则 ensureBridgeToken 会从 data/bridge-token.json 读旧值并占住 process.env，
+// 之后 dotenv 默认不覆盖已存在的 env，.env 就形同虚设。
+require('dotenv').config();
+
 // BRIDGE_TOKEN 必须在 env.js 加载之前写入 process.env，
 // 否则 env.js 缓存的 BRIDGE_TOKEN 常量会是空字符串。
 const { ensureBridgeToken } = require('./lib/bridge-token');
@@ -27,7 +33,14 @@ const { createAuditRouter } = require('./src/routes/audit.routes');
 const { createAuthRouter } = require('./src/routes/auth.routes');
 const { createHealthRouter } = require('./src/routes/health.routes');
 const { createHostRouter } = require('./src/routes/host.routes');
+const { createGeoRouter } = require('./src/routes/geo.routes');
+const { createGeoIpService } = require('./src/services/geoip.service');
 const { createProbeRouter } = require('./src/routes/probe.routes');
+const { createProbeAgentAdminRouter, createProbeAgentPublicRouter } = require('./src/routes/probe-agent.routes');
+const { createProbeRelayAdminRouter, createProbeRelayPublicRouter } = require('./src/routes/probe-relay.routes');
+const { createProbeTrafficRouter } = require('./src/routes/probe-traffic.routes');
+const { createProbeAlertRouter } = require('./src/routes/probe-alert.routes');
+const { createProbeDiagRouter } = require('./src/routes/probe-diag.routes');
 const { createScriptRouter } = require('./src/routes/script.routes');
 const { createWorkflowRouter } = require('./src/routes/playbook.routes');
 const { createCliSandbox } = require('./src/agents/cli-sandbox');
@@ -50,15 +63,22 @@ const { createAgentSetupRouter } = require('./src/routes/agent-setup.routes');
 const { createFileRouter } = require('./src/routes/file.routes');
 const { createAuthService } = require('./src/services/auth.service');
 const { createHostService } = require('./src/services/host.service');
+const { createProbeAgentService } = require('./src/services/probe-agent.service');
+const { createProbeAgentInstallerService } = require('./src/services/probe-agent-installer.service');
+const { createProbeRelayService } = require('./src/services/probe-relay.service');
+const { createProbeRelayInstallerService } = require('./src/services/probe-relay-installer.service');
 const { createProbeService } = require('./src/services/probe.service');
+const { createProbeTrafficService } = require('./src/services/probe-traffic.service');
+const { createProbeAlertService } = require('./src/services/probe-alert.service');
+const { createProbeDiagService } = require('./src/services/probe-diag.service');
+const { createProbeAggregatorService } = require('./src/services/probe-aggregator.service');
 const { createSessionService } = require('./src/services/session.service');
 const { createFileService } = require('./src/services/file.service');
 const { createIpFilterService } = require('./src/services/ip-filter.service');
-const { createSiteScanService } = require('./src/services/site-scan.service');
-const { createSiteDeleteService } = require('./src/services/site-delete.service');
 const { createIpFilterRouter } = require('./src/routes/ip-filter.routes');
 const { createProxyRouter, createProxyConfigStore } = require('./src/routes/proxy.routes');
 const { createSkillRegistry } = require('./src/skills/registry');
+const { createClaudeCodeSkillRegistry } = require('./src/skills/claude-code-skill-registry');
 const { createLibraryService } = require('./src/skills/library.service');
 const { createSkillRunner } = require('./src/skills/runner');
 const { createSkillRouter } = require('./src/routes/skill.routes');
@@ -66,8 +86,6 @@ const { createSkillStudioRouter } = require('./src/routes/skill-studio.routes');
 const { createMcpRegistry } = require('./src/services/mcp-registry.service');
 const { createMcpRegistryRouter } = require('./src/routes/mcp-registry.routes');
 const { createExecRouter } = require('./src/routes/exec.routes');
-const { createDnsProviderRouter } = require('./src/routes/dns-provider.routes');
-const { createSitesRouter } = require('./src/routes/sites.routes');
 const { createProgramRegistry } = require('./src/programs/registry');
 const { createProgramStateService } = require('./src/programs/state.service');
 const { createProgramEngine } = require('./src/programs/engine');
@@ -80,10 +98,11 @@ const { registerIdeSocketHandlers } = require('./src/sockets/registerIdeSocketHa
 const { createIdeTools } = require('./src/ide/ide.tools');
 const { createIdeService } = require('./src/ide/ide.service');
 const { createLocalMcpService } = require('./src/services/local-mcp.service');
+const { createLocalMcpDeployer } = require('./src/services/local-mcp-deployer.service');
 
 // ─── 初始化核心服务 ─────────────────────────────────────────────────────
 const dataDir = path.join(ROOT_DIR, 'data');
-const db = createDatabase(path.join(dataDir, '1shell.db'));
+const db = createDatabase(path.join(dataDir, '1shell.db'), { logger: log });
 const app = createApp(ROOT_DIR);
 const { io, server } = createServer(app);
 const hostRepository = createHostRepository(HOSTS_FILE, db);
@@ -100,17 +119,27 @@ const agentProviders = createAgentProviders({ cliSandbox });
 const agentPtyService = createAgentPtyService({ hostService, providerRegistry: agentProviders });
 const sshPool = createSshPool({ hostService });
 const sshShellPool = createSshShellPool({ hostService });
-const probeService = createProbeService({ hostRepository, hostService, sshShellPool });
+const probeTrafficService = createProbeTrafficService({ db, logger: log });
+const probeAgentService = createProbeAgentService({ db, hostService, trafficService: probeTrafficService });
+const probeRelayService = createProbeRelayService({ db, hostService, probeAgentService });
+const probeService = createProbeService({ hostRepository, hostService, sshShellPool, probeAgentService, probeRelayService, probeTrafficService });
+const probeAlertService = createProbeAlertService({ db, hostService, logger: log });
+const probeAggregatorService = createProbeAggregatorService({ db, logger: log });
 const bridgeService = createBridgeService({ hostService, auditService, sshPool, sshShellPool });
+const probeDiagService = createProbeDiagService({ bridgeService, hostService, auditService, logger: log });
+const probeAgentInstallerService = createProbeAgentInstallerService({ rootDir: ROOT_DIR, bridgeService, hostService, probeAgentService, probeRelayService });
+const probeRelayInstallerService = createProbeRelayInstallerService({ rootDir: ROOT_DIR, hostService, bridgeService, probeRelayService });
 const fileService = createFileService({ hostService });
 const ipFilterService = createIpFilterService({ db });
 const scriptService = createScriptService({ scriptRepository, hostService, bridgeService, auditService });
 const playbookService = createPlaybookService({ playbookRepository, scriptService, auditService });
 const skillRegistry = createSkillRegistry(path.join(dataDir, 'skills'), { kind: 'skill' });
 const playbookRegistry = createSkillRegistry(path.join(dataDir, 'playbooks'), { kind: 'playbook' });
+const claudeCodeSkillRegistry = createClaudeCodeSkillRegistry({ dataDir, logger: log });
 const libraryService = createLibraryService({ skillRegistry, playbookRegistry });
 const mcpRegistry = createMcpRegistry({ dataDir });
 const localMcpService = createLocalMcpService({ logger: log });
+const localMcpDeployer = createLocalMcpDeployer({ dataDir, mcpRegistry, localMcpService, hostService, logger: log });
 const skillRunner = createSkillRunner({
   bridgeService,
   hostService,
@@ -123,9 +152,24 @@ const skillRunner = createSkillRunner({
     try { libraryService.reload(); } catch { /* ignore */ }
   },
 });
-const mcpService = createMcpService({ bridgeService, hostService, auditService, bridgeToken: BRIDGE_TOKEN, localMcpService, mcpRegistry });
-const siteScanService = createSiteScanService({ bridgeService, hostService });
-const siteDeleteService = createSiteDeleteService({ bridgeService });
+const mcpService = createMcpService({
+  bridgeService,
+  hostService,
+  auditService,
+  bridgeToken: BRIDGE_TOKEN,
+  localMcpService,
+  localMcpDeployer,
+  mcpRegistry,
+  scriptService,
+  fileService,
+  probeService,
+  probeAgentService,
+  probeAggregatorService,
+  probeTrafficService,
+  probeAlertService,
+  probeDiagService,
+  probeAgentInstallerService,
+});
 
 // ─── Program Engine (长驻程序) + L2 Skill Executor + L3 Guardian AI ────
 const programRegistry = createProgramRegistry(path.join(dataDir, 'programs'));
@@ -171,9 +215,16 @@ const ideTools = createIdeTools({
   auditService,
   mcpRegistry,
   localMcpService,
+  localMcpDeployer,
   scriptService,
+  fileService,
   probeService,
-  siteScanService,
+  probeAgentService,
+  probeAggregatorService,
+  probeTrafficService,
+  probeAlertService,
+  probeDiagService,
+  probeAgentInstallerService,
   dataDir,
   cliSandbox,
   onFileWritten: () => {
@@ -208,6 +259,8 @@ app.use('/api/proxy', createProxyRouter({ proxyConfigStore }));
 
 // IP 访问控制：在鉴权之前执行（未登录的请求也要过滤）
 app.use(ipFilterService.ipFilterMiddleware);
+app.use('/api', createProbeAgentPublicRouter({ probeAgentService }));
+app.use('/api', createProbeRelayPublicRouter({ probeRelayService }));
 
 // 以下路由需要 Web session 鉴权
 app.use('/api', authService.requireAuth);
@@ -219,18 +272,23 @@ app.use('/api', createHostRouter({
   auditService,
   isUsingFallbackSecret,
 }));
+const geoIpService = createGeoIpService();
+app.use('/api', createGeoRouter({ hostService, geoIpService, probeService }));
 app.use('/api', createProbeRouter({ probeService }));
+app.use('/api', createProbeAgentAdminRouter({ probeAgentService, probeAgentInstallerService, probeAggregatorService }));
+app.use('/api', createProbeRelayAdminRouter({ probeRelayService, probeRelayInstallerService }));
+app.use('/api', createProbeTrafficRouter({ trafficService: probeTrafficService, hostService }));
+app.use('/api', createProbeAlertRouter({ alertService: probeAlertService }));
+app.use('/api', createProbeDiagRouter({ diagService: probeDiagService }));
 app.use('/api', createAgentSetupRouter({ proxyConfigStore, cliSandbox }));
 app.use('/api', createFileRouter({ fileService }));
 app.use('/api', createIpFilterRouter({ ipFilterService }));
 app.use('/api', createScriptRouter({ scriptService, aiService }));
 app.use('/api', createWorkflowRouter({ playbookService }));
-app.use('/api', createSkillRouter({ libraryService, skillRunner }));
+app.use('/api', createSkillRouter({ libraryService, skillRunner, claudeCodeSkillRegistry }));
 app.use('/api', createSkillStudioRouter({ hostService, libraryService, mcpRegistry }));
-app.use('/api', createMcpRegistryRouter({ mcpRegistry }));
+app.use('/api', createMcpRegistryRouter({ mcpRegistry, localMcpService, localMcpDeployer }));
 app.use('/api', createExecRouter({ bridgeService, hostService }));
-app.use('/api', createSitesRouter({ siteScanService, siteDeleteService, hostService }));
-app.use('/api', createDnsProviderRouter({ dataDir }));
 app.use('/api', createProgramRouter({ registry: programRegistry, stateService: programStateService, engine: programEngine, hostService }));
 
 // ─── Socket.IO ──────────────────────────────────────────────────────────
@@ -245,8 +303,21 @@ registerIdeSocketHandlers(io, { ideService, ideTools, localMcpService, mcpRegist
 probeService.startScheduler({
   onUpdate: (snapshot) => {
     io.emit('probe:update', snapshot);
+    try {
+      const result = probeAlertService.evaluate(snapshot);
+      if (result.firedEvents.length || result.resolvedEventIds.length) {
+        io.emit('probe:alerts', {
+          fired: result.firedEvents,
+          resolved: result.resolvedEventIds,
+          openCount: probeAlertService.countOpenEvents(),
+        });
+      }
+    } catch (e) { log.warn?.(`[probe-alert] evaluate failed: ${e.message}`); }
   },
 });
+probeTrafficService.startScheduler();
+probeAlertService.ensureDefaults();
+probeAggregatorService.startScheduler();
 
 // ─── Program Engine 启动（所有服务就位后再启）─────────────────────────
 programEngine.start();
@@ -255,7 +326,7 @@ programEngine.start();
 (async () => {
   try {
     const servers = mcpRegistry.listServersWithSecrets();
-    const locals = servers.filter(s => s.type === 'local' && s.command);
+    const locals = servers.filter(s => s.enabled && s.autoStart && s.type === 'local' && s.command);
     if (locals.length === 0) return;
     log.info(`[mcp-auto-start] 正在启动 ${locals.length} 个本地 MCP...`);
     const results = await Promise.allSettled(
@@ -287,12 +358,16 @@ server.listen(PORT, () => {
   if (USING_DEFAULT_CREDENTIALS) {
     log.warn('⚠️  当前使用默认登录凭据 admin/admin，请在 .env 中设置 APP_LOGIN_USERNAME 和 APP_LOGIN_PASSWORD');
   }
+  const { syncGlobalClaudeMcp } = require('./src/agents/claude-config-sync');
+  syncGlobalClaudeMcp({ port: PORT, bridgeToken: BRIDGE_TOKEN });
 });
 
 // ─── 优雅退出 ───────────────────────────────────────────────────────────
 function shutdown() {
   log.info('1Shell 正在关闭...');
   programEngine.stop();
+  probeTrafficService.stopScheduler();
+  probeAggregatorService.stopScheduler();
   localMcpService.stopAll();
   sshPool.closeAll();
   sshShellPool.closeAll();

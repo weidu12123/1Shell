@@ -19,8 +19,12 @@
  */
 function registerIdeSocketHandlers(io, { ideService, ideTools, localMcpService, mcpRegistry }) {
   io.on('connection', (socket) => {
+    socket.on('disconnect', () => {
+      ideService.cancelSessionsForSocket?.(socket.id);
+    });
 
-    socket.on('ide:message', (payload = {}, reply = () => {}) => {
+    socket.on('ide:message', (payload = {}, reply) => {
+      if (typeof reply !== 'function') reply = () => {};
       const sessionId = String(payload.sessionId || '').trim();
       const message = String(payload.message || '').trim();
       if (!sessionId || !message) {
@@ -35,46 +39,54 @@ function registerIdeSocketHandlers(io, { ideService, ideTools, localMcpService, 
         safeMode: payload.safeMode,
         claudeCodeEnabled: payload.claudeCodeEnabled,
         unlimitedTurns: payload.unlimitedTurns,
+        entry: payload.entry || payload.source || '',
       }).catch(() => {});
 
       reply({ ok: true });
     });
 
-    socket.on('ide:stop', (payload = {}, reply = () => {}) => {
+    socket.on('ide:stop', (payload = {}, reply) => {
+      if (typeof reply !== 'function') reply = () => {};
       const sessionId = String(payload.sessionId || '').trim();
-      if (sessionId) ideService.cancelSession(sessionId);
-      reply({ ok: true });
+      const cancelled = sessionId ? ideService.cancelSession(sessionId) : false;
+      if (sessionId && !cancelled) socket.emit('ide:cancelled', { sessionId });
+      reply({ ok: true, cancelled });
     });
 
-    socket.on('ide:safe-mode', (payload = {}, reply = () => {}) => {
+    socket.on('ide:safe-mode', (payload = {}, reply) => {
+      if (typeof reply !== 'function') reply = () => {};
       const sessionId = String(payload.sessionId || '').trim();
       const enabled = payload.enabled !== false;
       if (sessionId) ideService.setSafeMode(sessionId, enabled);
       reply({ ok: true, safeMode: enabled });
     });
 
-    socket.on('ide:unlimited-turns', (payload = {}, reply = () => {}) => {
+    socket.on('ide:unlimited-turns', (payload = {}, reply) => {
+      if (typeof reply !== 'function') reply = () => {};
       const sessionId = String(payload.sessionId || '').trim();
       const enabled = payload.enabled !== false;
       if (sessionId) ideService.setUnlimitedTurns(sessionId, enabled);
       reply({ ok: true, unlimitedTurns: enabled });
     });
 
-    socket.on('ide:claude-code-collab', (payload = {}, reply = () => {}) => {
+    socket.on('ide:claude-code-collab', (payload = {}, reply) => {
+      if (typeof reply !== 'function') reply = () => {};
       const sessionId = String(payload.sessionId || '').trim();
       const enabled = payload.enabled !== false;
       if (sessionId) ideService.setClaudeCodeEnabled(sessionId, enabled);
       reply({ ok: true, claudeCodeEnabled: enabled });
     });
 
-    socket.on('ide:clear', (payload = {}, reply = () => {}) => {
+    socket.on('ide:clear', (payload = {}, reply) => {
+      if (typeof reply !== 'function') reply = () => {};
       const sessionId = String(payload.sessionId || '').trim();
       if (sessionId) ideService.deleteSession(sessionId);
       reply({ ok: true });
     });
 
     // ─── 安全模式审批响应 ────────────────────────────────────
-    socket.on('ide:approve-response', (payload = {}, reply = () => {}) => {
+    socket.on('ide:approve-response', (payload = {}, reply) => {
+      if (typeof reply !== 'function') reply = () => {};
       if (!ideTools) return reply({ ok: false });
       const sessionId = String(payload.sessionId || '').trim();
       const command = String(payload.command || '').trim();
@@ -85,19 +97,23 @@ function registerIdeSocketHandlers(io, { ideService, ideTools, localMcpService, 
     });
 
     // ─── 本地 MCP 启停 ──────────────────────────────────────────
-    socket.on('ide:mcp-start', async (payload = {}, reply = () => {}) => {
+    socket.on('ide:mcp-start', async (payload = {}, reply) => {
+      if (typeof reply !== 'function') reply = () => {};
       if (!localMcpService || !mcpRegistry) return reply({ ok: false, error: '服务未初始化' });
       const mcpId = String(payload.mcpId || '').trim();
       if (!mcpId) return reply({ ok: false, error: 'mcpId 必填' });
       const server = mcpRegistry.getServer(mcpId);
       if (!server) return reply({ ok: false, error: `MCP 不存在: ${mcpId}` });
+      if (!server.enabled) return reply({ ok: false, error: '该 MCP 已禁用' });
+      if (!server.exposeToIde) return reply({ ok: false, error: '该 MCP 未开放给 IDE AI' });
       if (server.type !== 'local' && !server.command) return reply({ ok: false, error: '该 MCP 不是本地类型' });
       const result = await localMcpService.start(mcpId, server.command, { cwd: server.installDir || undefined });
       io.emit('ide:mcp-status', { mcpId, ...localMcpService.getStatus(mcpId) });
       reply(result);
     });
 
-    socket.on('ide:mcp-stop', (payload = {}, reply = () => {}) => {
+    socket.on('ide:mcp-stop', (payload = {}, reply) => {
+      if (typeof reply !== 'function') reply = () => {};
       if (!localMcpService) return reply({ ok: false });
       const mcpId = String(payload.mcpId || '').trim();
       if (mcpId) localMcpService.stop(mcpId);
@@ -105,7 +121,8 @@ function registerIdeSocketHandlers(io, { ideService, ideTools, localMcpService, 
       reply({ ok: true });
     });
 
-    socket.on('ide:mcp-status', (payload = {}, reply = () => {}) => {
+    socket.on('ide:mcp-status', (payload = {}, reply) => {
+      if (typeof reply !== 'function') reply = () => {};
       if (!localMcpService) return reply({ ok: false, status: 'unavailable' });
       const mcpId = String(payload.mcpId || '').trim();
       reply({ ok: true, ...localMcpService.getStatus(mcpId) });

@@ -21,6 +21,7 @@ const path = require('path');
 const fetch = require('node-fetch');
 const { exec: childExec } = require('child_process');
 const { ROOT_DIR } = require('../config/env');
+const { assessCommandRisk } = require('../ai/command-safety');
 
 const DEFAULT_MAX_TURNS = 12;
 const DEFAULT_EXEC_TIMEOUT_MS = 30000;
@@ -29,14 +30,15 @@ const SKILL_BODY_TOTAL_BYTES = 32 * 1024;
 
 // ─── L2 工具定义 ──────────────────────────────────────────────────────────
 
-const L2_TOOLS = [
+const L2_BASE_TOOLS = [
   {
     name: 'execute_command',
     description:
       '在目标主机上执行非交互式 shell 命令，用于完成任务或诊断环境。' +
       '\n- 包管理器加 -y' +
       '\n- 长耗时命令把 timeout 设大' +
-      '\n- 禁止 ssh/scp 连接其他主机',
+      '\n- 禁止 ssh/scp 连接其他主机' +
+      '\n- 危险命令会被硬拦截并要求升级 L3',
     input_schema: {
       type: 'object',
       properties: {
@@ -62,6 +64,10 @@ const L2_TOOLS = [
       required: ['stepId', 'newRun'],
     },
   },
+];
+
+const L2_TOOLS = [
+  ...L2_BASE_TOOLS,
   {
     name: 'report_outcome',
     description:
@@ -76,6 +82,33 @@ const L2_TOOLS = [
         output:  { type: 'string', description: '步骤输出，供后续步骤引用' },
       },
       required: ['status', 'summary'],
+    },
+  },
+];
+
+const L2_REPAIR_TOOLS = [
+  ...L2_BASE_TOOLS,
+  {
+    name: 'report_outcome',
+    description:
+      '完成 L1 失败维护后必须调用本工具宣告结构化结论。' +
+      '\n- resolved: 已修复，Program 可以继续' +
+      '\n- unresolved: 在 Skill 约束内尝试后仍无法修复' +
+      '\n- out_of_scope: 问题超出本 Program 绑定 Skill 的职责范围' +
+      '\n- risk_too_high: 需要高风险操作，L2 不应执行' +
+      '\n- needs_human_decision: 需要用户做业务/安全决策' +
+      '\n- suspected_incident: 怀疑发生攻击、数据损坏或业务事故，应升级 L3',
+    input_schema: {
+      type: 'object',
+      properties: {
+        disposition: {
+          type: 'string',
+          enum: ['resolved', 'unresolved', 'out_of_scope', 'risk_too_high', 'needs_human_decision', 'suspected_incident'],
+        },
+        summary: { type: 'string', description: '一句话说明诊断/修复/升级原因' },
+        output: { type: 'string', description: '可展示给用户或供后续步骤引用的结果' },
+      },
+      required: ['disposition', 'summary'],
     },
   },
 ];
@@ -223,6 +256,85 @@ function buildL2UserMessage({ step, stepOutputs }) {
   return lines.join('\n');
 }
 
+function buildL2RepairSystem({ program, host, skillContext }) {
+  const isLocal = host.id === 'local';
+  const hostDesc = isLocal
+    ? `1Shell 本机 · ${process.platform === 'win32' ? 'Windows' : process.platform} · ${process.arch}`
+    : `${host.name} (${host.username || 'root'}@${host.host}:${host.port || 22})`;
+
+  const lines = [
+    `你是 1Shell Program 的 L2 维护 AI。`,
+    `你只在 Program「${program.name}」绑定的 1Shell Skill 约束下处理 L1 失败。`,
+    `你的职责不是全权接管，而是：诊断、做低风险修复、修正 Program step，或明确升级 L3。`,
+    ``,
+    `## 目标主机`,
+    `- ${hostDesc}`,
+    `- hostId: \`${host.id}\``,
+    `- execute_command 自动在此主机执行，不要指定 host。`,
+    isLocal && process.platform === 'win32' ? `- 本机是 Windows，禁止使用 Linux 命令。` : '',
+    ``,
+    `## 工作流程`,
+    `1. 阅读失败 step、verify 和 stdout/stderr`,
+    `2. 按绑定 Skill 的 rules/workflows 判断是否在职责范围内`,
+    `3. 只做低风险诊断/修复；如需危险命令、停站、改 SSH/防火墙/数据库等，必须升级 L3`,
+    `4. 如已验证更正确的命令，可用 write_program_step 固化`,
+    `5. 最后必须调用 report_outcome，disposition 只能取枚举值`,
+    ``,
+    `## disposition 选择规则`,
+    `- resolved: 已修复，Program 可以继续`,
+    `- unresolved: 在当前 Skill 约束内无法修复，但不构成危机`,
+    `- out_of_scope: 超出绑定 Skill 职责边界`,
+    `- risk_too_high: 需要 L2 无权执行的高风险操作`,
+    `- needs_human_decision: 需要用户做业务/安全选择`,
+    `- suspected_incident: 怀疑攻击、数据损坏、业务事故或连锁故障`,
+    ``,
+    `## 硬约束`,
+    `- Skill rules 是铁律，不可违反`,
+    `- 禁止 rm -rf /、dd、mkfs、fork bomb、shutdown、reboot`,
+    `- 禁止修改 /etc/ssh/ 或 sshd_config`,
+    `- 禁止操作名称含 "1shell" 的资源`,
+    `- 不确定就升级，不要越权`,
+  ].filter(Boolean);
+
+  if (skillContext) {
+    lines.push(``, `---`, ``, `## Program 绑定 Skill: ${skillContext.name} (\`${skillContext.id}\`)`);
+    if (skillContext.body) lines.push(``, skillContext.body.trim());
+    for (const r of skillContext.rules) lines.push(``, `### 规则 · ${r.name}`, r.content.trim());
+    for (const w of skillContext.workflows) lines.push(``, `### 流程 · ${w.name}`, w.content.trim());
+    for (const ref of skillContext.references) lines.push(``, `### 参考 · ${ref.name}`, ref.content.trim());
+  }
+
+  return lines.join('\n');
+}
+
+function buildL2RepairUserMessage({ failingStep, failureReason, execResult, stepOutputs, attempt }) {
+  const stdoutTail = (execResult?.stdout || '').trimEnd().slice(-800);
+  const stderrTail = (execResult?.stderr || '').trimEnd().slice(-1000);
+  const lines = [
+    `## L1 失败上下文`,
+    `- attempt: ${attempt}`,
+    `- step: \`${failingStep.id}\` — ${failingStep.label || failingStep.id}`,
+    `- command: \`${(failingStep.run || '').slice(0, 500)}\``,
+    `- failureReason: ${failureReason}`,
+    `- exitCode: ${execResult?.exitCode}`,
+  ];
+  if (failingStep.verify) lines.push('', '### verify', '```json', JSON.stringify(failingStep.verify, null, 2), '```');
+  if (stdoutTail) lines.push('', '### stdout 末尾', '```', stdoutTail, '```');
+  if (stderrTail) lines.push('', '### stderr 末尾', '```', stderrTail, '```');
+  if (failingStep.on_error_hint) lines.push('', '### 作者提示', failingStep.on_error_hint.trim());
+
+  if (stepOutputs && stepOutputs.size > 0) {
+    lines.push('', '## 已完成步骤输出摘要');
+    for (const [sid, out] of stepOutputs) {
+      const stdout = (out.stdout || '').trimEnd().slice(-300);
+      if (stdout) lines.push('', `### ${sid} (exitCode=${out.exitCode})`, '```', stdout, '```');
+    }
+  }
+
+  lines.push('', '请在 Program 绑定 Skill 约束内维护该失败；完成后调用 report_outcome。');
+  return lines.join('\n');
+}
+
 // ─── 命令执行辅助 ─────────────────────────────────────────────────────────
 
 function execLocal(command, timeoutMs) {
@@ -256,6 +368,20 @@ async function handleExec(tu, { hostId, bridgeService, io, sessionId }) {
   const timeout = Number(tu.input?.timeout) > 0 ? Number(tu.input.timeout) : DEFAULT_EXEC_TIMEOUT_MS;
   if (!command) {
     return { type: 'tool_result', tool_use_id: tu.id, content: '[ERROR] command 空', is_error: true };
+  }
+
+  const risk = assessCommandRisk(command);
+  if (risk.dangerous) {
+    io?.emit?.('program:l2:info', {
+      sessionId,
+      message: `危险命令被 L2 拦截：${risk.reason}。请 report_outcome disposition=risk_too_high 升级 L3。`,
+    });
+    return {
+      type: 'tool_result',
+      tool_use_id: tu.id,
+      is_error: true,
+      content: `[BLOCKED] ${risk.reason}。L2 无权执行该命令，请 report_outcome disposition=risk_too_high。`,
+    };
   }
 
   io?.emit?.('program:l2:exec', { sessionId, toolUseId: tu.id, command, timeout, hostId });
@@ -539,6 +665,142 @@ function createSkillStepExecutor({
     };
   }
 
+  async function repairFailure({ program, hostId, failingStep, failureReason, execResult, stepOutputs, runId, attempt = 1 }) {
+    const startAt = Date.now();
+    const host = hostService.findHost(hostId)
+      || (hostId === 'local' ? { id: 'local', name: '本机' } : null);
+    if (!host) {
+      return { ok: false, disposition: 'unresolved', summary: `主机不存在: ${hostId}`, output: '', durationMs: 0 };
+    }
+
+    const skillId = program.l2?.skill || '';
+    if (!skillId && program.l2?.require_skill_for_repair !== false) {
+      return { ok: false, disposition: 'out_of_scope', summary: 'Program 未绑定 L2 维护 Skill', output: '', durationMs: 0 };
+    }
+
+    const provider = proxyConfigStore.getActiveProvider('skills')
+                  || proxyConfigStore.getActiveProvider('claude-code');
+    if (!provider?.apiBase || !provider?.apiKey) {
+      return { ok: false, disposition: 'unresolved', summary: 'AI Provider 未配置', output: '', durationMs: 0 };
+    }
+
+    const skillContext = skillId ? loadSkillContext(skillRegistry, skillId) : null;
+    if (skillId && !skillContext) {
+      return { ok: false, disposition: 'out_of_scope', summary: `L2 维护 Skill "${skillId}" 不存在或为空`, output: '', durationMs: 0 };
+    }
+
+    const proxyUrl = `http://127.0.0.1:${port}/api/proxy/skills/v1/messages`;
+    const model = provider.model || 'claude-sonnet-4-20250514';
+    const sessionId = `l2-repair_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
+
+    io?.emit?.('program:l2:started', {
+      sessionId, runId, programId: program.id, hostId,
+      stepId: failingStep.id, skillId: skillId || '(none)', goal: `维护 L1 失败: ${failingStep.label || failingStep.id}`,
+      mode: 'repair', attempt,
+    });
+
+    const system = buildL2RepairSystem({ program, host, skillContext });
+    const messages = [{
+      role: 'user',
+      content: buildL2RepairUserMessage({ failingStep, failureReason, execResult, stepOutputs, attempt }),
+    }];
+
+    let disposition = null;
+    let summary = '';
+    let output = '';
+
+    try {
+      const maxTurns = globalUnlimitedTurns ? Infinity : DEFAULT_MAX_TURNS;
+      for (let turn = 0; turn < maxTurns; turn++) {
+        io?.emit?.('program:l2:thinking', { sessionId, turn: turn + 1, mode: 'repair' });
+
+        let resp;
+        try {
+          resp = await fetch(proxyUrl, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ model, max_tokens: 4096, system, messages, tools: L2_REPAIR_TOOLS }),
+          });
+        } catch (err) {
+          disposition = 'unresolved';
+          summary = `AI 调用失败: ${err.message}`;
+          break;
+        }
+
+        if (!resp.ok) {
+          const errText = await resp.text().catch(() => '');
+          disposition = 'unresolved';
+          summary = `Provider 返回 ${resp.status}: ${errText.substring(0, 200)}`;
+          break;
+        }
+
+        const data = await resp.json();
+        if (data.type === 'error') {
+          disposition = 'unresolved';
+          summary = data.error?.message || 'Provider 返回错误';
+          break;
+        }
+
+        const content = Array.isArray(data.content) ? data.content : [];
+        messages.push({ role: 'assistant', content });
+
+        if (data.stop_reason === 'end_turn') {
+          disposition = 'unresolved';
+          summary = 'L2 维护未调用 report_outcome 便结束';
+          break;
+        }
+        if (data.stop_reason !== 'tool_use') {
+          disposition = 'unresolved';
+          summary = `L2 维护意外停止: ${data.stop_reason}`;
+          break;
+        }
+
+        const toolResults = [];
+        let outcomeReceived = false;
+        for (const tu of content.filter((b) => b.type === 'tool_use')) {
+          if (tu.name === 'execute_command') {
+            toolResults.push(await handleExec(tu, { hostId, bridgeService, io, sessionId }));
+          } else if (tu.name === 'write_program_step') {
+            if (program.l2?.allow_write_program === false) {
+              toolResults.push({ type: 'tool_result', tool_use_id: tu.id, content: '[BLOCKED] Program 禁止 L2 写回 step', is_error: true });
+            } else {
+              toolResults.push(await handleWriteProgramStep(tu, { program, io, sessionId }));
+            }
+          } else if (tu.name === 'report_outcome') {
+            disposition = String(tu.input?.disposition || 'unresolved');
+            summary = String(tu.input?.summary || '').trim() || '(无说明)';
+            output = String(tu.input?.output || '').trim();
+            outcomeReceived = true;
+            toolResults.push({ type: 'tool_result', tool_use_id: tu.id, content: 'OK' });
+            break;
+          } else {
+            toolResults.push({ type: 'tool_result', tool_use_id: tu.id, content: `Unknown tool: ${tu.name}`, is_error: true });
+          }
+        }
+        messages.push({ role: 'user', content: toolResults });
+        if (outcomeReceived) break;
+      }
+
+      if (!disposition) {
+        disposition = 'unresolved';
+        summary = summary || `L2 维护超出最大轮次 (${DEFAULT_MAX_TURNS})`;
+      }
+    } catch (err) {
+      disposition = 'unresolved';
+      summary = `L2 维护异常: ${err.message}`;
+      logger?.error?.('[l2] repair exception', { runId, stepId: failingStep.id, error: err.message });
+    }
+
+    const durationMs = Date.now() - startAt;
+    const ok = disposition === 'resolved';
+    io?.emit?.('program:l2:ended', {
+      sessionId, runId, stepId: failingStep.id, ok, summary, durationMs,
+      disposition, mode: 'repair',
+    });
+
+    return { ok, disposition, summary, output, stdout: output, stderr: ok ? '' : summary, exitCode: ok ? 0 : 1, durationMs };
+  }
+
   /**
    * 根据上次 L2 执行日志，启动一次自我改进 session。
    * 分析哪些命令失败/超时，优化 Skill workflows 和 Program steps。
@@ -670,7 +932,7 @@ function createSkillStepExecutor({
     return { ok, summary, output, durationMs };
   }
 
-  return { execute, improve, setUnlimitedTurns, getUnlimitedTurns };
+  return { execute, repairFailure, improve, setUnlimitedTurns, getUnlimitedTurns };
 }
 
 module.exports = { createSkillStepExecutor };

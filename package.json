@@ -1,11 +1,12 @@
 {
   "name": "1shell",
-  "version": "3.5.0",
+  "version": "4.0.0",
   "description": "1Shell - One Shell to rule them all. 零侵入式多机管理中枢 + AI 云端总司令",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
     "dev": "nodemon server.js",
+    "build:agent": "node scripts/build-agent.js",
     "test": "echo \"no tests yet\" && exit 0"
   },
   "keywords": [

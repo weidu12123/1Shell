@@ -39,6 +39,7 @@ const path = require('path');
 const fetch = require('node-fetch');
 const { exec: childExec } = require('child_process');
 const { ROOT_DIR } = require('../config/env');
+const { assessCommandRisk } = require('../ai/command-safety');
 
 const DEFAULT_MAX_GUARDIAN_TURNS = 12;
 const DEFAULT_EXEC_TIMEOUT_MS = 30000;
@@ -46,17 +47,6 @@ const ASK_TIMEOUT_MS = 5 * 60 * 1000;  // 5 分钟无人回应自动 give_up
 
 const SKILL_BODY_PER_FILE_BYTES = 8 * 1024;
 const SKILL_BODY_TOTAL_BYTES    = 32 * 1024;
-
-// 危险命令 pattern（这些命令强制 ask_user，即使在 workflow 内）
-const DANGEROUS_PATTERNS = [
-  /\brm\s+-rf\s+/,
-  /\bdd\s+if=/,
-  /\bmkfs\b/,
-  /\b:(){:|:&};:/,              // fork bomb
-  /\bchmod\s+-R\s+[0-7]{3,4}\s+\//,
-  /\bshutdown\b/,
-  /\breboot\b/,
-];
 
 // ─── 工具定义 ────────────────────────────────────────────────────────
 const GUARDIAN_TOOLS = [
@@ -347,11 +337,6 @@ function formatExecResult({ stdout, stderr, exitCode }) {
   return parts.join('\n\n');
 }
 
-function isDangerous(command) {
-  const cmd = String(command || '');
-  return DANGEROUS_PATTERNS.some((re) => re.test(cmd));
-}
-
 // ─── Guardian Factory ──────────────────────────────────────────────────
 function createGuardianService({
   bridgeService, hostService, proxyConfigStore, port,
@@ -613,14 +598,15 @@ function createGuardianService({
     }
 
     // 危险 pattern 二次询问
-    if (isDangerous(command)) {
+    const risk = assessCommandRisk(command);
+    if (risk.dangerous) {
       io?.emit?.('guardian:info', {
         sessionId,
-        message: `⚠ 危险命令拦截，Guardian 必须先 ask_user 确认：${command.slice(0, 120)}`,
+        message: `⚠ 危险命令拦截，Guardian 必须先 ask_user 确认：${risk.reason} · ${command.slice(0, 120)}`,
       });
       return {
         type: 'tool_result', tool_use_id: tu.id, is_error: true,
-        content: `[BLOCKED] 命令匹配危险 pattern（rm -rf / mkfs / reboot 等）。请先用 ask_user type=confirm danger=true 获得用户确认，或改用更安全的替代方案。原命令：${command.slice(0, 200)}`,
+        content: `[BLOCKED] ${risk.reason}。请先用 ask_user type=confirm danger=true 获得用户确认，或改用更安全的替代方案。原命令：${command.slice(0, 200)}`,
       };
     }
 

@@ -193,6 +193,8 @@ function normalizeRenderStep(step, id, idx, sourcePath) {
   if (Array.isArray(step.columns)) out.columns = step.columns.map(String);
   if (Array.isArray(step.rows)) out.rows = step.rows.map((r) => (Array.isArray(r) ? r.map(String) : []));
   if (step.rows_from_step) out.rows_from_step = String(step.rows_from_step);
+  if (step.row_separator) out.row_separator = String(step.row_separator);
+  if (step.separator) out.separator = String(step.separator);
   if (Array.isArray(step.rowActions)) {
     out.rowActions = step.rowActions.map((a) => ({
       label: String(a.label || ''),
@@ -200,6 +202,9 @@ function normalizeRenderStep(step, id, idx, sourcePath) {
     }));
   }
   if (step.row_action_skill) out.row_action_skill = String(step.row_action_skill);
+  if (step.rowActionSkill) out.rowActionSkill = String(step.rowActionSkill);
+  if (step.row_input_key) out.row_input_key = String(step.row_input_key);
+  if (step.rowInputKey) out.rowInputKey = String(step.rowInputKey);
 
   // list
   if (Array.isArray(step.listItems)) {

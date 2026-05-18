@@ -22,7 +22,8 @@ const {
  */
 function registerSkillSocketHandlers(io, { skillRunner }) {
   io.on('connection', (socket) => {
-    socket.on('skill:run', (payload = {}, reply = () => {}) => {
+    socket.on('skill:run', (payload = {}, reply) => {
+      if (typeof reply !== 'function') reply = () => {};
       try {
         const validated = validateSkillRunPayload(payload);
         // 异步触发，不阻塞 ack
@@ -42,7 +43,8 @@ function registerSkillSocketHandlers(io, { skillRunner }) {
       }
     });
 
-    socket.on('skill:continue', (payload = {}, reply = () => {}) => {
+    socket.on('skill:continue', (payload = {}, reply) => {
+      if (typeof reply !== 'function') reply = () => {};
       try {
         const validated = validateSkillContinuePayload(payload);
         const ok = skillRunner.continueRun({
@@ -56,7 +58,8 @@ function registerSkillSocketHandlers(io, { skillRunner }) {
       }
     });
 
-    socket.on('skill:stop', (payload = {}, reply = () => {}) => {
+    socket.on('skill:stop', (payload = {}, reply) => {
+      if (typeof reply !== 'function') reply = () => {};
       try {
         const validated = validateSkillStopPayload(payload);
         skillRunner.cancelRun(validated.runId);

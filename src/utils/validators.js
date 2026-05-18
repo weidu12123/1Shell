@@ -141,6 +141,36 @@ function validateTerminalInlineCompletionBody(payload) {
   return body;
 }
 
+function validateManualLocation(value) {
+  if (value == null) return null;
+  const obj = ensureObject(value, 'manualLocation 必须是对象');
+
+  const countryCode = ensureNonEmptyString(obj.countryCode, 'manualLocation.countryCode 不能为空').toUpperCase();
+  if (!/^[A-Z]{2}$/.test(countryCode)) {
+    throw createValidationError('manualLocation.countryCode 必须是 2 位 ISO 国家代码');
+  }
+
+  const lat = Number(obj.lat);
+  const lng = Number(obj.lng);
+  if (!Number.isFinite(lat) || lat < -90 || lat > 90) {
+    throw createValidationError('manualLocation.lat 必须是 -90~90 之间的数字');
+  }
+  if (!Number.isFinite(lng) || lng < -180 || lng > 180) {
+    throw createValidationError('manualLocation.lng 必须是 -180~180 之间的数字');
+  }
+
+  const country = obj.country == null ? '' : ensureOptionalString(obj.country, 'manualLocation.country 必须是字符串').trim();
+  const city = obj.city == null ? '' : ensureOptionalString(obj.city, 'manualLocation.city 必须是字符串').trim();
+
+  return {
+    countryCode,
+    country: country || null,
+    city: city || null,
+    lat,
+    lng,
+  };
+}
+
 function validateHostLinks(value) {
   if (value == null) return [];
 
@@ -181,6 +211,10 @@ function validateHostPayload(payload, { isEditing = false } = {}) {
     body.links = validateHostLinks(body.links);
   } else if (!isEditing) {
     body.links = [];
+  }
+
+  if (hasOwn(body, 'manualLocation')) {
+    body.manualLocation = validateManualLocation(body.manualLocation);
   }
 
   if (hasOwn(body, 'proxyHostId')) {
@@ -485,6 +519,7 @@ module.exports = {
   validateChatRequestBody,
   validateCompletionRequestBody,
   validateHostPayload,
+  validateManualLocation,
   validateScriptPayload,
   validateScriptRunPayload,
   validateSessionClosePayload,

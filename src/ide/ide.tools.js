@@ -4,6 +4,7 @@ const fs = require('fs');
 const path = require('path');
 const { EventEmitter } = require('events');
 const { ROOT_DIR } = require('../config/env');
+const { createOneShellCoreTools } = require('../tools/oneshell-core.tools');
 
 const ALLOWED_DIRS = ['data/skills', 'data/playbooks', 'data/programs'];
 
@@ -15,7 +16,24 @@ function isPathAllowed(relPath) {
   });
 }
 
-function createIdeTools({ bridgeService, hostService, skillRegistry, programEngine, skillRunner, auditService, mcpRegistry, localMcpService, scriptService, probeService, siteScanService, dataDir, onFileWritten, cliSandbox }) {
+function createIdeTools({ bridgeService, hostService, skillRegistry, programEngine, skillRunner, auditService, mcpRegistry, localMcpService, localMcpDeployer, scriptService, fileService, probeService, probeAgentService, probeAggregatorService, probeTrafficService, probeAlertService, probeDiagService, probeAgentInstallerService, dataDir, onFileWritten, cliSandbox }) {
+  const coreTools = createOneShellCoreTools({
+    bridgeService,
+    hostService,
+    auditService,
+    mcpRegistry,
+    localMcpService,
+    localMcpDeployer,
+    scriptService,
+    fileService,
+    probeService,
+    probeAgentService,
+    probeAggregatorService,
+    probeTrafficService,
+    probeAlertService,
+    probeDiagService,
+    probeAgentInstallerService,
+  });
 
   const TOOL_SCHEMAS = [
     {
@@ -197,78 +215,6 @@ function createIdeTools({ bridgeService, hostService, skillRegistry, programEngi
       },
     },
 
-    // ── 1Shell Core：容器管理 ──────────────────────────────────────────
-    {
-      name: 'list_containers',
-      description:
-        '列出指定主机上的所有 Docker 容器（含已停止）。' +
-        '\n返回每个容器的 name / image / status / ports / id。',
-      input_schema: {
-        type: 'object',
-        properties: {
-          hostId: { type: 'string', description: '目标主机 ID' },
-        },
-        required: ['hostId'],
-      },
-    },
-    {
-      name: 'manage_container',
-      description:
-        '对指定主机上的 Docker 容器执行操作。' +
-        '\n支持的 action：start / stop / restart / rm / logs / inspect。' +
-        '\nlogs 默认返回最后 80 行。',
-      input_schema: {
-        type: 'object',
-        properties: {
-          hostId:    { type: 'string', description: '目标主机 ID' },
-          container: { type: 'string', description: '容器名或 ID' },
-          action:    { type: 'string', enum: ['start', 'stop', 'restart', 'rm', 'logs', 'inspect'], description: '要执行的操作' },
-          tail:      { type: 'number', description: 'logs 时返回的行数，默认 80' },
-        },
-        required: ['hostId', 'container', 'action'],
-      },
-    },
-
-    // ── 1Shell Core：站点与 DNS 管理 ──────────────────────────────────
-    {
-      name: 'list_sites',
-      description:
-        '扫描指定主机上的 Web 服务器配置，返回所有站点、SSL 证书信息。' +
-        '\n自动检测 Nginx / OpenResty / Apache / Caddy。首次调用较慢（需扫描配置）。',
-      input_schema: {
-        type: 'object',
-        properties: {
-          hostId: { type: 'string', description: '目标主机 ID' },
-        },
-        required: ['hostId'],
-      },
-    },
-    {
-      name: 'list_dns_providers',
-      description:
-        '列出 1Shell 中保存的所有 DNS 验证凭据（如 Cloudflare API Token）。' +
-        '\nToken 会脱敏显示。返回 id / domain / provider / tokenMasked / note。',
-      input_schema: { type: 'object', properties: {}, required: [] },
-    },
-    {
-      name: 'manage_dns_provider',
-      description:
-        '管理 DNS 验证凭据（Cloudflare API Token 等）。' +
-        '\n支持的 action：add / update / delete。',
-      input_schema: {
-        type: 'object',
-        properties: {
-          action:   { type: 'string', enum: ['add', 'update', 'delete'], description: '操作类型' },
-          id:       { type: 'string', description: '凭据 ID（update/delete 时必填）' },
-          domain:   { type: 'string', description: '域名（add/update）' },
-          provider: { type: 'string', description: '提供商，默认 cloudflare（add/update）' },
-          token:    { type: 'string', description: 'API Token（add 时必填，update 时留空不修改）' },
-          note:     { type: 'string', description: '备注（可选）' },
-        },
-        required: ['action'],
-      },
-    },
-
     // ── 1Shell Core：脚本管理 ─────────────────────────────────────────
     {
       name: 'list_scripts',
@@ -331,6 +277,30 @@ function createIdeTools({ bridgeService, hostService, skillRegistry, programEngi
     },
   ];
 
+  function buildToolSchemas() {
+    const seen = new Set();
+    const merged = [];
+    for (const tool of coreTools.getToolSchemas('ide').concat(TOOL_SCHEMAS)) {
+      if (seen.has(tool.name)) continue;
+      seen.add(tool.name);
+      merged.push(tool);
+    }
+    return merged;
+  }
+
+  const CORE_DELEGATED_TOOL_NAMES = new Set([
+    'execute_command',
+    'list_hosts',
+    'list_scripts',
+    'run_script',
+    'list_mcp_servers',
+    'add_mcp_server',
+    'remove_mcp_server',
+    'deploy_local_mcp',
+    'query_audit',
+    'query_probe',
+  ]);
+
   // ─── Handler 实现 ────────────────────────────────────────────────────
 
   const WRITE_PATTERNS = /\b(rm|mv|cp|mkdir|touch|chmod|chown|dd|mkfs|tee|install|npm|npx|pip|apt|yum|dnf|brew|git\s+clone|git\s+pull|git\s+checkout|wget|curl\s+-[^\s]*[oO]|docker\s+(run|pull|build|exec)|>\s|>>)\b/i;
@@ -347,7 +317,25 @@ function createIdeTools({ bridgeService, hostService, skillRegistry, programEngi
     return approvedCommands.get(sessionId)?.has(command.trim()) || false;
   }
 
-  async function handle(name, input, { socket, sessionId, safeMode, session }) {
+  function registerNestedRun(session, runner, runId) {
+    if (!session) return () => {};
+    if (!session.activeSkillRunIds) session.activeSkillRunIds = new Set();
+    if (!session.cancelHandlers) session.cancelHandlers = new Set();
+    session.skillRunner = runner;
+    session.activeSkillRunIds.add(runId);
+    const cancel = () => runner?.cancelRun?.(runId);
+    session.cancelHandlers.add(cancel);
+    return () => {
+      session.activeSkillRunIds?.delete(runId);
+      session.cancelHandlers?.delete(cancel);
+    };
+  }
+
+  async function handle(name, input, { socket, sessionId, safeMode, session, signal }) {
+    if (CORE_DELEGATED_TOOL_NAMES.has(name)) {
+      return coreTools.handle(name, input || {}, { socket, sessionId, safeMode, session, signal, source: 'ide' });
+    }
+
     switch (name) {
 
       case 'execute_command': {
@@ -461,11 +449,16 @@ function createIdeTools({ bridgeService, hostService, skillRegistry, programEngi
         if (!skillRunner) return err('Skill Runner 未初始化');
 
         const runId = 'ide-' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
-        const result = await runViaCollector(runId, (collector) =>
-          skillRunner.run({ socket: collector, runId, skillId, hostId, inputs: input.inputs || {} })
-        );
-        auditService?.log?.({ action: 'ide_run_skill', skillId, hostId, runId });
-        return ok(result);
+        const unregister = registerNestedRun(session, skillRunner, runId);
+        try {
+          const result = await runViaCollector(runId, (collector) =>
+            skillRunner.run({ socket: collector, runId, skillId, hostId, inputs: input.inputs || {} })
+          );
+          auditService?.log?.({ action: 'ide_run_skill', skillId, hostId, runId });
+          return ok(result);
+        } finally {
+          unregister();
+        }
       }
 
       case 'run_playbook': {
@@ -479,11 +472,16 @@ function createIdeTools({ bridgeService, hostService, skillRegistry, programEngi
         if (!skillRunner) return err('Skill Runner 未初始化');
 
         const runId = 'ide-pb-' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
-        const result = await runViaCollector(runId, (collector) =>
-          skillRunner.run({ socket: collector, runId, skillId: playbookId, hostId, inputs: input.inputs || {} })
-        );
-        auditService?.log?.({ action: 'ide_run_playbook', playbookId, hostId, runId });
-        return ok(result);
+        const unregister = registerNestedRun(session, skillRunner, runId);
+        try {
+          const result = await runViaCollector(runId, (collector) =>
+            skillRunner.run({ socket: collector, runId, skillId: playbookId, hostId, inputs: input.inputs || {} })
+          );
+          auditService?.log?.({ action: 'ide_run_playbook', playbookId, hostId, runId });
+          return ok(result);
+        } finally {
+          unregister();
+        }
       }
 
       case 'trigger_program': {
@@ -703,160 +701,14 @@ function createIdeTools({ bridgeService, hostService, skillRegistry, programEngi
         } catch (e) { return err(e.message); }
       }
 
-      // ── 1Shell Core：站点与 DNS 管理 ────────────────────────────────
-      case 'list_sites': {
-        const hostId = String(input.hostId || '').trim();
-        if (!hostId) return err('hostId 为必填');
-        if (!siteScanService) return err('siteScanService 未初始化');
-        try {
-          const result = await siteScanService.scan(hostId);
-          const lines = [];
-          if (result.webserver) lines.push(`Web 服务器: ${result.webserver}`);
-          if (result.sites?.length) {
-            lines.push(`\n站点 (${result.sites.length} 个):`);
-            for (const s of result.sites) {
-              lines.push(`  ${s.domain}  → ${s.proxyTarget || s.root || '-'}  SSL=${s.hasSSL ? '是' : '否'}`);
-            }
-          } else {
-            lines.push('（未检测到站点配置）');
-          }
-          if (result.certs?.length) {
-            lines.push(`\nSSL 证书 (${result.certs.length} 张):`);
-            for (const c of result.certs) {
-              lines.push(`  ${c.domain}  到期=${c.expiryDate || '?'}  路径=${c.path || '-'}`);
-            }
-          }
-          return ok(lines.join('\n'));
-        } catch (e) { return err(e.message); }
-      }
-
-      case 'list_dns_providers': {
-        try {
-          const filePath = path.join(dataDir, 'dns-providers.json');
-          let all = [];
-          try { all = JSON.parse(fs.readFileSync(filePath, 'utf8')); } catch { /* empty */ }
-          if (all.length === 0) return ok('（暂无 DNS 凭据，可用 manage_dns_provider 添加）');
-          const lines = all.map(e => {
-            const masked = e.token && e.token.length >= 10
-              ? e.token.substring(0, 5) + '…' + e.token.substring(e.token.length - 4)
-              : '****';
-            return `id=${e.id}  domain=${e.domain}  provider=${e.provider || 'cloudflare'}  token=${masked}  note="${e.note || ''}"`;
-          });
-          return ok(lines.join('\n'));
-        } catch (e) { return err(e.message); }
-      }
-
-      case 'manage_dns_provider': {
-        const action = String(input.action || '').trim();
-        const filePath = path.join(dataDir, 'dns-providers.json');
-        let all = [];
-        try { all = JSON.parse(fs.readFileSync(filePath, 'utf8')); } catch { /* empty */ }
-
-        if (action === 'add') {
-          const domain = String(input.domain || '').trim().toLowerCase();
-          const token = String(input.token || '').trim();
-          if (!domain) return err('domain 为必填');
-          if (!token) return err('token 为必填');
-          if (all.some(e => e.domain === domain)) return err(`域名 ${domain} 已存在`);
-          const entry = {
-            id: require('crypto').randomBytes(4).toString('hex'),
-            domain,
-            provider: input.provider || 'cloudflare',
-            token,
-            note: (input.note || '').trim(),
-            createdAt: new Date().toISOString(),
-          };
-          all.push(entry);
-          fs.mkdirSync(path.dirname(filePath), { recursive: true });
-          fs.writeFileSync(filePath, JSON.stringify(all, null, 2), 'utf8');
-          auditService?.log?.({ action: 'ide_dns_add', domain });
-          return ok(`DNS 凭据已添加: id=${entry.id} domain=${domain} provider=${entry.provider}`);
-        }
-        if (action === 'update') {
-          const id = String(input.id || '').trim();
-          if (!id) return err('id 为必填');
-          const idx = all.findIndex(e => e.id === id);
-          if (idx === -1) return err(`凭据不存在: ${id}`);
-          if (input.domain) all[idx].domain = String(input.domain).trim().toLowerCase();
-          if (input.provider) all[idx].provider = input.provider;
-          if (input.token) all[idx].token = String(input.token).trim();
-          if (input.note !== undefined) all[idx].note = (input.note || '').trim();
-          fs.writeFileSync(filePath, JSON.stringify(all, null, 2), 'utf8');
-          auditService?.log?.({ action: 'ide_dns_update', id });
-          return ok(`DNS 凭据已更新: id=${id}`);
-        }
-        if (action === 'delete') {
-          const id = String(input.id || '').trim();
-          if (!id) return err('id 为必填');
-          const idx = all.findIndex(e => e.id === id);
-          if (idx === -1) return err(`凭据不存在: ${id}`);
-          const removed = all.splice(idx, 1)[0];
-          fs.writeFileSync(filePath, JSON.stringify(all, null, 2), 'utf8');
-          auditService?.log?.({ action: 'ide_dns_delete', domain: removed.domain });
-          return ok(`DNS 凭据已删除: domain=${removed.domain}`);
-        }
-        return err(`未知操作: ${action}`);
-      }
-
-      // ── 1Shell Core：容器管理 ────────────────────────────────────────
-      case 'list_containers': {
-        const hostId = String(input.hostId || '').trim();
-        if (!hostId) return err('hostId 为必填');
-        try {
-          const cmd = 'docker ps -a --format "{{.Names}}\\t{{.Image}}\\t{{.Status}}\\t{{.Ports}}\\t{{.ID}}"';
-          const execFn = hostId === 'local'
-            ? () => new Promise(resolve => {
-                require('child_process').exec(cmd, { timeout: 15000 }, (e, stdout, stderr) => {
-                  resolve({ stdout: stdout || '', stderr: (e && !stderr) ? e.message : (stderr || ''), exitCode: e ? 1 : 0 });
-                });
-              })
-            : () => bridgeService.execOnHost(hostId, cmd, 15000, { source: 'ide' });
-          const result = await execFn();
-          if (result.exitCode !== 0) return err(`Docker 未安装或无法访问: ${result.stderr}`);
-          if (!result.stdout.trim()) return ok('（该主机上没有任何容器）');
-          const lines = result.stdout.trim().split('\n').map(l => {
-            const [name, image, status, ports, id] = l.split('\t');
-            return `${name}  image=${image}  status="${status}"  ports=${ports || '-'}  id=${id}`;
-          });
-          return ok(lines.join('\n'));
-        } catch (e) { return err(e.message); }
-      }
-
-      case 'manage_container': {
-        const hostId = String(input.hostId || '').trim();
-        const container = String(input.container || '').trim();
-        const action = String(input.action || '').trim();
-        if (!hostId || !container || !action) return err('hostId, container, action 均为必填');
-        const cmds = {
-          start:   `docker start ${container}`,
-          stop:    `docker stop ${container}`,
-          restart: `docker restart ${container}`,
-          rm:      `docker rm -f ${container}`,
-          logs:    `docker logs --tail ${input.tail || 80} ${container}`,
-          inspect: `docker inspect ${container}`,
-        };
-        const cmd = cmds[action];
-        if (!cmd) return err(`未知操作: ${action}`);
-        try {
-          const timeout = action === 'logs' ? 15000 : 30000;
-          const execFn = hostId === 'local'
-            ? () => new Promise(resolve => {
-                require('child_process').exec(cmd, { timeout, maxBuffer: 4 * 1024 * 1024 }, (e, stdout, stderr) => {
-                  resolve({ stdout: stdout || '', stderr: (e && !stderr) ? e.message : (stderr || ''), exitCode: e ? 1 : 0 });
-                });
-              })
-            : () => bridgeService.execOnHost(hostId, cmd, timeout, { source: 'ide' });
-          const result = await execFn();
-          auditService?.log?.({ action: `ide_container_${action}`, hostId, container });
-          return ok(formatExec(result));
-        } catch (e) { return err(e.message); }
-      }
-
       case 'invoke_claude_code':
         return handleInvokeClaudeCode(input, { session });
 
-      default:
+      default: {
+        const coreResult = await coreTools.handle(name, input || {}, { socket, sessionId, safeMode, session, source: 'ide' });
+        if (!coreResult.is_error || !String(coreResult.content || '').startsWith('[ERROR] 未知工具:')) return coreResult;
         return err(`未知工具: ${name}`);
+      }
     }
   }
 
@@ -1058,7 +910,7 @@ function createIdeTools({ bridgeService, hostService, skillRegistry, programEngi
     });
   }
 
-  return { TOOL_SCHEMAS, CLAUDE_CODE_TOOL, handle, approveCommand };
+  return { TOOL_SCHEMAS: buildToolSchemas(), CLAUDE_CODE_TOOL, handle, approveCommand };
 }
 
 module.exports = { createIdeTools };

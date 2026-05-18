@@ -66,4 +66,4 @@ node server.js
 
 ---
 
-> 版本：v3.3.0 | [GitHub](https://github.com/weidu12123/1Shell) | [下载](https://github.com/weidu12123/1Shell/releases)
+> 版本：v4.0.0 | [GitHub](https://github.com/weidu12123/1Shell) | [下载](https://github.com/weidu12123/1Shell/releases)

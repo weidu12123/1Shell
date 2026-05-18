@@ -23,7 +23,7 @@ const { ROOT_DIR } = require('../config/env');
  * 注意：Playbook 这里指"智能剧本"，与 scripts 页已改名为 /api/workflows 的
  * 多步骤脚本编排是两回事。
  */
-function createSkillRouter({ libraryService, skillRunner }) {
+function createSkillRouter({ libraryService, skillRunner, claudeCodeSkillRegistry }) {
   const router = express.Router();
 
   const stripDir = (obj) => { if (!obj) return obj; const { dir, ...rest } = obj; return rest; };
@@ -66,6 +66,61 @@ function createSkillRouter({ libraryService, skillRunner }) {
       res.json({ ok: true, ...counts });
     } catch (err) {
       res.status(500).json({ ok: false, error: err.message });
+    }
+  });
+
+  // ── Claude Code Skill 托管仓库 ─────────────────────
+  router.get('/claude-code-skills', (_req, res) => {
+    if (!claudeCodeSkillRegistry) return res.json({ ok: true, skills: [] });
+    res.json({ ok: true, skills: claudeCodeSkillRegistry.listSkills() });
+  });
+
+  router.get('/claude-code-skills/:id', (req, res) => {
+    if (!claudeCodeSkillRegistry) return res.status(503).json({ ok: false, error: 'Claude Code Skill 仓库未启用' });
+    const item = claudeCodeSkillRegistry.getSkill(req.params.id);
+    if (!item) return res.status(404).json({ ok: false, error: 'Claude Code Skill 不存在' });
+    res.json({ ok: true, skill: item });
+  });
+
+  router.post('/claude-code-skills/import/inspect', async (req, res) => {
+    if (!claudeCodeSkillRegistry) return res.status(503).json({ ok: false, error: 'Claude Code Skill 仓库未启用' });
+    try {
+      const result = await claudeCodeSkillRegistry.inspect(req.body || {});
+      res.json({ ok: true, ...result });
+    } catch (err) {
+      res.status(400).json({ ok: false, error: err.message });
+    }
+  });
+
+  router.post('/claude-code-skills/import/register', async (req, res) => {
+    if (!claudeCodeSkillRegistry) return res.status(503).json({ ok: false, error: 'Claude Code Skill 仓库未启用' });
+    try {
+      const skill = await claudeCodeSkillRegistry.register(req.body || {});
+      res.status(201).json({ ok: true, skill });
+    } catch (err) {
+      res.status(400).json({ ok: false, error: err.message });
+    }
+  });
+
+  router.put('/claude-code-skills/:id', (req, res) => {
+    if (!claudeCodeSkillRegistry) return res.status(503).json({ ok: false, error: 'Claude Code Skill 仓库未启用' });
+    try {
+      const skill = claudeCodeSkillRegistry.updateSkill(req.params.id, req.body || {});
+      if (!skill) return res.status(404).json({ ok: false, error: 'Claude Code Skill 不存在' });
+      res.json({ ok: true, skill });
+    } catch (err) {
+      res.status(400).json({ ok: false, error: err.message });
+    }
+  });
+
+  router.delete('/claude-code-skills/:id', (req, res) => {
+    if (!claudeCodeSkillRegistry) return res.status(503).json({ ok: false, error: 'Claude Code Skill 仓库未启用' });
+    try {
+      const ok = claudeCodeSkillRegistry.deleteSkill(req.params.id);
+      if (!ok) return res.status(404).json({ ok: false, error: 'Claude Code Skill 不存在' });
+      res.json({ ok: true });
+    } catch (err) {
+      res.status(400).json({ ok: false, error: err.message });
     }
   });
 

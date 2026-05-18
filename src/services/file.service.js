@@ -338,15 +338,15 @@ function createFileService({ hostService }) {
   /**
    * 统一入口：读取文件
    */
-  async function readFile(hostId, filePath) {
+  async function readFile(hostId, filePath, maxBytes) {
     const host = hostService.findHost(hostId);
     if (!host) throw new Error('主机不存在');
 
     if (host.type === 'local' || host.id === 'local') {
-      return readLocalFile(filePath);
+      return readLocalFile(filePath, maxBytes);
     }
 
-    return readRemoteFile(hostId, filePath);
+    return readRemoteFile(hostId, filePath, maxBytes);
   }
 
   // ─── 文件下载（流式） ────────────────────────────────────────────────────

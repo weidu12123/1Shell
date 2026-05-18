@@ -158,7 +158,7 @@ function createScriptService({ scriptRepository, hostService, bridgeService, aud
   }
 
   // ─── 执行脚本 ────────────────────────────────────────────────────────
-  async function runScript(id, { hostId, params, confirmed, timeoutMs }, { clientIp } = {}) {
+  async function runScript(id, { hostId, params, confirmed, timeoutMs, signal }, { clientIp } = {}) {
     const script = scriptRepository.findScript(id);
     if (!script) {
       throw notFoundError('脚本不存在');
@@ -203,12 +203,12 @@ function createScriptService({ scriptRepository, hostService, bridgeService, aud
     const startAt = Date.now();
     try {
       const result = hostId === LOCAL_HOST_ID
-        ? await execLocal(rendered, timeoutMs || DEFAULT_TIMEOUT_MS)
+        ? await execLocal(rendered, timeoutMs || DEFAULT_TIMEOUT_MS, signal)
         : await bridgeService.execOnHost(
             hostId,
             rendered,
             timeoutMs || DEFAULT_TIMEOUT_MS,
-            { source: 'script_run', clientIp },
+            { source: 'script_run', clientIp, signal },
           );
 
       const status = result.exitCode === 0 ? 'success' : 'failed';
@@ -371,8 +371,16 @@ function createScriptService({ scriptRepository, hostService, bridgeService, aud
  *
  * 返回结构与 bridgeService.execOnHost 一致：{stdout, stderr, exitCode, durationMs}
  */
-function execLocal(command, timeoutMs) {
-  return new Promise((resolve) => {
+function makeAbortError() {
+  const err = new Error('Cancelled');
+  err.name = 'AbortError';
+  err.code = 'CANCELLED';
+  return err;
+}
+
+function execLocal(command, timeoutMs, signal) {
+  return new Promise((resolve, reject) => {
+    if (signal?.aborted) return reject(makeAbortError());
     const startAt = Date.now();
     const isWindows = os.platform() === 'win32';
     const timeout = Math.max(timeoutMs || DEFAULT_TIMEOUT_MS, 1000);
@@ -402,7 +410,17 @@ function execLocal(command, timeoutMs) {
     let stdout = '';
     let stderr = '';
     let killedByTimeout = false;
+    let settled = false;
     const MAX_BUFFER = 8 * 1024 * 1024;
+    const cleanup = () => signal?.removeEventListener?.('abort', onAbort);
+    const onAbort = () => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      try { child.kill('SIGKILL'); } catch { /* ignore */ }
+      cleanup();
+      reject(makeAbortError());
+    };
 
     child.stdout.on('data', (chunk) => {
       if (stdout.length < MAX_BUFFER) stdout += chunk.toString();
@@ -415,9 +433,13 @@ function execLocal(command, timeoutMs) {
       killedByTimeout = true;
       try { child.kill('SIGKILL'); } catch { /* ignore */ }
     }, timeout);
+    signal?.addEventListener?.('abort', onAbort, { once: true });
 
     child.on('error', (err) => {
+      if (settled) return;
+      settled = true;
       clearTimeout(timer);
+      cleanup();
       resolve({
         stdout,
         stderr: stderr || err.message,
@@ -427,7 +449,10 @@ function execLocal(command, timeoutMs) {
     });
 
     child.on('close', (code) => {
+      if (settled) return;
+      settled = true;
       clearTimeout(timer);
+      cleanup();
       resolve({
         stdout,
         stderr: killedByTimeout ? (stderr + '\n（执行超时，已强制终止）') : stderr,

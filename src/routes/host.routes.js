@@ -2,7 +2,7 @@
 
 const express = require('express');
 const { LOCAL_HOST_ID } = require('../config/env');
-const { validateHostPayload } = require('../utils/validators');
+const { validateHostPayload, validateManualLocation } = require('../utils/validators');
 
 function createHostRouter({ hostRepository, hostService, auditService, isUsingFallbackSecret }) {
   const router = express.Router();
@@ -59,6 +59,52 @@ function createHostRouter({ hostRepository, hostService, auditService, isUsingFa
       hostRepository.writeStoredHosts(hosts);
       auditService?.log({ action: 'host_update', source: 'web_ui', hostId: nextHost.id, hostName: nextHost.name, clientIp: req.ip });
       return res.json({ host: hostService.toPublicHost(nextHost) });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  router.patch('/hosts/:id/location', (req, res, next) => {
+    try {
+      const hostId = req.params.id;
+      const body = req.body || {};
+      const nextLocation = 'manualLocation' in body
+        ? validateManualLocation(body.manualLocation)
+        : null;
+
+      // 本机：单独写入 local-host-config.json
+      if (hostId === LOCAL_HOST_ID) {
+        hostService.updateLocalHostManualLocation(nextLocation);
+        auditService?.log({
+          action: nextLocation ? 'host_location_set' : 'host_location_clear',
+          source: 'web_ui',
+          hostId,
+          hostName: '本机',
+          clientIp: req.ip,
+        });
+        return res.json({ host: hostService.getLocalHost() });
+      }
+
+      const hosts = hostRepository.readStoredHosts();
+      const index = hosts.findIndex((item) => item.id === hostId);
+      if (index === -1) return res.status(404).json({ error: '主机不存在' });
+
+      hosts[index] = {
+        ...hosts[index],
+        manualLocation: nextLocation,
+        updatedAt: new Date().toISOString(),
+      };
+      hostRepository.writeStoredHosts(hosts);
+
+      auditService?.log({
+        action: nextLocation ? 'host_location_set' : 'host_location_clear',
+        source: 'web_ui',
+        hostId,
+        hostName: hosts[index].name,
+        clientIp: req.ip,
+      });
+
+      return res.json({ host: hostService.toPublicHost(hosts[index]) });
     } catch (error) {
       next(error);
     }

@@ -28,8 +28,9 @@ Program ID: <kebab-case>
 触发: cron <schedule>（+ manual）
 目标主机: <host list 或 all>
 Steps: N 个（列出 step id）
-on_fail: escalate（Guardian 兜底）
-Guardian Skills: <列表或"通用运维知识">
+on_fail: repair（L1 失败先进入 L2）
+L2 Skill: program-maintenance 或更具体的维护 Skill
+L3 Incidents: <危机规则列表或"无">
 ```
 
 ---
@@ -45,6 +46,18 @@ description: |
 
 enabled: false          # 保持 false，用户在 UI 启用
 
+l2:
+  skill: program-maintenance
+  max_repair_attempts: 1
+  escalate_after_failures: 2
+  allow_write_program: true
+
+l3:
+  skills:
+    - guardian-protocol
+  max_actions_per_hour: 10
+  require_confirmation: true
+
 hosts:
   - <hostId>            # 从用户上下文取，不要编造
 
@@ -59,7 +72,7 @@ triggers:
 
 actions:
   <action_name>:
-    on_fail: escalate   # ← 永远是 escalate，不是 stop
+    on_fail: repair     # L1 失败先由 L2 维护 Skill 处理
     steps:
       - id: <snake_case>
         label: <中文描述>
@@ -81,9 +94,14 @@ actions:
             value_from: <step_id>
             suffix: "%"           # 可选
 
-guardian:
-  skills: []            # 填写 Rescue Skill ID，无则留空
-  max_actions_per_hour: 10
+# incidents：只有危机场景才写；普通 L1 失败不要写 incident
+incidents:
+  - id: critical_example
+    when:
+      step: <step_id>
+      stdout_match: <危机条件正则>
+    severity: critical
+    policy: ask_then_act
 
 # ui：自定义实例按钮（程序有多个 action 时必须加）
 # 不加 ui 则前端显示默认"触发"按钮（仅触发第一个 manual trigger 的 action）
@@ -103,8 +121,8 @@ ui:
 ### 自检清单（写完后逐项检查）
 
 - [ ] 所有 step run 命令来自 rules/constraints.md 可靠命令库
-- [ ] `on_fail: escalate`（不是 stop）
-- [ ] 没有写 `guardian.enabled` 字段
+- [ ] `on_fail: repair`（不是 stop / escalate）
+- [ ] 写了 `l2.skill`，且没有写旧 `guardian.enabled` 字段
 - [ ] 每个有数字输出的 step 有 `stdout_match: '^[0-9]'`
 - [ ] `enabled: false`
 - [ ] 有 manual trigger
@@ -131,7 +149,8 @@ Program「<name>」创建成功
 
 路径：data/programs/<id>/program.yaml
 启用方式：在程序管理页找到该 Program → 选择主机实例 → 点击「启用」
-Guardian：<配置说明>
+L2：<维护 Skill 与修复策略>
+L3：<incident / 升级策略>
 ```
 
 ---

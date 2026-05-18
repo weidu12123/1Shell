@@ -31,6 +31,17 @@ function decodeLocalBuffer(buf) {
 function createBridgeService({ hostService, auditService, sshPool, sshShellPool }) {
   const MIN_TIMEOUT_MS = 30000;
 
+  function makeAbortError() {
+    const err = new Error('Cancelled');
+    err.name = 'AbortError';
+    err.code = 'CANCELLED';
+    return err;
+  }
+
+  function throwIfAborted(signal) {
+    if (signal?.aborted) throw makeAbortError();
+  }
+
   /**
    * 在指定主机上执行单条命令。
    *
@@ -41,7 +52,9 @@ function createBridgeService({ hostService, auditService, sshPool, sshShellPool 
    * @param {string} [options.source] - 调用来源 ('mcp' | 'bridge_api')
    * @returns {Promise<{stdout: string, stderr: string, exitCode: number, durationMs: number}>}
    */
-  async function execOnHost(hostId, command, timeoutMs, { source = 'bridge_api', clientIp } = {}) {
+  async function execOnHost(hostId, command, timeoutMs, { source = 'bridge_api', clientIp, auditCommand, signal } = {}) {
+    throwIfAborted(signal);
+    const safeAuditCommand = auditCommand || command;
     const timeout = typeof timeoutMs === 'number' && timeoutMs > 0
       ? Math.max(timeoutMs, MIN_TIMEOUT_MS)
       : BRIDGE_EXEC_TIMEOUT_MS;
@@ -51,25 +64,27 @@ function createBridgeService({ hostService, auditService, sshPool, sshShellPool 
 
     // 本机：直接用 child_process 执行，不走 SSH
     if (host && host.type === 'local') {
-      return execLocal(command, timeout, { source, hostId, hostName, clientIp });
+      return execLocal(command, timeout, { source, hostId, hostName, clientIp, auditCommand: safeAuditCommand, signal });
     }
 
     // 持久 shell 模式（所有远端调用优先走此路径）
     // 优势：单次 SSH 握手，后续命令写 stdin，无 liveness check，极低延迟
     // 并发安全：sshShellPool 内置队列，同一 host 的并发命令自动排队
     if (sshShellPool) {
-      return execViaShellPool(hostId, command, timeout, { source, hostName, clientIp });
+      return execViaShellPool(hostId, command, timeout, { source, hostName, clientIp, auditCommand: safeAuditCommand, signal });
     }
 
     // 降级：没有 shell pool 时走 exec 模式（兼容旧配置）
-    return execViaExec(hostId, command, timeout, { source, hostName, clientIp });
+    return execViaExec(hostId, command, timeout, { source, hostName, clientIp, auditCommand: safeAuditCommand, signal });
   }
 
   // ─── 本机模式 ───────────────────────────────────────────────────────────
 
-  function execLocal(command, timeout, { source, hostId, hostName, clientIp }) {
-    return new Promise((resolve) => {
+  function execLocal(command, timeout, { source, hostId, hostName, clientIp, auditCommand, signal }) {
+    return new Promise((resolve, reject) => {
+      if (signal?.aborted) return reject(makeAbortError());
       const startAt = Date.now();
+      const commandForAudit = auditCommand || command;
       const isWindows = os.platform() === 'win32';
 
       let child;
@@ -91,7 +106,7 @@ function createBridgeService({ hostService, auditService, sshPool, sshShellPool 
         };
         auditService?.log({
           action: 'bridge_exec', source, hostId, hostName,
-          command: command.substring(0, 2000),
+          command: commandForAudit.substring(0, 2000),
           error: result.stderr, durationMs: result.durationMs, clientIp,
         });
         return resolve(result);
@@ -102,18 +117,32 @@ function createBridgeService({ hostService, auditService, sshPool, sshShellPool 
       let stdoutLen = 0;
       let stderrLen = 0;
       let killedByTimeout = false;
+      let settled = false;
       const MAX_BUFFER = 8 * 1024 * 1024;
 
       child.stdout.on('data', (chunk) => { if (stdoutLen < MAX_BUFFER) { stdoutBufs.push(chunk); stdoutLen += chunk.length; } });
       child.stderr.on('data', (chunk) => { if (stderrLen < MAX_BUFFER) { stderrBufs.push(chunk); stderrLen += chunk.length; } });
 
+      const cleanup = () => signal?.removeEventListener?.('abort', onAbort);
+      const onAbort = () => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        try { child.kill('SIGKILL'); } catch { /* ignore */ }
+        cleanup();
+        reject(makeAbortError());
+      };
       const timer = setTimeout(() => {
         killedByTimeout = true;
         try { child.kill('SIGKILL'); } catch { /* ignore */ }
       }, timeout);
+      signal?.addEventListener?.('abort', onAbort, { once: true });
 
       child.on('error', (err) => {
+        if (settled) return;
+        settled = true;
         clearTimeout(timer);
+        cleanup();
         const stdout = decodeLocalBuffer(Buffer.concat(stdoutBufs));
         const stderr = decodeLocalBuffer(Buffer.concat(stderrBufs));
         const result = {
@@ -124,14 +153,17 @@ function createBridgeService({ hostService, auditService, sshPool, sshShellPool 
         };
         auditService?.log({
           action: 'bridge_exec', source, hostId, hostName,
-          command: command.substring(0, 2000),
+          command: commandForAudit.substring(0, 2000),
           error: err.message, durationMs: result.durationMs, clientIp,
         });
         resolve(result);
       });
 
       child.on('close', (code) => {
+        if (settled) return;
+        settled = true;
         clearTimeout(timer);
+        cleanup();
         const stdout = decodeLocalBuffer(Buffer.concat(stdoutBufs));
         const stderr = decodeLocalBuffer(Buffer.concat(stderrBufs));
         const result = {
@@ -142,7 +174,7 @@ function createBridgeService({ hostService, auditService, sshPool, sshShellPool 
         };
         auditService?.log({
           action: 'bridge_exec', source, hostId, hostName,
-          command: command.substring(0, 2000),
+          command: commandForAudit.substring(0, 2000),
           exitCode: result.exitCode, durationMs: result.durationMs, clientIp,
         });
         resolve(result);
@@ -159,16 +191,17 @@ function createBridgeService({ hostService, auditService, sshPool, sshShellPool 
 
   // ─── 持久 shell 模式 ─────────────────────────────────────────────────────
 
-  async function execViaShellPool(hostId, command, timeout, { source, hostName, clientIp }) {
+  async function execViaShellPool(hostId, command, timeout, { source, hostName, clientIp, auditCommand, signal }) {
     const startAt = Date.now();
+    const commandForAudit = auditCommand || command;
     try {
-      const result = await sshShellPool.exec(hostId, command, timeout);
+      const result = await sshShellPool.exec(hostId, command, timeout, { signal });
       auditService?.log({
         action: 'bridge_exec',
         source,
         hostId,
         hostName,
-        command: command.substring(0, 2000),
+        command: commandForAudit.substring(0, 2000),
         exitCode: result.exitCode,
         durationMs: result.durationMs,
         clientIp,
@@ -180,7 +213,7 @@ function createBridgeService({ hostService, auditService, sshPool, sshShellPool 
         source,
         hostId,
         hostName,
-        command: command.substring(0, 2000),
+        command: commandForAudit.substring(0, 2000),
         error: err.message,
         durationMs: Date.now() - startAt,
         clientIp,
@@ -191,9 +224,11 @@ function createBridgeService({ hostService, auditService, sshPool, sshShellPool 
 
   // ─── exec 模式（原有逻辑）────────────────────────────────────────────────
 
-  function execViaExec(hostId, command, timeout, { source, hostName, clientIp }) {
+  function execViaExec(hostId, command, timeout, { source, hostName, clientIp, auditCommand, signal }) {
     return new Promise((resolve, reject) => {
+      if (signal?.aborted) return reject(makeAbortError());
       const startAt = Date.now();
+      const commandForAudit = auditCommand || command;
       let settled = false;
       let timer = null;
       let targetClient = null;
@@ -203,6 +238,7 @@ function createBridgeService({ hostService, auditService, sshPool, sshShellPool 
 
       function cleanup(healthy) {
         if (timer) { clearTimeout(timer); timer = null; }
+        signal?.removeEventListener?.('abort', onAbort);
         if (usePool) {
           if (healthy) sshPool.returnToPool(hostId);
           else sshPool.release(hostId);
@@ -210,6 +246,17 @@ function createBridgeService({ hostService, auditService, sshPool, sshShellPool 
           try { targetClient?.end(); } catch { /* ignore */ }
           try { proxyClientRef?.end(); } catch { /* ignore */ }
         }
+      }
+
+      function onAbort() {
+        const err = makeAbortError();
+        if (usePool) {
+          try { sshPool.release(hostId); } catch { /* ignore */ }
+        } else {
+          try { targetClient?.end(); } catch { /* ignore */ }
+          try { proxyClientRef?.end(); } catch { /* ignore */ }
+        }
+        fail(err);
       }
 
       function settle(result) {
@@ -221,7 +268,7 @@ function createBridgeService({ hostService, auditService, sshPool, sshShellPool 
           source,
           hostId,
           hostName,
-          command: command.substring(0, 2000),
+          command: commandForAudit.substring(0, 2000),
           exitCode: result.exitCode,
           durationMs: result.durationMs,
           clientIp,
@@ -238,7 +285,7 @@ function createBridgeService({ hostService, auditService, sshPool, sshShellPool 
           source,
           hostId,
           hostName,
-          command: command.substring(0, 2000),
+          command: commandForAudit.substring(0, 2000),
           error: err.message,
           durationMs: Date.now() - startAt,
           clientIp,
@@ -251,6 +298,7 @@ function createBridgeService({ hostService, auditService, sshPool, sshShellPool 
         err.code = 'EXEC_TIMEOUT';
         fail(err);
       }, timeout);
+      signal?.addEventListener?.('abort', onAbort, { once: true });
 
       const connectFn = usePool
         ? () => sshPool.acquire(hostId, { readyTimeout: timeout })
