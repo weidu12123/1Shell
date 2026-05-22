@@ -36,7 +36,7 @@ function format(ev: EventEntry): { icon: string; colorCls: string; msg: string }
     return {
       icon,
       colorCls: color,
-      msg: `[${ev.layer || '-'}] ${ev.phase || ''}${ev.stepId ? ` · step "${ev.stepId}"` : ''}${ev.attempt ? ` · attempt ${ev.attempt}` : ''}${ev.incidentId ? ` · incident ${ev.incidentId}` : ''}${ev.reason ? ` — ${ev.reason}` : ''}`,
+      msg: `[${ev.layer || '-'}] ${ev.phase || ''}${ev.stepId ? ` · step "${ev.stepId}"` : ''}${ev.attempt ? ` · attempt ${ev.attempt}` : ''}${ev.incidentId ? ` · incident ${ev.incidentId}` : ''}${ev.escalationId ? ` · escalation ${ev.escalationId}` : ''}${ev.reason ? ` — ${ev.reason}` : ''}`,
     };
   }
   // run-ended

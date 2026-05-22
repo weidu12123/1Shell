@@ -51,7 +51,7 @@ const title = computed(() => {
   return `配置 ${props.cliName || props.cliId} API 渠道`;
 });
 const subtitle = computed(() => {
-  if (isSkillsSlot.value) return '驱动主控台 AI / IDE 创作 / Skill & Playbook 执行（支持 OpenAI 兼容 / Anthropic）';
+  if (isSkillsSlot.value) return '驱动主控台 AI / IDE 创作 / Program & Skill 执行（支持 OpenAI 兼容 / Anthropic）';
   const labels = (props.supportedUpstream.length ? props.supportedUpstream : (['openai'] as UpstreamProtocol[]))
     .map((u) => UPSTREAM_LABELS[u] || u).join(' / ');
   return `支持上游协议: ${labels}`;

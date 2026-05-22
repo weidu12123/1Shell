@@ -80,6 +80,7 @@ function createProbeAlertService({ db, hostService, logger } = {}) {
       SELECT COUNT(*) AS n FROM probe_alert_events
       WHERE resolved_at IS NULL AND ack_at IS NULL
     `),
+    deleteEventsByHost: db.prepare('DELETE FROM probe_alert_events WHERE host_id = ?'),
   } : null;
 
   function ruleRowToObject(row) {
@@ -299,6 +300,21 @@ function createProbeAlertService({ db, hostService, logger } = {}) {
     return memory.events.filter((e) => !e.resolved_at && !e.ack_at).length;
   }
 
+  function deleteHost(hostId) {
+    const cleanHostId = String(hostId || '').trim();
+    if (!cleanHostId) return { ok: false, count: 0 };
+    for (const key of [...firingState.keys()]) {
+      if (key.endsWith(`:${cleanHostId}`)) firingState.delete(key);
+    }
+    if (stmts) {
+      const result = stmts.deleteEventsByHost.run(cleanHostId);
+      return { ok: true, count: result.changes || 0 };
+    }
+    const before = memory.events.length;
+    memory.events = memory.events.filter((event) => event.hostId !== cleanHostId && event.host_id !== cleanHostId);
+    return { ok: true, count: before - memory.events.length };
+  }
+
   // ── 评估器 ─────────────────────────────────────────────────────────────
 
   function checkBreach(rule, probe) {
@@ -418,6 +434,7 @@ function createProbeAlertService({ db, hostService, logger } = {}) {
     deleteRule,
     listEvents,
     countOpenEvents,
+    deleteHost,
     ackEvent,
     ackOpenEvents,
     evaluate,

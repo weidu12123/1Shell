@@ -14,11 +14,62 @@ export interface TriggerDef {
   action: string;
 }
 
+export interface ProgramInputOption {
+  value: string;
+  label: string;
+  description?: string;
+}
+
+export interface ProgramInputDef {
+  name: string;
+  label: string;
+  type?: 'string' | 'number' | 'boolean' | 'select' | 'password' | 'text' | string;
+  required?: boolean;
+  secret?: boolean;
+  placeholder?: string;
+  description?: string;
+  default?: string | number | boolean | null;
+  min?: number | null;
+  max?: number | null;
+  options?: ProgramInputOption[];
+}
+
+export interface ProgramActionDef {
+  name?: string;
+  label?: string;
+  inputs?: ProgramInputDef[];
+}
+
+export interface ProgramFrontendActionContract {
+  renderable: boolean;
+  issues: string[];
+  warnings: string[];
+  inputCount: number;
+  hasRender: boolean;
+  hasConfirm: boolean;
+}
+
+export interface ProgramFrontendContract {
+  status: 'renderable' | 'invalid' | string;
+  renderable: boolean;
+  issues: string[];
+  warnings: string[];
+  actions?: Record<string, ProgramFrontendActionContract>;
+}
+
 export interface InstanceActionDef {
+  id?: string;
   label: string;
   action: string;
   style?: 'primary' | 'success' | 'danger' | 'default';
   confirm?: string;
+}
+
+export interface ProgramResidualInfo {
+  id: string;
+  path?: string;
+  error: string;
+  message?: string;
 }
 
 export interface ProgramInfo {
@@ -28,6 +79,11 @@ export interface ProgramInfo {
   enabled?: boolean;
   triggers?: TriggerDef[];
   hosts?: 'all' | string[];
+  inputs?: ProgramInputDef[];
+  actions?: Record<string, ProgramActionDef>;
+  l2?: { skill?: string };
+  l3?: { enabled?: boolean; skills?: string[]; require_confirmation?: boolean };
+  frontendContract?: ProgramFrontendContract;
   instances?: InstanceInfo[];
   ui?: {
     instance_actions?: InstanceActionDef[];
@@ -131,7 +187,7 @@ export interface EvRunStarted   { type: 'run-started';   key: string; ts: string
 export interface EvStepStarted  { type: 'step-started';  key: string; ts: string; runId: string; stepId: string }
 export interface EvStepEnded    { type: 'step-ended';    key: string; ts: string; runId: string; stepId: string; status: string; durationMs?: number; reason?: string }
 export interface EvRunEnded     { type: 'run-ended';     key: string; ts: string; runId: string; programId: string; status: string; error?: string }
-export interface EvPhase        { type: 'phase';         key: string; ts: string; runId?: string; programId?: string; hostId?: string; layer?: 'L1' | 'L2' | 'L3' | string; phase?: string; stepId?: string | null; reason?: string; attempt?: number; incidentId?: string | null }
+export interface EvPhase        { type: 'phase';         key: string; ts: string; runId?: string; programId?: string; hostId?: string; layer?: 'L1' | 'L2' | 'L3' | string; phase?: string; stepId?: string | null; reason?: string; attempt?: number; incidentId?: string | null; escalationId?: string | null }
 export type EventEntry = EvRunStarted | EvStepStarted | EvStepEnded | EvRunEnded | EvPhase;
 
 // Guardian Tab — 10 子型

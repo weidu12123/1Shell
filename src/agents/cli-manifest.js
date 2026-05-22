@@ -22,9 +22,9 @@ const CLI_MANIFESTS = [
           name: 'settings.json',
           mergeStrategy: 'overwrite',
           overrideEnvKeys: {
-            ANTHROPIC_AUTH_TOKEN: 'oneshell-proxy-placeholder',
+            ANTHROPIC_AUTH_TOKEN: 'sk-1shell-proxy',
             ANTHROPIC_BASE_URL: '{serverUrl}/api/proxy/claude',
-            ANTHROPIC_API_KEY: 'oneshell-proxy-placeholder',
+            ANTHROPIC_API_KEY: 'sk-1shell-proxy',
           },
         },
         {
@@ -40,8 +40,8 @@ const CLI_MANIFESTS = [
 
     proxyEnv: {
       ANTHROPIC_BASE_URL: '{serverUrl}/api/proxy/claude',
-      ANTHROPIC_API_KEY: 'oneshell-proxy-placeholder',
-      ANTHROPIC_AUTH_TOKEN: 'oneshell-proxy-placeholder',
+      ANTHROPIC_API_KEY: 'sk-1shell-proxy',
+      ANTHROPIC_AUTH_TOKEN: 'sk-1shell-proxy',
     },
 
     launchArgs: [],
@@ -83,7 +83,7 @@ const CLI_MANIFESTS = [
 
     proxyEnv: {
       OPENAI_BASE_URL: '{serverUrl}/api/proxy/codex/v1',
-      OPENAI_API_KEY: 'oneshell-proxy-placeholder',
+      OPENAI_API_KEY: 'sk-1shell-proxy',
     },
 
     launchArgs: [],
@@ -118,7 +118,7 @@ const CLI_MANIFESTS = [
 
     proxyEnv: {
       OPENAI_BASE_URL: '{serverUrl}/api/proxy/opencode/v1',
-      OPENAI_API_KEY: 'oneshell-proxy-placeholder',
+      OPENAI_API_KEY: 'sk-1shell-proxy',
     },
 
     launchArgs: [],

@@ -4,16 +4,82 @@ const express = require('express');
 const { LOCAL_HOST_ID } = require('../config/env');
 const { validateHostPayload, validateManualLocation } = require('../utils/validators');
 
-function createHostRouter({ hostRepository, hostService, auditService, isUsingFallbackSecret }) {
+function createHostRouter({ hostRepository, hostService, auditService, isUsingFallbackSecret, probeService, probeAgentService, probeRelayService, probeTrafficService, probeAggregatorService, alertService }) {
   const router = express.Router();
+
+  function buildProbeMap() {
+    const snapshot = probeService?.getLatestSnapshot?.();
+    if (!snapshot?.generatedAt) {
+      probeService?.refreshSnapshot?.().catch?.(() => {});
+      return new Map();
+    }
+    const probes = Array.isArray(snapshot?.probes) ? snapshot.probes : [];
+    return new Map(probes.filter((probe) => probe?.hostId).map((probe) => [probe.hostId, probe]));
+  }
+
+  function buildAlertCountMap() {
+    const events = alertService?.listEvents?.({ status: 'firing', limit: 1000 }) || [];
+    const counts = new Map();
+    for (const event of events) {
+      if (!event?.hostId) continue;
+      counts.set(event.hostId, (counts.get(event.hostId) || 0) + 1);
+    }
+    return counts;
+  }
+
+  function cleanupProbeState(hostId) {
+    probeAgentService?.purgeHost?.(hostId);
+    probeService?.removeHost?.(hostId);
+    probeRelayService?.evictHost?.(hostId);
+    probeTrafficService?.deleteHost?.(hostId);
+    probeAggregatorService?.deleteHost?.(hostId);
+    alertService?.deleteHost?.(hostId);
+  }
 
   router.get('/hosts', (_req, res) => {
     res.json({
-      hosts: hostService.listHosts(),
+      hosts: hostService.listHostsWithPreferences(),
       warnings: {
         usingFallbackSecret: isUsingFallbackSecret(),
       },
     });
+  });
+
+  router.get('/hosts/repository', async (_req, res, next) => {
+    try {
+      res.json({
+        hosts: hostService.listRepositoryHosts({
+          probeMap: buildProbeMap(),
+          alertCountMap: buildAlertCountMap(),
+        }),
+      });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  router.get('/hosts/console', (_req, res) => {
+    res.json({
+      hosts: hostService.listConsoleHosts(),
+      warnings: {
+        usingFallbackSecret: isUsingFallbackSecret(),
+      },
+    });
+  });
+
+  router.post('/hosts/console-order', (req, res, next) => {
+    try {
+      const hosts = hostService.setConsoleOrder(req.body?.hostIds, { replace: req.body?.replace === true });
+      auditService?.log({
+        action: 'host_console_order_update',
+        source: 'web_ui',
+        details: JSON.stringify({ count: Array.isArray(req.body?.hostIds) ? req.body.hostIds.length : 0, replace: req.body?.replace === true }),
+        clientIp: req.ip,
+      });
+      res.json({ hosts });
+    } catch (error) {
+      next(error);
+    }
   });
 
   router.post('/hosts', (req, res, next) => {
@@ -22,6 +88,7 @@ function createHostRouter({ hostRepository, hostService, auditService, isUsingFa
       const nextHost = hostService.buildStoredHost(validateHostPayload(req.body));
       hosts.push(nextHost);
       hostRepository.writeStoredHosts(hosts);
+      hostService.ensureDefaultPreference(nextHost.id);
       auditService?.log({ action: 'host_create', source: 'web_ui', hostId: nextHost.id, hostName: nextHost.name, clientIp: req.ip });
       res.status(201).json({ host: hostService.toPublicHost(nextHost) });
     } catch (error) {
@@ -64,6 +131,23 @@ function createHostRouter({ hostRepository, hostService, auditService, isUsingFa
     }
   });
 
+  router.patch('/hosts/:id/preference', (req, res, next) => {
+    try {
+      const preference = hostService.updateHostPreference(req.params.id, req.body || {});
+      if (preference.archived) cleanupProbeState(req.params.id);
+      auditService?.log({
+        action: 'host_preference_update',
+        source: 'web_ui',
+        hostId: req.params.id,
+        details: JSON.stringify(req.body || {}),
+        clientIp: req.ip,
+      });
+      res.json({ preference });
+    } catch (error) {
+      next(error);
+    }
+  });
+
   router.patch('/hosts/:id/location', (req, res, next) => {
     try {
       const hostId = req.params.id;
@@ -72,7 +156,6 @@ function createHostRouter({ hostRepository, hostService, auditService, isUsingFa
         ? validateManualLocation(body.manualLocation)
         : null;
 
-      // 本机：单独写入 local-host-config.json
       if (hostId === LOCAL_HOST_ID) {
         hostService.updateLocalHostManualLocation(nextLocation);
         auditService?.log({
@@ -123,6 +206,8 @@ function createHostRouter({ hostRepository, hostService, auditService, isUsingFa
     }
 
     hostRepository.writeStoredHosts(nextHosts);
+    hostRepository.deleteHostPreference(hostId);
+    cleanupProbeState(hostId);
     const deleted = hosts.find((item) => item.id === hostId);
     auditService?.log({ action: 'host_delete', source: 'web_ui', hostId, hostName: deleted?.name, clientIp: req.ip });
     return res.json({ ok: true });

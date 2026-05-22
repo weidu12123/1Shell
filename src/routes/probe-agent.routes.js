@@ -39,6 +39,29 @@ function createProbeAgentPublicRouter({ probeAgentService }) {
     }
   });
 
+  router.get('/agent/probe/commands/next', async (req, res, next) => {
+    try {
+      const agent = probeAgentService.authenticateAgent(req.headers.authorization);
+      if (!agent) return res.status(401).json({ ok: false, error: 'agent token 无效' });
+      const command = await probeAgentService.waitForNextCommand(agent);
+      if (!command) return res.status(204).end();
+      return res.json({ ok: true, command });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  router.post('/agent/probe/commands/:commandId/result', (req, res, next) => {
+    try {
+      const agent = probeAgentService.authenticateAgent(req.headers.authorization);
+      if (!agent) return res.status(401).json({ ok: false, error: 'agent token 无效' });
+      const result = probeAgentService.completeCommand(agent, req.params.commandId, req.body || {});
+      return res.json(result);
+    } catch (error) {
+      next(error);
+    }
+  });
+
   return router;
 }
 

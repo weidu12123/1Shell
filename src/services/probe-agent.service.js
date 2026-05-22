@@ -10,6 +10,7 @@ const SAMPLE_CLEANUP_INTERVAL_MS = 30 * 60 * 1000;
 const TRUST_MIN_HEARTBEATS = 1;
 const TRUST_RESET_GAP_MS = 2 * AGENT_STALE_AFTER_MS;
 const HEARTBEAT_COUNT_CAP = 10;
+const AGENT_COMMAND_TIMEOUT_MS = 3500;
 
 function hashToken(token) {
   return crypto.createHash('sha256').update(String(token || '')).digest('hex');
@@ -39,6 +40,9 @@ function isPayloadHealthy(body) {
 
 function normalizeAgentPayload(payload, agent = {}) {
   const body = payload && typeof payload === 'object' ? payload : {};
+  const capabilities = Array.isArray(body.capabilities)
+    ? body.capabilities.filter((item) => typeof item === 'string')
+    : [];
   const memoryUsage = parseNumber(body.memory?.usage) ?? usageFromBytes(body.memory);
   const swapUsage = parseNumber(body.swap?.usage) ?? usageFromBytes(body.swap);
   const diskUsage = parseNumber(body.disk?.usage)
@@ -55,11 +59,14 @@ function normalizeAgentPayload(payload, agent = {}) {
     agentInstalled: true,
     agentOnline: true,
     agentVersion: body.agentVersion || agent.agent_version || null,
+    agentCapabilities: capabilities,
     agentLastSeenAt: agent.last_seen_at || reportedAt,
     platform: body.platform || null,
     platformInfo: body.platformInfo && typeof body.platformInfo === 'object' ? body.platformInfo : null,
     latencyMs: null,
     cpuUsage: parseNumber(body.cpu?.usage),
+    cpuIowait: parseNumber(body.cpu?.iowait),
+    cpuSteal: parseNumber(body.cpu?.steal),
     cpuCores: Array.isArray(body.cpu?.cores) ? body.cpu.cores.map(parseNumber).filter((v) => v !== null) : [],
     memoryUsage,
     swapUsage,
@@ -93,6 +100,9 @@ function createProbeAgentService({ db, hostService, trafficService = null }) {
     agentsByTokenHash: new Map(),
     latest: new Map(),
     samples: new Map(), // hostId -> Array<sampleRow>
+    commandsByHost: new Map(),
+    commandsById: new Map(),
+    commandWaitersByHost: new Map(),
   };
 
   let lastSampleCleanupAt = 0;
@@ -158,6 +168,10 @@ function createProbeAgentService({ db, hostService, trafficService = null }) {
     `),
     getSampleByKey: db.prepare('SELECT id FROM probe_samples WHERE host_id = ? AND source = ? AND reported_at = ? LIMIT 1'),
     cleanupSamples: db.prepare('DELETE FROM probe_samples WHERE reported_at < ?'),
+    deleteInstallTokensByHost: db.prepare('DELETE FROM probe_agent_install_tokens WHERE host_id = ?'),
+    deleteAgentByHost: db.prepare('DELETE FROM probe_agents WHERE host_id = ?'),
+    deleteLatestByHost: db.prepare('DELETE FROM probe_agent_latest WHERE host_id = ?'),
+    deleteSamplesByHost: db.prepare('DELETE FROM probe_samples WHERE host_id = ?'),
   } : null;
 
   function ensureHost(hostId) {
@@ -233,6 +247,115 @@ function createProbeAgentService({ db, hostService, trafficService = null }) {
     if (!match) return null;
     const tokenHash = hashToken(match[1]);
     return stmts ? stmts.getAgentByToken.get(tokenHash) : memory.agentsByTokenHash.get(tokenHash) || null;
+  }
+
+  function removeCommand(command) {
+    if (!command) return;
+    if (command.timer) clearTimeout(command.timer);
+    memory.commandsById.delete(command.id);
+    const queue = memory.commandsByHost.get(command.hostId);
+    if (queue) {
+      const nextQueue = queue.filter((item) => item.id !== command.id);
+      if (nextQueue.length) memory.commandsByHost.set(command.hostId, nextQueue);
+      else memory.commandsByHost.delete(command.hostId);
+    }
+  }
+
+  function wakeCommandWaiter(hostId) {
+    const waiters = memory.commandWaitersByHost.get(hostId) || [];
+    const waiter = waiters.shift();
+    if (!waiter) return;
+    if (waiters.length) memory.commandWaitersByHost.set(hostId, waiters);
+    else memory.commandWaitersByHost.delete(hostId);
+    if (waiter.timer) clearTimeout(waiter.timer);
+    waiter.resolve(nextCommandForAgent({ host_id: hostId }));
+  }
+
+  function supportsCommand(hostId, type) {
+    const status = getAgentStatusMap().get(hostId);
+    if (!status?.agentTrusted) return false;
+    const latest = getLatestProbeMap().get(hostId);
+    return Array.isArray(latest?.agentCapabilities) && latest.agentCapabilities.includes(type);
+  }
+
+  function enqueueCommand(hostId, type, payload = {}, { timeoutMs = AGENT_COMMAND_TIMEOUT_MS } = {}) {
+    ensureHost(hostId);
+    if (!supportsCommand(hostId, type)) {
+      const error = new Error('Agent 不支持该命令或尚未在线');
+      error.status = 409;
+      throw error;
+    }
+    const id = createId('agent_cmd');
+    return new Promise((resolve, reject) => {
+      const command = {
+        id,
+        hostId,
+        type,
+        payload,
+        createdAt: nowIso(),
+        resolve,
+        reject,
+        timer: null,
+      };
+      command.timer = setTimeout(() => {
+        removeCommand(command);
+        const error = new Error('Agent 命令超时');
+        error.status = 504;
+        reject(error);
+      }, Math.max(500, Math.min(Number(timeoutMs) || AGENT_COMMAND_TIMEOUT_MS, 30000)));
+      const queue = memory.commandsByHost.get(hostId) || [];
+      queue.push(command);
+      memory.commandsByHost.set(hostId, queue);
+      memory.commandsById.set(id, command);
+      wakeCommandWaiter(hostId);
+    });
+  }
+
+  function nextCommandForAgent(agent) {
+    if (!agent?.host_id) return null;
+    const queue = memory.commandsByHost.get(agent.host_id) || [];
+    const command = queue[0];
+    if (!command) return null;
+    command.dispatchedAt = nowIso();
+    return { id: command.id, type: command.type, payload: command.payload };
+  }
+
+  function waitForNextCommand(agent, { timeoutMs = 12000 } = {}) {
+    const command = nextCommandForAgent(agent);
+    if (command || !agent?.host_id) return Promise.resolve(command);
+    return new Promise((resolve) => {
+      const waiter = {
+        resolve,
+        timer: setTimeout(() => {
+          const waiters = memory.commandWaitersByHost.get(agent.host_id) || [];
+          const kept = waiters.filter((item) => item !== waiter);
+          if (kept.length) memory.commandWaitersByHost.set(agent.host_id, kept);
+          else memory.commandWaitersByHost.delete(agent.host_id);
+          resolve(null);
+        }, Math.max(1000, Math.min(Number(timeoutMs) || 12000, 12000))),
+      };
+      const waiters = memory.commandWaitersByHost.get(agent.host_id) || [];
+      waiters.push(waiter);
+      memory.commandWaitersByHost.set(agent.host_id, waiters);
+    });
+  }
+
+  function completeCommand(agent, commandId, body = {}) {
+    const command = memory.commandsById.get(commandId);
+    if (!command || command.hostId !== agent?.host_id) {
+      const error = new Error('Agent 命令不存在或已过期');
+      error.status = 404;
+      throw error;
+    }
+    removeCommand(command);
+    if (body.ok === false || body.error) {
+      const error = new Error(String(body.error || 'Agent 命令执行失败'));
+      error.status = 502;
+      command.reject(error);
+      return { ok: true };
+    }
+    command.resolve(body.result);
+    return { ok: true };
   }
 
   function buildSampleRow(hostId, body, reportedAt, source = 'agent') {
@@ -459,6 +582,30 @@ function createProbeAgentService({ db, hostService, trafficService = null }) {
     return { ok: true };
   }
 
+  function purgeHost(hostId) {
+    const cleanHostId = String(hostId || '').trim();
+    if (!cleanHostId) return { ok: false };
+    if (stmts) {
+      const tx = db.transaction(() => {
+        stmts.deleteInstallTokensByHost.run(cleanHostId);
+        stmts.deleteAgentByHost.run(cleanHostId);
+        stmts.deleteLatestByHost.run(cleanHostId);
+        stmts.deleteSamplesByHost.run(cleanHostId);
+      });
+      tx();
+    } else {
+      const agent = memory.agentsByHost.get(cleanHostId);
+      if (agent?.token_hash) memory.agentsByTokenHash.delete(agent.token_hash);
+      for (const [tokenHash, token] of memory.installTokens.entries()) {
+        if (token?.host_id === cleanHostId) memory.installTokens.delete(tokenHash);
+      }
+      memory.agentsByHost.delete(cleanHostId);
+      memory.latest.delete(cleanHostId);
+      memory.samples.delete(cleanHostId);
+    }
+    return { ok: true };
+  }
+
   function listAgents() {
     return stmts ? stmts.listAgents.all() : Array.from(memory.agentsByHost.values());
   }
@@ -566,16 +713,22 @@ function createProbeAgentService({ db, hostService, trafficService = null }) {
 
   return {
     authenticateAgent,
+    completeCommand,
     decorateProbes,
+    enqueueCommand,
     generateInstallToken,
     getAgentStatusMap,
     getLatestProbeMap,
     getRelaySnapshot,
     getSampleHistory,
+    nextCommandForAgent,
+    waitForNextCommand,
+    purgeHost,
     registerAgent,
     revokeAgent,
     saveExternalProbeSample,
     saveReport,
+    supportsCommand,
   };
 }
 

@@ -89,6 +89,7 @@ const { createExecRouter } = require('./src/routes/exec.routes');
 const { createProgramRegistry } = require('./src/programs/registry');
 const { createProgramStateService } = require('./src/programs/state.service');
 const { createProgramEngine } = require('./src/programs/engine');
+const { createL3EscalationController } = require('./src/programs/l3-escalation-controller');
 const { createProgramRouter } = require('./src/routes/program.routes');
 const { createGuardianService } = require('./src/guardian/guardian.service');
 const { createSkillStepExecutor } = require('./src/skills/skill-step-executor');
@@ -125,11 +126,12 @@ const probeRelayService = createProbeRelayService({ db, hostService, probeAgentS
 const probeService = createProbeService({ hostRepository, hostService, sshShellPool, probeAgentService, probeRelayService, probeTrafficService });
 const probeAlertService = createProbeAlertService({ db, hostService, logger: log });
 const probeAggregatorService = createProbeAggregatorService({ db, logger: log });
+probeService.refreshSnapshot().catch((error) => log.warn?.(`[probe] initial refresh failed: ${error.message}`));
 const bridgeService = createBridgeService({ hostService, auditService, sshPool, sshShellPool });
 const probeDiagService = createProbeDiagService({ bridgeService, hostService, auditService, logger: log });
 const probeAgentInstallerService = createProbeAgentInstallerService({ rootDir: ROOT_DIR, bridgeService, hostService, probeAgentService, probeRelayService });
 const probeRelayInstallerService = createProbeRelayInstallerService({ rootDir: ROOT_DIR, hostService, bridgeService, probeRelayService });
-const fileService = createFileService({ hostService });
+const fileService = createFileService({ hostService, probeAgentService });
 const ipFilterService = createIpFilterService({ db });
 const scriptService = createScriptService({ scriptRepository, hostService, bridgeService, auditService });
 const playbookService = createPlaybookService({ playbookRepository, scriptService, auditService });
@@ -152,6 +154,49 @@ const skillRunner = createSkillRunner({
     try { libraryService.reload(); } catch { /* ignore */ }
   },
 });
+// ─── Program Engine (长驻程序) + L2 Skill Executor + L3 Guardian AI ────
+const programRegistry = createProgramRegistry(path.join(dataDir, 'programs'));
+const programStateService = createProgramStateService({ db });
+const guardianService = createGuardianService({
+  bridgeService,
+  hostService,
+  proxyConfigStore,
+  port: PORT,
+  auditService,
+  logger: log,
+  skillRegistry: libraryService,
+  io,
+});
+const l3EscalationController = createL3EscalationController({
+  guardianService,
+  programRegistry,
+  hostService,
+  auditService,
+  io,
+  logger: log,
+});
+const skillStepExecutor = createSkillStepExecutor({
+  bridgeService,
+  hostService,
+  proxyConfigStore,
+  port: PORT,
+  logger: log,
+  skillRegistry: libraryService,
+  io,
+  l3EscalationController,
+});
+const programEngine = createProgramEngine({
+  registry: programRegistry,
+  stateService: programStateService,
+  bridgeService,
+  hostService,
+  auditService,
+  logger: log,
+  io,
+  guardianService,
+  skillStepExecutor,
+  l3EscalationController,
+});
 const mcpService = createMcpService({
   bridgeService,
   hostService,
@@ -169,40 +214,7 @@ const mcpService = createMcpService({
   probeAlertService,
   probeDiagService,
   probeAgentInstallerService,
-});
-
-// ─── Program Engine (长驻程序) + L2 Skill Executor + L3 Guardian AI ────
-const programRegistry = createProgramRegistry(path.join(dataDir, 'programs'));
-const programStateService = createProgramStateService({ db });
-const guardianService = createGuardianService({
-  bridgeService,
-  hostService,
-  proxyConfigStore,
-  port: PORT,
-  auditService,
-  logger: log,
-  skillRegistry: libraryService,
-  io,
-});
-const skillStepExecutor = createSkillStepExecutor({
-  bridgeService,
-  hostService,
-  proxyConfigStore,
-  port: PORT,
-  logger: log,
-  skillRegistry: libraryService,
-  io,
-});
-const programEngine = createProgramEngine({
-  registry: programRegistry,
-  stateService: programStateService,
-  bridgeService,
-  hostService,
-  auditService,
-  logger: log,
-  io,
-  guardianService,
-  skillStepExecutor,
+  l3EscalationController,
 });
 
 // ─── IDE Service (自由创作引擎) ─────────────────────────────────────────
@@ -271,6 +283,12 @@ app.use('/api', createHostRouter({
   hostService,
   auditService,
   isUsingFallbackSecret,
+  probeService,
+  probeAgentService,
+  probeRelayService,
+  probeTrafficService,
+  probeAggregatorService,
+  alertService: probeAlertService,
 }));
 const geoIpService = createGeoIpService();
 app.use('/api', createGeoRouter({ hostService, geoIpService, probeService }));
@@ -286,7 +304,7 @@ app.use('/api', createIpFilterRouter({ ipFilterService }));
 app.use('/api', createScriptRouter({ scriptService, aiService }));
 app.use('/api', createWorkflowRouter({ playbookService }));
 app.use('/api', createSkillRouter({ libraryService, skillRunner, claudeCodeSkillRegistry }));
-app.use('/api', createSkillStudioRouter({ hostService, libraryService, mcpRegistry }));
+app.use('/api', createSkillStudioRouter({ hostService, libraryService, mcpRegistry, programRegistry }));
 app.use('/api', createMcpRegistryRouter({ mcpRegistry, localMcpService, localMcpDeployer }));
 app.use('/api', createExecRouter({ bridgeService, hostService }));
 app.use('/api', createProgramRouter({ registry: programRegistry, stateService: programStateService, engine: programEngine, hostService }));

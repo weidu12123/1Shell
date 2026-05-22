@@ -8,9 +8,8 @@
 
 | 产物 | 路径 | 禁止 |
 |------|------|------|
-| Skill（AI 能力包）| `data/skills/<id>/` | 不得含 `playbook.yaml` |
-| Playbook（确定性剧本）| `data/playbooks/<id>/` | 不得当作 Skill 用 |
-| Program（长驻程序）| `data/programs/<id>/program.yaml` | 不得写到 skills/ 或 playbooks/ |
+| Skill（AI 能力包）| `data/skills/<id>/` | 不得含 `playbook.yaml`；不得承载 L1 确定性步骤 |
+| Program（自动化程序）| `data/programs/<id>/program.yaml` | 不得写到 skills/；确定性步骤必须放在 L1/action |
 
 ## 2. Skill 的四类文件严格分离
 
@@ -22,7 +21,7 @@ SKILL.md     → ≤ 100 行，只做路由导航，不做内容百科
 ```
 
 **workflows/ 里绝对禁止出现：**
-- 编号步骤列表（`1. 2. 3.`）且每步是固定命令 → 那是 Playbook，不是 Skill
+- 编号步骤列表（`1. 2. 3.`）且每步是固定命令 → 那是 Program L1/action，不是 Skill
 - YAML 代码块（除非是示例说明）
 - `run:` / `command:` / `execute:` 字段定义
 
@@ -34,7 +33,7 @@ Skill 的 workflows/ 应该告诉 AI：
 - **不确定时问用户**（ask_user 触发条件）
 
 不应该告诉 AI：
-- 第一步执行 X，第二步执行 Y（那是 Playbook）
+- 第一步执行 X，第二步执行 Y（那是 Program L1/action）
 
 ## 4. render_result 输出规范（必须遵守）
 

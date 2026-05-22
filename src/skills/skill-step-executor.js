@@ -14,6 +14,7 @@
  *   - execute_command    : 在目标主机执行命令
  *   - write_program_step : 修改 Program 步骤（自我改进）
  *   - report_outcome     : 宣告结果（success / failure + 输出）
+ *   - request_l3_escalation : 向 L3 Controller 提交升级请求
  */
 
 const fs = require('fs');
@@ -27,10 +28,42 @@ const DEFAULT_MAX_TURNS = 12;
 const DEFAULT_EXEC_TIMEOUT_MS = 30000;
 const SKILL_BODY_PER_FILE_BYTES = 8 * 1024;
 const SKILL_BODY_TOTAL_BYTES = 32 * 1024;
+const SKILL_FILE_READ_MAX_BYTES = 24 * 1024;
 
 // ─── L2 工具定义 ──────────────────────────────────────────────────────────
 
+const L3_ESCALATION_TOOL = {
+  name: 'request_l3_escalation',
+  description:
+    '向 1Shell L3 Controller 提交结构化升级请求。L2 不能直接接管 L3，只能用本工具请求。' +
+    '\n适用：out_of_scope、risk_too_high、needs_human_decision、suspected_incident，或需要重启/防火墙/凭据/私钥/删除/降级等高风险操作。',
+  input_schema: {
+    type: 'object',
+    properties: {
+      disposition: { type: 'string', enum: ['unresolved', 'out_of_scope', 'risk_too_high', 'needs_human_decision', 'suspected_incident'] },
+      severity: { type: 'string', enum: ['low', 'medium', 'high', 'critical', 'emergency'], description: '影响等级，默认 medium' },
+      reason: { type: 'string', description: '升级原因' },
+      evidence: { type: 'array', items: { type: 'string' }, description: '证据列表，例如 stdout/stderr 摘要、约束命中原因' },
+      requestedAction: { type: 'string', description: '希望 L3 判断或执行的动作' },
+      userDecisionNeeded: { type: 'boolean', description: '是否需要用户做业务/安全决策' },
+    },
+    required: ['disposition', 'reason'],
+  },
+};
+
 const L2_BASE_TOOLS = [
+  {
+    name: 'read_skill_file',
+    description:
+      '按需读取当前 Program 绑定 Skill 的单个文件。SKILL.md 和 rules 摘要已在上下文中；workflows/references/examples/scripts 需要时再读，不要无目的全量读取。',
+    input_schema: {
+      type: 'object',
+      properties: {
+        path: { type: 'string', description: '相对 Skill 根目录的文件路径，如 workflows/repair.md、references/domain.md' },
+      },
+      required: ['path'],
+    },
+  },
   {
     name: 'execute_command',
     description:
@@ -68,6 +101,7 @@ const L2_BASE_TOOLS = [
 
 const L2_TOOLS = [
   ...L2_BASE_TOOLS,
+  L3_ESCALATION_TOOL,
   {
     name: 'report_outcome',
     description:
@@ -88,6 +122,7 @@ const L2_TOOLS = [
 
 const L2_REPAIR_TOOLS = [
   ...L2_BASE_TOOLS,
+  L3_ESCALATION_TOOL,
   {
     name: 'report_outcome',
     description:
@@ -141,6 +176,29 @@ function readMdDir(dir, remainingRef) {
   return out;
 }
 
+function listSkillReadableFiles(skillDir) {
+  const roots = ['workflows', 'references', 'examples', 'scripts', 'templates'];
+  const out = [];
+  for (const root of roots) {
+    const abs = path.join(skillDir, root);
+    if (!fs.existsSync(abs)) continue;
+    collectSkillFiles(abs, root, out);
+  }
+  return out.sort();
+}
+
+function collectSkillFiles(absDir, relDir, out) {
+  let entries;
+  try { entries = fs.readdirSync(absDir, { withFileTypes: true }); }
+  catch { return; }
+  for (const entry of entries) {
+    const abs = path.join(absDir, entry.name);
+    const rel = `${relDir}/${entry.name}`.replace(/\\/g, '/');
+    if (entry.isDirectory()) collectSkillFiles(abs, rel, out);
+    else if (entry.isFile()) out.push(rel);
+  }
+}
+
 function loadSkillContext(skillRegistry, skillId) {
   if (!skillId || !skillRegistry) return null;
   const skill = typeof skillRegistry.getSkill === 'function'
@@ -158,20 +216,19 @@ function loadSkillContext(skillRegistry, skillId) {
     remaining.value -= Buffer.byteLength(body, 'utf8');
   } catch { /* ignore */ }
 
-  const rules      = readMdDir(path.join(skill.dir, 'rules'), remaining);
-  const workflows  = readMdDir(path.join(skill.dir, 'workflows'), remaining);
-  const references = readMdDir(path.join(skill.dir, 'references'), remaining);
+  const rules = readMdDir(path.join(skill.dir, 'rules'), remaining);
+  const fileIndex = listSkillReadableFiles(skill.dir);
 
-  const hasAny = body || rules.length || workflows.length || references.length;
+  const hasAny = body || rules.length || fileIndex.length;
   if (!hasAny) return null;
 
   return {
     id: skillId,
     name: skill.name || skillId,
+    dir: skill.dir,
     body,
     rules,
-    workflows,
-    references,
+    fileIndex,
   };
 }
 
@@ -202,10 +259,11 @@ function buildL2System({ program, host, step, skillContext }) {
     isLocal && process.platform === 'win32' ? `- **注意：本机是 Windows，禁止使用 Linux 命令（df、grep、awk、head 等），必须用 PowerShell 或 cmd 命令。**` : '',
     ``,
     `## 工作流程`,
-    `1. 阅读下方 Skill 提供的 rules / workflows / references`,
+    `1. 阅读下方 SKILL.md 路由、rules 和文件索引；需要具体 workflow/reference/example/script 时，用 read_skill_file 按需读取单个文件`,
     `2. 用 execute_command 在目标主机上执行必要操作`,
     `3. 如发现 Program 的 exec 步骤命令需要修正，用 write_program_step 固化改进`,
-    `4. 完成后调用 report_outcome 宣告结果`,
+    `4. 如超出 L2 权限，调用 request_l3_escalation 提交升级请求`,
+    `5. 完成后调用 report_outcome 宣告结果`,
     ``,
     `## 硬约束`,
     `- Skill 的 rules 是铁律，不可违反`,
@@ -225,11 +283,9 @@ function buildL2System({ program, host, step, skillContext }) {
     for (const r of skillContext.rules) {
       lines.push(``, `### 规则 · ${r.name}`, r.content.trim());
     }
-    for (const w of skillContext.workflows) {
-      lines.push(``, `### 执行流程 · ${w.name}`, w.content.trim());
-    }
-    for (const ref of skillContext.references) {
-      lines.push(``, `### 参考 · ${ref.name}`, ref.content.trim());
+    if (skillContext.fileIndex?.length) {
+      lines.push(``, `### 可按需读取的文件索引`, `需要具体流程、参考、示例或脚本时，用 read_skill_file 读取单个文件，不要全量读取。`);
+      for (const file of skillContext.fileIndex) lines.push(`- ${file}`);
     }
   }
 
@@ -275,8 +331,8 @@ function buildL2RepairSystem({ program, host, skillContext }) {
     ``,
     `## 工作流程`,
     `1. 阅读失败 step、verify 和 stdout/stderr`,
-    `2. 按绑定 Skill 的 rules/workflows 判断是否在职责范围内`,
-    `3. 只做低风险诊断/修复；如需危险命令、停站、改 SSH/防火墙/数据库等，必须升级 L3`,
+    `2. 按绑定 Skill 的 SKILL.md 路由、rules 和文件索引判断是否需要用 read_skill_file 读取具体 workflow/reference`,
+    `3. 只做低风险诊断/修复；如需危险命令、停站、改 SSH/防火墙/数据库等，必须调用 request_l3_escalation 请求 L3`,
     `4. 如已验证更正确的命令，可用 write_program_step 固化`,
     `5. 最后必须调用 report_outcome，disposition 只能取枚举值`,
     ``,
@@ -300,8 +356,10 @@ function buildL2RepairSystem({ program, host, skillContext }) {
     lines.push(``, `---`, ``, `## Program 绑定 Skill: ${skillContext.name} (\`${skillContext.id}\`)`);
     if (skillContext.body) lines.push(``, skillContext.body.trim());
     for (const r of skillContext.rules) lines.push(``, `### 规则 · ${r.name}`, r.content.trim());
-    for (const w of skillContext.workflows) lines.push(``, `### 流程 · ${w.name}`, w.content.trim());
-    for (const ref of skillContext.references) lines.push(``, `### 参考 · ${ref.name}`, ref.content.trim());
+    if (skillContext.fileIndex?.length) {
+      lines.push(``, `### 可按需读取的文件索引`, `需要具体流程、参考、示例或脚本时，用 read_skill_file 读取单个文件，不要全量读取。`);
+      for (const file of skillContext.fileIndex) lines.push(`- ${file}`);
+    }
   }
 
   return lines.join('\n');
@@ -374,13 +432,13 @@ async function handleExec(tu, { hostId, bridgeService, io, sessionId }) {
   if (risk.dangerous) {
     io?.emit?.('program:l2:info', {
       sessionId,
-      message: `危险命令被 L2 拦截：${risk.reason}。请 report_outcome disposition=risk_too_high 升级 L3。`,
+      message: `危险命令被 L2 拦截：${risk.reason}。请 request_l3_escalation 后 report_outcome disposition=risk_too_high。`,
     });
     return {
       type: 'tool_result',
       tool_use_id: tu.id,
       is_error: true,
-      content: `[BLOCKED] ${risk.reason}。L2 无权执行该命令，请 report_outcome disposition=risk_too_high。`,
+      content: `[BLOCKED] ${risk.reason}。L2 无权执行该命令，请先 request_l3_escalation，再 report_outcome disposition=risk_too_high。`,
     };
   }
 
@@ -414,6 +472,61 @@ async function handleExec(tu, { hostId, bridgeService, io, sessionId }) {
   return {
     type: 'tool_result', tool_use_id: tu.id,
     content: formatExecResult(result), is_error: result.exitCode !== 0,
+  };
+}
+
+function handleReadSkillFile(tu, { skillContext }) {
+  if (!skillContext?.dir) {
+    return { type: 'tool_result', tool_use_id: tu.id, content: '[ERROR] Skill 上下文为空', is_error: true };
+  }
+  const rawPath = String(tu.input?.path || '').trim().replace(/\\/g, '/');
+  if (!rawPath) {
+    return { type: 'tool_result', tool_use_id: tu.id, content: '[ERROR] path 为空', is_error: true };
+  }
+  const normalized = path.posix.normalize(rawPath);
+  if (normalized.startsWith('../') || normalized === '..' || path.isAbsolute(rawPath)) {
+    return { type: 'tool_result', tool_use_id: tu.id, content: `[ERROR] 路径越界: ${rawPath}`, is_error: true };
+  }
+  const allowed = normalized === 'SKILL.md' || /^(rules|workflows|references|examples|scripts|templates)\//.test(normalized);
+  if (!allowed) {
+    return { type: 'tool_result', tool_use_id: tu.id, content: `[ERROR] 只能读取 SKILL.md 或 rules/workflows/references/examples/scripts/templates 下的文件: ${rawPath}`, is_error: true };
+  }
+  const abs = path.resolve(skillContext.dir, normalized);
+  if (!(abs.startsWith(skillContext.dir + path.sep) || abs === skillContext.dir)) {
+    return { type: 'tool_result', tool_use_id: tu.id, content: `[ERROR] 路径越界: ${rawPath}`, is_error: true };
+  }
+  try {
+    const stat = fs.statSync(abs);
+    if (!stat.isFile()) return { type: 'tool_result', tool_use_id: tu.id, content: `[ERROR] 不是文件: ${rawPath}`, is_error: true };
+    const content = fs.readFileSync(abs, 'utf8').slice(0, SKILL_FILE_READ_MAX_BYTES);
+    return { type: 'tool_result', tool_use_id: tu.id, content: `# ${skillContext.id}/${normalized}\n\n${content}` };
+  } catch (err) {
+    return { type: 'tool_result', tool_use_id: tu.id, content: `[ERROR] 读取失败: ${err.message}`, is_error: true };
+  }
+}
+
+async function handleRequestL3Escalation(tu, { l3EscalationController, program, hostId, step, runId, sessionId, source }) {
+  if (!l3EscalationController) {
+    return { type: 'tool_result', tool_use_id: tu.id, content: '[ERROR] L3 Controller 未配置', is_error: true };
+  }
+  const result = await l3EscalationController.request({
+    ...(tu.input || {}),
+    program,
+    programId: program.id,
+    runId,
+    hostId,
+    step,
+    stepId: step.id,
+    sourceLayer: 'L2',
+    sessionId,
+    source: source || 'program-l2',
+  });
+  return {
+    type: 'tool_result',
+    tool_use_id: tu.id,
+    content: JSON.stringify(result, null, 2),
+    is_error: result.decision !== 'accepted' || result.guardian?.ok === false,
+    l3Escalation: result,
   };
 }
 
@@ -484,7 +597,7 @@ async function handleWriteProgramStep(tu, { program, io, sessionId }) {
 
 function createSkillStepExecutor({
   bridgeService, hostService, proxyConfigStore, port,
-  logger, skillRegistry, io,
+  logger, skillRegistry, io, l3EscalationController,
 }) {
   let globalUnlimitedTurns = false;
 
@@ -534,6 +647,7 @@ function createSkillStepExecutor({
     let status = null;   // 'success' | 'failure'
     let summary = '';
     let output = '';
+    let l3Escalation = null;
 
     try {
       const maxTurns = globalUnlimitedTurns ? Infinity : DEFAULT_MAX_TURNS;
@@ -587,11 +701,19 @@ function createSkillStepExecutor({
         let outcomeReceived = false;
 
         for (const tu of toolUses) {
-          if (tu.name === 'execute_command') {
+          if (tu.name === 'read_skill_file') {
+            toolResults.push(handleReadSkillFile(tu, { skillContext }));
+
+          } else if (tu.name === 'execute_command') {
             toolResults.push(await handleExec(tu, { hostId, bridgeService, io, sessionId }));
 
           } else if (tu.name === 'write_program_step') {
             toolResults.push(await handleWriteProgramStep(tu, { program, io, sessionId }));
+
+          } else if (tu.name === 'request_l3_escalation') {
+            const toolResult = await handleRequestL3Escalation(tu, { l3EscalationController, program, hostId, step, runId, sessionId, source: 'program-l2' });
+            l3Escalation = toolResult.l3Escalation || l3Escalation;
+            toolResults.push(toolResult);
 
           } else if (tu.name === 'report_outcome') {
             status = tu.input?.status === 'success' ? 'success' : 'failure';
@@ -662,6 +784,7 @@ function createSkillStepExecutor({
       stderr: ok ? '' : summary,
       exitCode: ok ? 0 : 1,
       durationMs,
+      l3Escalation,
     };
   }
 
@@ -708,6 +831,7 @@ function createSkillStepExecutor({
     let disposition = null;
     let summary = '';
     let output = '';
+    let l3Escalation = null;
 
     try {
       const maxTurns = globalUnlimitedTurns ? Infinity : DEFAULT_MAX_TURNS;
@@ -758,7 +882,9 @@ function createSkillStepExecutor({
         const toolResults = [];
         let outcomeReceived = false;
         for (const tu of content.filter((b) => b.type === 'tool_use')) {
-          if (tu.name === 'execute_command') {
+          if (tu.name === 'read_skill_file') {
+            toolResults.push(handleReadSkillFile(tu, { skillContext }));
+          } else if (tu.name === 'execute_command') {
             toolResults.push(await handleExec(tu, { hostId, bridgeService, io, sessionId }));
           } else if (tu.name === 'write_program_step') {
             if (program.l2?.allow_write_program === false) {
@@ -766,6 +892,10 @@ function createSkillStepExecutor({
             } else {
               toolResults.push(await handleWriteProgramStep(tu, { program, io, sessionId }));
             }
+          } else if (tu.name === 'request_l3_escalation') {
+            const toolResult = await handleRequestL3Escalation(tu, { l3EscalationController, program, hostId, step: failingStep, runId, sessionId, source: 'program-l2-repair' });
+            l3Escalation = toolResult.l3Escalation || l3Escalation;
+            toolResults.push(toolResult);
           } else if (tu.name === 'report_outcome') {
             disposition = String(tu.input?.disposition || 'unresolved');
             summary = String(tu.input?.summary || '').trim() || '(无说明)';
@@ -798,7 +928,7 @@ function createSkillStepExecutor({
       disposition, mode: 'repair',
     });
 
-    return { ok, disposition, summary, output, stdout: output, stderr: ok ? '' : summary, exitCode: ok ? 0 : 1, durationMs };
+    return { ok, disposition, summary, output, stdout: output, stderr: ok ? '' : summary, exitCode: ok ? 0 : 1, durationMs, l3Escalation };
   }
 
   /**

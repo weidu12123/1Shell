@@ -14,7 +14,7 @@ const os = require('os');
  * 注意：SFTP 操作使用独立 SSH 连接，不复用 sshPool。
  * sshPool 为 exec 模式设计，SFTP 需要长连接且操作模式不同。
  */
-function createFileService({ hostService }) {
+function createFileService({ hostService, probeAgentService = null }) {
   // 应用敏感路径：阻止文件浏览 API 访问自身凭据和配置
   const APP_ROOT = path.resolve(__dirname, '..', '..');
   const SENSITIVE_PATHS = [
@@ -203,6 +203,31 @@ function createFileService({ hostService }) {
     resetSftpTimer(hostId);
   }
 
+  async function listRemoteViaAgent(hostId, dirPath) {
+    if (!probeAgentService?.enqueueCommand) return null;
+    if (!probeAgentService.supportsCommand?.(hostId, 'file.listDir')) return null;
+    const result = await probeAgentService.enqueueCommand(hostId, 'file.listDir', {
+      path: dirPath || '/',
+      sortBy: 'name',
+      sortOrder: 'ascending',
+    });
+    if (!result || !Array.isArray(result.items)) return null;
+    return {
+      path: result.path || dirPath || '/',
+      parent: result.parent || '/',
+      items: result.items.map((item) => ({
+        name: item.name,
+        path: item.path,
+        isDir: Boolean(item.isDir),
+        size: Number(item.size || 0),
+        mtime: Number(item.mtime || 0),
+      })),
+      isRoot: Boolean(result.isRoot),
+      itemTotal: Number(result.itemTotal || result.items.length),
+      source: 'agent',
+    };
+  }
+
   /**
    * 通过 SFTP 列出远程目录内容
    */
@@ -332,6 +357,12 @@ function createFileService({ hostService }) {
       return listLocal(dirPath);
     }
 
+    try {
+      const agentResult = await listRemoteViaAgent(hostId, dirPath);
+      if (agentResult) return agentResult;
+    } catch {
+      // Agent 文件浏览失败时保留 SFTP 兜底。
+    }
     return listRemote(hostId, dirPath);
   }
 

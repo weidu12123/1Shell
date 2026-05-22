@@ -23,6 +23,9 @@ export interface ClaudeCodeSkillInfo {
   description?: string;
   tags?: string[];
   enabled?: boolean;
+  builtin?: boolean;
+  system?: boolean;
+  deletable?: boolean;
   repoUrl?: string;
   installDir?: string;
   sourceDir?: string;

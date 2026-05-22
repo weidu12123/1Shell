@@ -54,14 +54,15 @@ schedule: "*/5 * * * *"
 
 ---
 
-## 添加 Guardian Rescue Skill
+## 添加 L3 升级协议 Skill
 
 ```yaml
-guardian:
+l3:
   skills:
-    - existing-rescue-skill
-    - new-rescue-skill      # 追加，保留原有
+    - guardian-protocol
+    - incident-review       # 追加，保留原有
   max_actions_per_hour: 10
+  require_confirmation: true
 ```
 
 ---
@@ -80,7 +81,7 @@ guardian:
 ```yaml
 # 原来没有 ui 字段（前端显示默认"触发"按钮）
 
-# 改后（在 guardian 之后追加）
+# 改后（在 l3 之后追加）
 ui:
   instance_actions:
     - id: check_now

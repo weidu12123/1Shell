@@ -624,6 +624,7 @@
 .main-panel { background: #f8fafc; }
 .dark .main-panel { background: #111827; border-color: #1e293b; }
 
+
 /* 紧凑表格 */
 .ct-table { width: 100%; font-size: 12px; border-collapse: collapse; }
 .ct-table th, .ct-table td { padding: 10px 12px; text-align: left; border-bottom: 1px solid #f1f5f9; }
@@ -1696,6 +1697,8 @@
 }
 .fb-error-icon { font-size: 16px; }
 .fb-error-msg { color: #ef4444; }
+.fb-error-hint { color: #94a3b8; }
+.fb-error-actions { display: flex; flex-wrap: wrap; justify-content: center; gap: 6px; }
 .fb-back-btn {
   margin-top: 4px;
   padding: 4px 12px;

@@ -1,0 +1,43 @@
+id: disk-health-smoke
+name: Disk Health Smoke
+description: Check root disk usage and render the latest value.
+enabled: false
+hosts: all
+l2:
+  skill: disk-maintenance
+  max_repair_attempts: 1
+  escalate_after_failures: 2
+  allow_write_program: true
+l3:
+  skills:
+    - guardian-protocol
+  max_actions_per_hour: 10
+  require_confirmation: true
+triggers:
+  - id: manual_run
+    type: manual
+    action: check_disk
+actions:
+  check_disk:
+    on_fail: repair
+    steps:
+      - id: disk_usage
+        label: Check root disk usage
+        run: df -P / | awk 'NR==2{gsub("%",""); print $5}'
+        verify:
+          exit_code: 0
+          stdout_match: '^[0-9]+'
+        capture_stdout: true
+        on_error_hint: Check whether df is available and root filesystem is mounted.
+      - id: render_result
+        type: render
+        format: keyvalue
+        title: Disk health
+        level: info
+        items_from_steps:
+          - key: Root disk usage
+            value_from: disk_usage
+            suffix: "%"
+incidents: []
+ui:
+  instance_actions: []

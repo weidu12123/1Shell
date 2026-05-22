@@ -5,6 +5,24 @@ const path = require('path');
 const { exec: childExec } = require('child_process');
 const { ROOT_DIR } = require('../config/env');
 
+const L3_ESCALATION_SCHEMA = {
+  type: 'object',
+  properties: {
+    programId: { type: 'string', description: 'Program ID' },
+    runId: { type: 'string', description: 'Program run ID' },
+    hostId: { type: 'string', description: '目标主机 ID' },
+    stepId: { type: 'string', description: '触发升级的 step ID' },
+    sourceLayer: { type: 'string', enum: ['L2'], description: '只能为 L2；MCP 入口仅允许 L2 提交请求' },
+    disposition: { type: 'string', enum: ['unresolved', 'out_of_scope', 'risk_too_high', 'needs_human_decision', 'suspected_incident'] },
+    severity: { type: 'string', enum: ['low', 'medium', 'high', 'critical', 'emergency'], description: '影响等级，默认 medium' },
+    reason: { type: 'string', description: '升级原因' },
+    evidence: { type: 'array', items: { type: 'string' }, description: '证据列表' },
+    requestedAction: { type: 'string', description: '希望 L3 判断或执行的动作' },
+    userDecisionNeeded: { type: 'boolean', description: '是否需要用户做业务/安全决策' },
+  },
+  required: ['programId', 'runId', 'hostId', 'stepId', 'sourceLayer', 'disposition', 'reason'],
+};
+
 const EXEC_SCHEMA = {
   type: 'object',
   properties: {
@@ -16,6 +34,12 @@ const EXEC_SCHEMA = {
 };
 
 const TOOL_DEFS = [
+  {
+    name: 'request_l3_escalation',
+    targets: ['mcp'],
+    description: '向 1Shell Program L3 Controller 提交受控升级请求。L2 只能提交请求，是否由 Guardian 接管由 Controller 决定。',
+    schema: L3_ESCALATION_SCHEMA,
+  },
   {
     name: 'host_exec',
     targets: ['mcp'],
@@ -403,6 +427,8 @@ function createOneShellCoreTools(deps = {}) {
     if (!toolMap.has(name)) return err(`未知工具: ${name}`);
 
     switch (name) {
+      case 'request_l3_escalation':
+        return handleRequestL3Escalation(input, context);
       case 'host_exec':
       case 'execute_command':
         return handleExec(input, context);
@@ -461,6 +487,21 @@ function createOneShellCoreTools(deps = {}) {
         return handleProbeDiag('dns', input, context);
       default:
         return err(`未知工具: ${name}`);
+    }
+  }
+
+  async function handleRequestL3Escalation(input, context) {
+    if (!deps.l3EscalationController) return err('L3 Controller 未初始化');
+    if (String(input.sourceLayer || '').toUpperCase() !== 'L2') return err('MCP request_l3_escalation 只接受 sourceLayer=L2');
+    try {
+      const result = await deps.l3EscalationController.request({
+        ...input,
+        sourceLayer: 'L2',
+        source: context.source || 'mcp',
+      });
+      return structured(result.ok, result.reason || 'L3 升级请求已处理', result, result.decision !== 'accepted' || result.guardian?.ok === false);
+    } catch (e) {
+      return err(e.message);
     }
   }
 

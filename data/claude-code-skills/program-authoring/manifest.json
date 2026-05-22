@@ -1,0 +1,31 @@
+{
+  "id": "program-authoring",
+  "kind": "claude-code-skill",
+  "name": "Program Authoring",
+  "description": "用于设计和生成 1Shell Program：明确 L1/L2/L3 边界、结果展示、事故升级条件，以及是否需要配套 1Shell Skill。",
+  "tags": [
+    "claude-code-skill",
+    "1shell",
+    "program",
+    "authoring"
+  ],
+  "enabled": true,
+  "installDir": "E:\\1shell-1.0.1\\1Shell-v3.5.0-windows\\data\\claude-code-skills\\program-authoring",
+  "sourceDir": "E:\\1shell-1.0.1\\1Shell-v3.5.0-windows\\data\\claude-code-skills\\program-authoring\\source",
+  "importedAt": "2026-05-20T00:00:00.000Z",
+  "updatedAt": "2026-05-20T00:00:00.000Z",
+  "skills": [
+    {
+      "id": "program-authoring",
+      "name": "program-authoring",
+      "description": "设计并生成 1Shell Program YAML：包含 L1 确定性步骤、L2 配套 Skill 边界、L3 事故/升级条件、结果渲染和 smoke test 指引。",
+      "path": "SKILL.md",
+      "tags": [
+        "1shell",
+        "program",
+        "authoring"
+      ],
+      "userInvocable": false
+    }
+  ]
+}

@@ -72,7 +72,7 @@ const proxyInfo = computed(() => {
         <div class="w-10 h-10 rounded-lg bg-gradient-to-br from-blue-500 to-purple-500 flex items-center justify-center text-white text-lg shrink-0 font-extrabold">1S</div>
         <div class="min-w-0">
           <div class="text-sm font-bold text-slate-700 dark:text-slate-200 truncate">1Shell AI 引擎</div>
-          <div class="text-[10px] text-slate-400 font-mono">内置 · IDE 创作 / 主控台 AI / Skill &amp; Playbook 运行</div>
+          <div class="text-[10px] text-slate-400 font-mono">内置 · IDE 创作 / 主控台 AI / Program &amp; Skill 运行</div>
         </div>
       </div>
       <span class="status-badge shrink-0" :class="engineReady ? 'status-connected' : 'status-detected'">
@@ -80,7 +80,7 @@ const proxyInfo = computed(() => {
       </span>
     </div>
     <div class="mt-3 text-[11px] text-slate-500 dark:text-slate-400 line-clamp-2">
-      1Shell 原生 AI 引擎，驱动主控台对话、IDE 工作台创作、Skill/Playbook 执行。支持 Anthropic 和 OpenAI 兼容协议。
+      1Shell 原生 AI 引擎，驱动主控台对话、IDE 工作台创作、Program/Skill 执行。支持 Anthropic 和 OpenAI 兼容协议。
     </div>
     <div class="mt-1.5 text-[10px]">
       <span v-if="engineInfo" class="text-emerald-600 dark:text-emerald-400">🔌 {{ engineInfo }}</span>

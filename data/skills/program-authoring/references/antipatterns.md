@@ -16,7 +16,7 @@ actions:
 # 正确
 actions:
   collect_metrics:
-    on_fail: escalate  # 失败 → Guardian AI 自动诊断，尝试修复，不行通知用户
+    on_fail: repair  # L1 失败 → L2 维护 Skill 分类/修复 → 必要时再请求 L3
 ```
 
 ---
@@ -58,10 +58,12 @@ guardian:
 无论写 `true` 还是 `false` 都不生效——这个字段**不应该出现**。
 
 ```yaml
-# 正确（完全不写 enabled 字段）
-guardian:
-  skills: []           # 只写 skills 和 max_actions_per_hour
+# 正确：使用 l3 配置，不写 guardian.enabled
+l3:
+  skills:
+    - guardian-protocol
   max_actions_per_hour: 10
+  require_confirmation: true
 ```
 
 ---

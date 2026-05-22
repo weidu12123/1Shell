@@ -1,0 +1,44 @@
+id: nginx-health-smoke
+name: Nginx Health Smoke
+description: Check nginx config deterministically, then let the companion Skill classify repair scope if verification fails.
+enabled: false
+hosts: all
+l2:
+  skill: nginx-maintenance
+  max_repair_attempts: 1
+  escalate_after_failures: 2
+  allow_write_program: false
+l3:
+  skills:
+    - guardian-protocol
+  max_actions_per_hour: 5
+  require_confirmation: true
+triggers:
+  - id: manual_run
+    type: manual
+    action: check_nginx
+actions:
+  check_nginx:
+    on_fail: repair
+    steps:
+      - id: nginx_config_test
+        label: Test nginx config
+        run: nginx -t 2>&1
+        verify:
+          exit_code: 0
+          stdout_match: 'syntax is ok|test is successful'
+        capture_stdout: true
+        on_error_hint: Classify config syntax, missing certificate paths, and private key permission errors.
+      - id: render_result
+        type: render
+        format: message
+        title: Nginx config test
+        level: info
+        content_from: nginx_config_test
+incidents: []
+ui:
+  instance_actions:
+    - id: check_now
+      label: Check now
+      action: check_nginx
+      style: primary

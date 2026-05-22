@@ -34,7 +34,7 @@ const CRON_INTERVAL = {
 };
 
 function createProbeAggregatorService({ db, logger } = {}) {
-  if (!db) return { startScheduler() {}, stopScheduler() {}, runOnce() {} };
+  if (!db) return { startScheduler() {}, stopScheduler() {}, runOnce() {}, deleteHost() {} };
 
   // 把时间戳向下截到桶起始
   function floorToBucket(ms, sizeMs) {
@@ -110,7 +110,9 @@ function createProbeAggregatorService({ db, logger } = {}) {
     `),
     cleanup1m: db.prepare('DELETE FROM probe_samples_1m WHERE bucket_at < ?'),
     cleanup1h: db.prepare('DELETE FROM probe_samples_1h WHERE bucket_at < ?'),
-    // probe_samples_1d 不清理
+    delete1mByHost: db.prepare('DELETE FROM probe_samples_1m WHERE host_id = ?'),
+    delete1hByHost: db.prepare('DELETE FROM probe_samples_1h WHERE host_id = ?'),
+    delete1dByHost: db.prepare('DELETE FROM probe_samples_1d WHERE host_id = ?'),
   };
 
   function rollup1m() {
@@ -222,10 +224,23 @@ function createProbeAggregatorService({ db, logger } = {}) {
     return { resolution: res, points: rows };
   }
 
+  function deleteHost(hostId) {
+    const cleanHostId = String(hostId || '').trim();
+    if (!cleanHostId) return { ok: false };
+    const tx = db.transaction(() => {
+      stmts.delete1mByHost.run(cleanHostId);
+      stmts.delete1hByHost.run(cleanHostId);
+      stmts.delete1dByHost.run(cleanHostId);
+    });
+    tx();
+    return { ok: true };
+  }
+
   return {
     runOnce,
     startScheduler,
     stopScheduler,
+    deleteHost,
     listTimeseries,
     _internal: { rollup1m, rollup1h, rollup1d, cleanup },
   };

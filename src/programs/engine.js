@@ -26,6 +26,7 @@ function createProgramEngine({
   io,
   guardianService,
   skillStepExecutor,
+  l3EscalationController,
 }) {
   const scheduledTasks = new Map();
   const runningInstances = new Map();
@@ -113,7 +114,49 @@ function createProgramEngine({
     return program.hosts;
   }
 
-  async function triggerManual({ programId, hostId, triggerId, actionName }) {
+  function inputDefsForAction(program, action) {
+    return [...(program.inputs || []), ...(action.inputs || [])];
+  }
+
+  function normalizeRunInputs(program, action, rawInputs) {
+    const source = rawInputs && typeof rawInputs === 'object' && !Array.isArray(rawInputs) ? rawInputs : {};
+    const result = {};
+    for (const input of inputDefsForAction(program, action)) {
+      const rawValue = source[input.name];
+      const hasValue = rawValue !== undefined && rawValue !== null && String(rawValue).trim() !== '';
+      if (!hasValue && input.required) throw new Error(`缺少必填输入: ${input.label || input.name}`);
+      if (!hasValue) {
+        result[input.name] = input.default ?? '';
+        continue;
+      }
+      if (input.type === 'number') {
+        const value = Number(rawValue);
+        if (!Number.isFinite(value)) throw new Error(`${input.label || input.name} 必须是数字`);
+        if (input.min !== null && value < Number(input.min)) throw new Error(`${input.label || input.name} 必须 >= ${input.min}`);
+        if (input.max !== null && value > Number(input.max)) throw new Error(`${input.label || input.name} 必须 <= ${input.max}`);
+        result[input.name] = String(value);
+      } else if (input.type === 'boolean') {
+        result[input.name] = rawValue === true || rawValue === 'true' || rawValue === '1' ? 'true' : 'false';
+      } else if (input.type === 'select') {
+        const value = String(rawValue);
+        if (!input.options.some((option) => option.value === value)) throw new Error(`${input.label || input.name} 不是允许的选项`);
+        result[input.name] = value;
+      } else {
+        result[input.name] = String(rawValue);
+      }
+    }
+    return result;
+  }
+
+  function escapeDoubleQuotedShell(value) {
+    return String(value ?? '').replace(/[\\"`$]/g, (ch) => `\\${ch}`).replace(/\r?\n/g, ' ');
+  }
+
+  function renderInputTemplates(command, inputs) {
+    return String(command || '').replace(/\{\{\s*inputs\.([a-zA-Z_][a-zA-Z0-9_]*)\s*\}\}/g, (_match, name) => escapeDoubleQuotedShell(inputs[name] ?? ''));
+  }
+
+  async function triggerManual({ programId, hostId, triggerId, actionName, inputs }) {
     const program = registry.get(programId);
     if (!program) throw new Error(`Program 不存在: ${programId}`);
 
@@ -128,16 +171,18 @@ function createProgramEngine({
       trigger = program.triggers.find((t) => t.type === 'manual') || program.triggers[0];
     }
 
+    const action = program.actions[trigger.action];
+    const preparedInputs = normalizeRunInputs(program, action, inputs || {});
     const hostIds = hostId === 'all' ? resolveHosts(program) : [hostId || resolveHosts(program)[0]];
     const runIds = [];
     for (const hid of hostIds) {
-      const runId = await runInstance(program, hid, trigger, { triggerType: 'manual' });
+      const runId = await runInstance(program, hid, trigger, { triggerType: 'manual', inputs: preparedInputs });
       if (runId) runIds.push(runId);
     }
     return runIds;
   }
 
-  async function runInstance(program, hostId, trigger, { triggerType }) {
+  async function runInstance(program, hostId, trigger, { triggerType, inputs = {} }) {
     const lockKey = `${program.id}::${hostId}`;
     if (runningInstances.has(lockKey)) {
       logger?.warn?.('[program-engine] instance busy, skip', { programId: program.id, hostId });
@@ -166,6 +211,7 @@ function createProgramEngine({
       stepOutputs: new Map(),
       renderPayloads: [],
       repairFailures: new Map(),
+      inputs,
     };
     activeRuns.set(runId, runState);
 
@@ -213,7 +259,7 @@ function createProgramEngine({
         }
 
         emitProgramPhase({ runId, programId: program.id, hostId, layer: 'L1', phase: 'exec', stepId: step.id, reason: step.label });
-        const result = await execStep(step, hostId);
+        const result = await execStep(step, hostId, runState.inputs);
         runState.stepOutputs.set(step.id, result);
 
         const verdict = checkVerify(step.verify, result);
@@ -315,6 +361,7 @@ function createProgramEngine({
       runState.renderPayloads.push({ stepId: step.id, payload: renderPayload });
       io?.emit?.('program:render', { runId, programId: program.id, hostId, stepId: step.id, payload: renderPayload });
     }
+    appendL3EscalationRenderIfAny({ runState, runId, programId: program.id, hostId, stepId: step.id, result: l2Result });
 
     io?.emit?.('program:step-ended', {
       runId, stepId: step.id,
@@ -360,6 +407,11 @@ function createProgramEngine({
         attempt,
       });
 
+      appendL3EscalationRenderIfAny({ runState, runId, programId: program.id, hostId, stepId: step.id, result: lastRepair });
+      if (lastRepair.l3Escalation) {
+        return buildOutcomeFromL3Escalation({ step, escalation: lastRepair.l3Escalation, l2Used: true });
+      }
+
       const disposition = normalizeL2Disposition(lastRepair.disposition);
       if (lastRepair.ok || disposition === 'resolved') {
         try { registry.reload?.(); } catch { /* ignore */ }
@@ -397,6 +449,25 @@ function createProgramEngine({
   }
 
   async function escalateToL3({ program, hostId, step, result, reason, runId, trigger, incident = null, l2Used = false }) {
+    if (l3EscalationController) {
+      const escalation = await l3EscalationController.request({
+        program,
+        programId: program.id,
+        runId,
+        hostId,
+        step,
+        stepId: step.id,
+        sourceLayer: l2Used ? 'L2' : 'L1',
+        disposition: incident ? 'suspected_incident' : (l2Used ? 'risk_too_high' : 'unresolved'),
+        severity: incident ? 'critical' : 'high',
+        reason,
+        evidence: [result?.stdout, result?.stderr].filter(Boolean),
+        triggerId: trigger.id,
+        source: l2Used ? 'program-l2' : 'program-l1',
+      });
+      return buildOutcomeFromL3Escalation({ step, escalation, l2Used });
+    }
+
     if (!program.l3?.enabled) {
       return { action: 'stop', status: 'failed', error: `需要 L3 但 Program l3.enabled=false：${reason}`, l2Used };
     }
@@ -443,13 +514,14 @@ function createProgramEngine({
     };
   }
 
-  async function execStep(step, hostId) {
+  async function execStep(step, hostId, inputs = {}) {
     const timeout = step.timeout || DEFAULT_STEP_TIMEOUT_MS;
+    const run = renderInputTemplates(step.run, inputs);
     try {
-      const result = await bridgeService.execOnHost(hostId, step.run, timeout, { source: 'program-l1' });
+      const result = await bridgeService.execOnHost(hostId, run, timeout, { source: 'program-l1' });
       if (hostId !== 'local' && result.exitCode !== 0 && result.durationMs < 150) {
         await new Promise((r) => setTimeout(r, 200));
-        try { return await bridgeService.execOnHost(hostId, step.run, timeout, { source: 'program-l1-retry' }); }
+        try { return await bridgeService.execOnHost(hostId, run, timeout, { source: 'program-l1-retry' }); }
         catch (err) { return { stdout: '', stderr: err.message, exitCode: 1, durationMs: 0 }; }
       }
       return result;
@@ -496,6 +568,13 @@ function createProgramEngine({
     return [...activeRuns.entries()].map(([runId, s]) => ({
       runId, programId: s.programId, hostId: s.hostId, cancelled: s.cancelled,
     }));
+  }
+
+  function appendL3EscalationRenderIfAny({ runState, runId, programId, hostId, stepId, result }) {
+    const payload = result?.l3Escalation?.render;
+    if (!payload) return;
+    runState.renderPayloads.push({ stepId, payload });
+    io?.emit?.('program:render', { runId, programId, hostId, stepId, payload });
   }
 
   function appendFinalRenderIfNeeded({
@@ -634,6 +713,28 @@ function applyTransform(value, transform) {
     return found ? found.slice(key.length + 1) : '';
   }
   return value.trim();
+}
+
+function buildOutcomeFromL3Escalation({ step, escalation, l2Used }) {
+  if (escalation.decision === 'accepted' && escalation.guardian?.ok) {
+    return { action: 'continue', guardianUsed: true, l2Used };
+  }
+  if (escalation.decision === 'accepted') {
+    return {
+      action: 'stop',
+      status: 'warning',
+      error: `L3 未能解决 step "${step.id}"：${escalation.guardian?.reason || escalation.reason || '未知原因'}`,
+      guardianUsed: true,
+      l2Used,
+    };
+  }
+  return {
+    action: 'stop',
+    status: 'failed',
+    error: `L2 请求 L3 未被接管：${escalation.reason || escalation.decision}`,
+    guardianUsed: false,
+    l2Used,
+  };
 }
 
 module.exports = { createProgramEngine };

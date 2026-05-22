@@ -22,6 +22,8 @@ export interface DirListResponse {
   path: string;
   parent?: string;
   isRoot?: boolean;
+  itemTotal?: number;
+  source?: 'agent' | 'sftp';
 }
 
 interface ReadFileResponse {
@@ -82,10 +84,16 @@ export interface FileBrowserApi {
   saveEdit(): Promise<void>;
 }
 
+interface FileBrowserOptions {
+  hostId?: Ref<string | null | undefined>;
+  singleton?: boolean;
+}
+
 let _instance: FileBrowserApi | null = null;
 
-export function useFileBrowser(): FileBrowserApi {
-  if (!_instance) _instance = create();
+export function useFileBrowser(options: FileBrowserOptions = {}): FileBrowserApi {
+  if (options.singleton === false || options.hostId) return create(options);
+  if (!_instance) _instance = create(options);
   return _instance;
 }
 
@@ -103,7 +111,7 @@ function isImageFile(name: string): boolean {
   return IMAGE_EXTS.includes(ext);
 }
 
-function create(): FileBrowserApi {
+function create(options: FileBrowserOptions = {}): FileBrowserApi {
   const { requestJson } = useApiClient();
   const sessionTerminal = useSessionTerminal();
   const notify = useNotifyStore();
@@ -210,7 +218,7 @@ function create(): FileBrowserApi {
   }
 
   function getHostId(): string {
-    return sessionTerminal.activeHostId.value || LOCAL_HOST_ID;
+    return options.hostId?.value || sessionTerminal.activeHostId.value || LOCAL_HOST_ID;
   }
 
   async function loadDir(dirPath: string, opts: { skipCache?: boolean } = {}): Promise<void> {
@@ -443,7 +451,8 @@ function create(): FileBrowserApi {
     if (initialized) return;
     initialized = true;
 
-    watch(sessionTerminal.activeHostId, (newId, oldId) => {
+    const source = options.hostId || sessionTerminal.activeHostId;
+    watch(source, (newId, oldId) => {
       switchHost(newId || LOCAL_HOST_ID, oldId || currentHostId);
     }, { flush: 'post' });
 

@@ -7,6 +7,7 @@ interface Props {
   safeMode: boolean;
   unlimitedTurns: boolean;
   ccCollab: boolean;
+  refinedMode: boolean;
   isRunning: boolean;
 }
 const props = defineProps<Props>();
@@ -17,6 +18,7 @@ const emit = defineEmits<{
   'update:safeMode': [v: boolean];
   'update:unlimitedTurns': [v: boolean];
   'update:ccCollab': [v: boolean];
+  'update:refinedMode': [v: boolean];
 }>();
 
 function onTaskInput(e: Event): void {
@@ -64,6 +66,15 @@ function onTaskKeydown(e: KeyboardEvent): void {
             @change="emit('update:unlimitedTurns', ($event.target as HTMLInputElement).checked)"
           />
           <span :class="unlimitedTurns ? 'text-blue-500' : 'text-slate-400'">∞ 不限轮次</span>
+        </label>
+        <label class="flex items-center gap-1 cursor-pointer select-none" title="开启后先扩写需求为结构化 Brief，再生成 Program/Skill；适合复杂 Program、UI artifact、证书、部署、探针、MCP 等高质量创作。">
+          <input
+            type="checkbox"
+            :checked="refinedMode"
+            class="accent-emerald-500 w-3 h-3"
+            @change="emit('update:refinedMode', ($event.target as HTMLInputElement).checked)"
+          />
+          <span :class="refinedMode ? 'text-emerald-500' : 'text-slate-400'">精修模式</span>
         </label>
         <label class="flex items-center gap-1 cursor-pointer select-none" title="Claude Code 协作：允许调用 Claude Code 处理复杂创作任务">
           <input

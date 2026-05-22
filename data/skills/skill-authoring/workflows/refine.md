@@ -1,55 +1,65 @@
 <!-- smoke-test: meta-workflow -->
-# 修改已有 Skill
+# 修改已有 Program / Skill
 
-## 第一步：读取现有 Playbook
+## 第一步：识别目标类型
 
-从 `skill_id` 输入读取要修改的 Playbook ID。
+从 `target_id` 输入读取要修改的产物 ID，并根据注册表或路径判断类型：
 
-**重要：宿主机为 Windows，不能用 ls/find/cat 等 Unix 命令来检查或读取文件。**
-直接用 `write_local_file` 写入即可（会自动创建父目录）；读取文件内容可用：
-```
-execute_command: type "data\playbooks\<skill_id>\SKILL.md"
-```
-（Windows 的 type 命令等价于 cat，路径用反斜杠）
+- Program：`data/programs/<target_id>/program.yaml`
+- Skill：`data/skills/<target_id>/SKILL.md`
 
-若文件不存在，`type` 会返回非零 exitCode，此时用 `render_result level=error` 告知，并建议用「创建新 Playbook」流程。
+如果只找到历史 `data/playbooks/<target_id>/`，不要继续修改；用 `render_result format=message level=warning` 告知用户：Playbook 已并入 Program，需要先迁移到 `data/programs/<target_id>/program.yaml`。
 
-逐一读取所有需要修改的文件（SKILL.md、playbook.yaml、workflows/*.md、rules/*.md）。
+## 第二步：读取现状
 
-## 第二步：展示现状并询问修改意图
+Program 读取：
 
-用 `render_result format=message level=info` 列出文件结构和当前关键内容。
+- `data/programs/<target_id>/program.yaml`
+- 同目录下与 Program 相关的 rules / references（如存在）
 
-然后 `ask_user type=input` 询问：**你想修改什么？**（若用户在创作台的任务描述里已经说清楚了，跳过此步直接执行修改）
+Skill 读取：
+
+- `data/skills/<target_id>/SKILL.md`
+- `data/skills/<target_id>/rules/*.md`
+- `data/skills/<target_id>/workflows/*.md`
+- `data/skills/<target_id>/references/*.md`
+
+用 `render_result format=message level=info` 列出当前结构、关键字段和风险点。
+
+## 第三步：确认修改意图
+
+如果用户任务描述已经明确，直接进入草案；否则用 `ask_user type=input` 询问：你想修改什么？
 
 常见修改类型：
-- 添加新的 input 字段
-- 添加新的 workflow
-- 修改某个 workflow 的执行步骤
-- 修改安全约束
-- 修改 Skill 的描述或标签
 
-## 第三步：执行修改
+- Program：调整 triggers、L1/action、render 输出、guardian 边界、危险动作确认。
+- Skill：调整描述、规则、workflow、参考资料、适用范围。
+- Bundle：同时调整 Program 与 companion L2 Skill，但仍分别写入 `data/programs/` 和 `data/skills/`。
 
-根据用户描述，生成修改后的文件内容，**直接用 `write_local_file` 写入，不要用 ask_user confirm 做额外确认**。
+## 第四步：生成可审查草案
 
-```
-write_local_file:
-  path: data/playbooks/<skill_id>/<目标文件>
-  content: [修改后的完整内容]
-```
+必须走 staged authoring：
 
-## 第四步：确认修改
+1. 需要先给 spec / plan，说明修改范围。
+2. 生成 draft artifact，列出完整文件路径和新内容。
+3. 对 draft 做校验。
+4. 请求用户 commit approval。
+5. 只有用户批准后，才能通过 artifact commit 写入文件。
 
-`write_local_file` 返回 OK 即表示写入成功。用 `render_result level=success` 告知完成，并说明修改了哪些文件。
+不要直接调用普通写文件工具绕过审查。
 
-## 第五步：保持对话，等待追问
+## 第五步：验证与继续追问
 
-**立刻**用 `ask_user type=input` 等待用户追问：
+写入后 reload 对应注册表并验证：
 
-- title: "还有需要调整的地方吗？"
-- placeholder: "继续说修改要求，或取消结束"
+- Program：确认 `programRegistry` 能加载目标 Program，必要时做 smoke test。
+- Skill：确认 `skillRegistry` 能加载目标 Skill。
 
-收到用户回复后：
-- **有意义的内容** → 直接修改对应文件（`write_local_file`），render_result success，然后**再次 ask_user**（无限循环直到用户取消）
-- **用户取消 / 回复为空** → 直接结束
+验证失败时回到 draft 阶段修正；验证成功后 `render_result level=success` 说明修改了哪些文件，并用 `ask_user type=input` 等待用户继续补充修改。
+
+## 边界
+
+- 禁止创建或修改 `data/playbooks/`。
+- 禁止创建 `playbook.yaml`。
+- 固定步骤应放入 Program L1/action。
+- AI 判断、领域规则、危险动作边界应放入 Skill 或 companion L2 Skill。

@@ -11,7 +11,7 @@
  * **全权代理**：拥有完整的诊断/修复/ask_user 能力。
  *
  * 能力：
- *   - 读取 program.guardian.skills 白名单里的 Skill 能力包（rules + workflows + SKILL.md）
+ *   - 读取 program.guardian.skills 白名单里的 Skill 路由、rules 和按需文件索引
  *   - 在目标主机上用 execute_command 诊断 / 修复
  *   - 调用 ask_user 向前端弹窗（危险/白名单外操作必须问）
  *   - 最终 report_outcome → resolved | unresolvable
@@ -47,6 +47,7 @@ const ASK_TIMEOUT_MS = 5 * 60 * 1000;  // 5 分钟无人回应自动 give_up
 
 const SKILL_BODY_PER_FILE_BYTES = 8 * 1024;
 const SKILL_BODY_TOTAL_BYTES    = 32 * 1024;
+const SKILL_FILE_READ_MAX_BYTES = 24 * 1024;
 
 // ─── 工具定义 ────────────────────────────────────────────────────────
 const GUARDIAN_TOOLS = [
@@ -64,6 +65,19 @@ const GUARDIAN_TOOLS = [
         timeout: { type: 'number', description: '毫秒，默认 30000' },
       },
       required: ['command'],
+    },
+  },
+  {
+    name: 'read_skill_file',
+    description:
+      '按需读取 Guardian allowed Skill 的单个文件。SKILL.md 和 rules 摘要已在上下文中；workflows/references/examples/scripts 需要时再读，不要无目的全量读取。',
+    input_schema: {
+      type: 'object',
+      properties: {
+        skillId: { type: 'string', description: '要读取的 allowed Skill ID' },
+        path: { type: 'string', description: '相对 Skill 根目录的文件路径，如 workflows/diagnose.md、references/domain.md' },
+      },
+      required: ['skillId', 'path'],
     },
   },
   {
@@ -149,7 +163,7 @@ const GUARDIAN_TOOLS = [
   },
 ];
 
-// ─── 辅助：读 Skill 内容拼进 prompt ──────────────────────────────────────
+// ─── 辅助：读 Skill 路由、rules 和可按需读取的文件索引 ───────────────────────
 function stripFrontmatter(raw) {
   if (!raw.startsWith('---')) return raw;
   const endIdx = raw.indexOf('\n---', 3);
@@ -175,6 +189,32 @@ function readMdDir(dir, remainingRef) {
   return out;
 }
 
+function listSkillReadableFiles(skillDir) {
+  const roots = ['workflows', 'references', 'examples', 'scripts', 'templates'];
+  const out = [];
+  for (const root of roots) {
+    const abs = path.join(skillDir, root);
+    if (!fs.existsSync(abs)) continue;
+    collectSkillFiles(abs, root, out);
+  }
+  return out.sort();
+}
+
+function collectSkillFiles(absDir, relDir, out) {
+  let entries;
+  try { entries = fs.readdirSync(absDir, { withFileTypes: true }); }
+  catch { return; }
+  for (const entry of entries) {
+    const abs = path.join(absDir, entry.name);
+    const rel = `${relDir}/${entry.name}`.replace(/\\/g, '/');
+    if (entry.isDirectory()) {
+      collectSkillFiles(abs, rel, out);
+    } else if (entry.isFile()) {
+      out.push(rel);
+    }
+  }
+}
+
 function loadAllowedSkills(skillRegistry, skillIds) {
   if (!Array.isArray(skillIds) || skillIds.length === 0) return [];
   const remaining = { value: SKILL_BODY_TOTAL_BYTES };
@@ -193,10 +233,9 @@ function loadAllowedSkills(skillRegistry, skillIds) {
     } catch { /* ignore */ }
 
     const rules = readMdDir(path.join(skill.dir, 'rules'), remaining);
-    const workflows = readMdDir(path.join(skill.dir, 'workflows'), remaining);
-    const references = readMdDir(path.join(skill.dir, 'references'), remaining);
+    const fileIndex = listSkillReadableFiles(skill.dir);
 
-    result.push({ id, name: skill.name || id, body, rules, workflows, references });
+    result.push({ id, name: skill.name || id, dir: skill.dir, body, rules, fileIndex });
   }
   return result;
 }
@@ -218,10 +257,9 @@ function buildGuardianSystem({ program, host, allowedSkills }) {
     ``,
     `## 工作流程（严格按 guardian-protocol Skill 执行）`,
     `1. 读失败上下文（failing step / stderr / on_error_hint）`,
-    `2. 按 guardian-protocol 的 workflows/diagnose.md 诊断根因`,
-    `3. 按 guardian-protocol 的 workflows/fix.md 修复`,
-    `4. 按 guardian-protocol 的 workflows/report.md 输出结果（必须调用 render_result）`,
-    `5. **必须**最后调用 report_outcome 宣告 resolved 或 unresolvable`,
+    `2. 阅读 SKILL.md 路由、rules 和文件索引；需要具体 workflow/reference/example/script 时，用 read_skill_file 按需读取单个文件`,
+    `3. 按 guardian-protocol 的 diagnose/fix/report 流程诊断、修复并输出结果（必须调用 render_result）`,
+    `4. **必须**最后调用 report_outcome 宣告 resolved 或 unresolvable`,
     ``,
     `## 硬约束（绝对禁止）`,
     `- 不得操作名称含 shell\ 的资源`,
@@ -232,25 +270,24 @@ function buildGuardianSystem({ program, host, allowedSkills }) {
     ``,
     `## 响应风格`,
     `- 极简，不解释过程`,
-    `- guardian-protocol Skill 的 rules 是你的行为铁律，workflows 是你的执行指南`,
+    `- guardian-protocol Skill 的 rules 是你的行为铁律，workflows 需要通过 read_skill_file 按需读取`,
   ];
 
   if (allowedSkills.length > 0) {
     lines.push(``, `---`, ``, `## 允许使用的 Skill 能力包`);
-    lines.push(`以下 Skill 是本 Program 授权你在修复时参考的能力包。请**优先按这些 Skill 的 workflows 指引**诊断。`);
+    lines.push(`以下 Skill 是本 Program 授权你在修复时参考的能力包。请先读 SKILL.md 路由和 rules。`);
+    lines.push(`需要具体 workflows/references/examples/scripts/templates 时，用 read_skill_file 读取单个文件，不要全量读取。`);
     lines.push(`它们的 rules 是你必须遵守的**附加约束**（叠加在硬约束之上）。`);
 
     for (const s of allowedSkills) {
-      lines.push(``, `### 📦 Skill: ${s.name} (\`${s.id}\`)`, ``);
+      lines.push(``, `### Skill: ${s.name} (\`${s.id}\`)`, ``);
       if (s.body) lines.push(s.body.trim());
       for (const r of s.rules) {
         lines.push(``, `#### 规则 · ${r.name}`, r.content.trim());
       }
-      for (const w of s.workflows) {
-        lines.push(``, `#### 诊断流程 · ${w.name}`, w.content.trim());
-      }
-      for (const ref of s.references) {
-        lines.push(``, `#### 参考 · ${ref.name}`, ref.content.trim());
+      if (s.fileIndex?.length) {
+        lines.push(``, `#### 可按需读取的文件索引`);
+        for (const file of s.fileIndex) lines.push(`- ${file}`);
       }
     }
   } else {
@@ -491,6 +528,9 @@ function createGuardianService({
             const res = await handleExec(tu, { sessionId, hostId, state });
             toolResults.push(res);
 
+          } else if (tu.name === 'read_skill_file') {
+            toolResults.push(handleReadSkillFile(tu, { allowedSkills }));
+
           } else if (tu.name === 'ask_user') {
             const res = await handleAsk(tu, { sessionId, state });
             toolResults.push(res);
@@ -589,6 +629,47 @@ function createGuardianService({
   }
 
   // ─── 工具 handler ────────────────────────────────────────────────────
+
+  function handleReadSkillFile(tu, { allowedSkills }) {
+    const rawSkillId = String(tu.input?.skillId || '').trim();
+    const rawPath = String(tu.input?.path || '').trim().replace(/\\/g, '/');
+    if (!rawSkillId) {
+      return { type: 'tool_result', tool_use_id: tu.id, content: '[ERROR] skillId 空', is_error: true };
+    }
+    if (!rawPath) {
+      return { type: 'tool_result', tool_use_id: tu.id, content: '[ERROR] path 空', is_error: true };
+    }
+
+    const skill = allowedSkills.find((s) => s.id === rawSkillId);
+    if (!skill?.dir) {
+      return { type: 'tool_result', tool_use_id: tu.id, content: `[ERROR] Skill 不在 allowedSkills 中: ${rawSkillId}`, is_error: true };
+    }
+
+    const normalized = path.posix.normalize(rawPath).replace(/^\.\//, '');
+    if (normalized.startsWith('../') || normalized === '..' || path.isAbsolute(normalized) || normalized.includes('\0')) {
+      return { type: 'tool_result', tool_use_id: tu.id, content: '[ERROR] 非法路径', is_error: true };
+    }
+    const allowed = normalized === 'SKILL.md' || /^(rules|workflows|references|examples|scripts|templates)\//.test(normalized);
+    if (!allowed) {
+      return { type: 'tool_result', tool_use_id: tu.id, content: '[ERROR] 只能读取 SKILL.md 或 rules/workflows/references/examples/scripts/templates 下的文件', is_error: true };
+    }
+
+    const root = path.resolve(skill.dir);
+    const abs = path.resolve(root, normalized);
+    if (abs !== root && !abs.startsWith(root + path.sep)) {
+      return { type: 'tool_result', tool_use_id: tu.id, content: '[ERROR] 路径越界', is_error: true };
+    }
+    if (!fs.existsSync(abs) || !fs.statSync(abs).isFile()) {
+      return { type: 'tool_result', tool_use_id: tu.id, content: `[ERROR] 文件不存在: ${normalized}`, is_error: true };
+    }
+
+    try {
+      const content = fs.readFileSync(abs, 'utf8').slice(0, SKILL_FILE_READ_MAX_BYTES);
+      return { type: 'tool_result', tool_use_id: tu.id, content: `# ${rawSkillId}/${normalized}\n\n${content}` };
+    } catch (err) {
+      return { type: 'tool_result', tool_use_id: tu.id, content: `[ERROR] 读取失败: ${err.message}`, is_error: true };
+    }
+  }
 
   async function handleExec(tu, { sessionId, hostId, state }) {
     const command = String(tu.input?.command || '').trim();

@@ -31,7 +31,9 @@ function registerIdeSocketHandlers(io, { ideService, ideTools, localMcpService, 
         return reply({ ok: false, error: 'sessionId 和 message 为必填' });
       }
 
-      ideService.handleMessage({
+      reply({ ok: true });
+
+      Promise.resolve().then(() => ideService.handleMessage({
         socket,
         sessionId,
         message,
@@ -39,10 +41,11 @@ function registerIdeSocketHandlers(io, { ideService, ideTools, localMcpService, 
         safeMode: payload.safeMode,
         claudeCodeEnabled: payload.claudeCodeEnabled,
         unlimitedTurns: payload.unlimitedTurns,
+        refinedMode: payload.refinedMode,
         entry: payload.entry || payload.source || '',
-      }).catch(() => {});
-
-      reply({ ok: true });
+      })).catch((err) => {
+        socket.emit('ide:error', { sessionId, error: err?.message || 'ide:message 处理失败' });
+      });
     });
 
     socket.on('ide:stop', (payload = {}, reply) => {
@@ -77,11 +80,28 @@ function registerIdeSocketHandlers(io, { ideService, ideTools, localMcpService, 
       reply({ ok: true, claudeCodeEnabled: enabled });
     });
 
+    socket.on('ide:refined-mode', (payload = {}, reply) => {
+      if (typeof reply !== 'function') reply = () => {};
+      const sessionId = String(payload.sessionId || '').trim();
+      const enabled = payload.enabled === true;
+      if (sessionId) ideService.setRefinedMode(sessionId, enabled);
+      reply({ ok: true, refinedMode: enabled });
+    });
+
     socket.on('ide:clear', (payload = {}, reply) => {
       if (typeof reply !== 'function') reply = () => {};
       const sessionId = String(payload.sessionId || '').trim();
       if (sessionId) ideService.deleteSession(sessionId);
       reply({ ok: true });
+    });
+
+    socket.on('ide:authoring-reply', (payload = {}, reply) => {
+      if (typeof reply !== 'function') reply = () => {};
+      const sessionId = String(payload.sessionId || '').trim();
+      if (!sessionId) return reply({ ok: false, error: 'sessionId 为必填' });
+      const result = ideService.recordAuthoringUserReply?.(sessionId, payload) || { ok: false, error: '服务未初始化' };
+      if (result.ok && result.session) socket.emit('ide:authoring-session', { sessionId, session: result.session });
+      reply(result);
     });
 
     // ─── 安全模式审批响应 ────────────────────────────────────

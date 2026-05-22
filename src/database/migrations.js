@@ -347,6 +347,30 @@ const migrations = [
       }
     },
   },
+  {
+    version: 6,
+    name: 'host preferences for console visibility and repository metadata',
+    up(db) {
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS host_preferences (
+          host_id TEXT PRIMARY KEY,
+          show_in_console INTEGER NOT NULL DEFAULT 1,
+          console_order INTEGER NOT NULL DEFAULT 0,
+          pinned INTEGER NOT NULL DEFAULT 0,
+          role TEXT,
+          tags_json TEXT NOT NULL DEFAULT '[]',
+          archived INTEGER NOT NULL DEFAULT 0,
+          updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_host_preferences_console
+          ON host_preferences(show_in_console, pinned, console_order);
+
+        CREATE INDEX IF NOT EXISTS idx_host_preferences_role
+          ON host_preferences(role);
+      `);
+    },
+  },
 ];
 
 function runMigrations(db, { logger } = {}) {

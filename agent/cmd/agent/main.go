@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/1shell/probe-agent/internal/collector"
+	"github.com/1shell/probe-agent/internal/commands"
 	"github.com/1shell/probe-agent/internal/config"
 	"github.com/1shell/probe-agent/internal/reporter"
 )
@@ -53,6 +54,8 @@ func main() {
 		}
 		return
 	}
+
+	go commands.New(cfg, logger).Loop(ctx)
 
 	// First tick immediately, then every cfg.Interval.
 	if err := tick(ctx, rep, logger); err != nil {

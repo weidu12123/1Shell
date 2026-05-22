@@ -31,6 +31,7 @@ const DEFAULT_EXEC_TIMEOUT_MS = 30000;
 // Rescue Skill 内容拼进 prompt 时的大小上限（防止单轮 token 爆炸）
 const RESCUE_SKILL_PER_FILE_BYTES = 8 * 1024;   //  8KB / 文件
 const RESCUE_SKILL_TOTAL_BYTES    = 24 * 1024;  // 24KB 总量
+const RESCUE_SKILL_FILE_READ_MAX_BYTES = 24 * 1024;
 
 // ─── Rescue Skill 加载 ─────────────────────────────────────────────────────
 // 从 data/skills/<id>/ 读取 SKILL.md / rules/ / references/ / workflows/，
@@ -69,6 +70,29 @@ function readMarkdownDir(dir, usedBytesRef) {
   return out;
 }
 
+function listSkillReadableFiles(skillDir) {
+  const roots = ['workflows', 'references', 'examples', 'scripts', 'templates'];
+  const out = [];
+  for (const root of roots) {
+    const abs = path.join(skillDir, root);
+    if (!fs.existsSync(abs)) continue;
+    collectSkillFiles(abs, root, out);
+  }
+  return out.sort();
+}
+
+function collectSkillFiles(absDir, relDir, out) {
+  let entries;
+  try { entries = fs.readdirSync(absDir, { withFileTypes: true }); }
+  catch { return; }
+  for (const entry of entries) {
+    const abs = path.join(absDir, entry.name);
+    const rel = `${relDir}/${entry.name}`.replace(/\\/g, '/');
+    if (entry.isDirectory()) collectSkillFiles(abs, rel, out);
+    else if (entry.isFile()) out.push(rel);
+  }
+}
+
 function loadRescueSkillContext(skillRegistry, skillId) {
   if (!skillId || !skillRegistry) return null;
   const skill = typeof skillRegistry.getSkill === 'function'
@@ -88,22 +112,19 @@ function loadRescueSkillContext(skillRegistry, skillId) {
     usedBytes.value += Buffer.byteLength(skillBody, 'utf8');
   } catch { /* ignore */ }
 
-  // 优先级：rules > workflows > references（按用户对齐时的顺序）
-  const rules      = readMarkdownDir(path.join(skill.dir, 'rules'), usedBytes);
-  const workflows  = readMarkdownDir(path.join(skill.dir, 'workflows'), usedBytes);
-  const references = readMarkdownDir(path.join(skill.dir, 'references'), usedBytes);
+  const rules = readMarkdownDir(path.join(skill.dir, 'rules'), usedBytes);
+  const fileIndex = listSkillReadableFiles(skill.dir);
 
-  // 至少有点内容才返回；全空就当没挂
-  const hasAny = skillBody || rules.length || workflows.length || references.length;
+  const hasAny = skillBody || rules.length || fileIndex.length;
   if (!hasAny) return null;
 
   return {
     id: skillId,
     name: skill.name || skillId,
+    dir: skill.dir,
     skillBody,
     rules,
-    workflows,
-    references,
+    fileIndex,
     bytes: usedBytes.value,
   };
 }
@@ -125,6 +146,17 @@ const RESCUE_TOOLS = [
         timeout: { type: 'number', description: '超时毫秒，默认 30000' },
       },
       required: ['command'],
+    },
+  },
+  {
+    name: 'read_skill_file',
+    description: '按需读取绑定 Rescue Skill 的单个文件。SKILL.md 和 rules 摘要已在上下文中；workflows/references/examples 需要时再读，不要无目的全量读取。',
+    input_schema: {
+      type: 'object',
+      properties: {
+        path: { type: 'string', description: '相对 Skill 根目录的文件路径，如 workflows/repair.md、references/domain.md' },
+      },
+      required: ['path'],
     },
   },
   {
@@ -187,7 +219,7 @@ function buildRescueSystem(hostId, host, skillContext) {
     '- 调用 execute_command 时无需指定主机，命令自动在上述主机上执行。',
     '',
     '## 工作流程',
-    '1. 阅读失败上下文和 on_error_hint（如有）',
+    '1. 阅读失败上下文、SKILL.md 路由、rules 和文件索引；需要具体 workflow/reference/example 时，用 read_skill_file 读取单个文件',
     '2. 用 execute_command 诊断 / 尝试修复（**最多 3 次**，超过即 give_up）',
     '3. 立即调用 report_outcome 宣告结果，不要继续探索',
     '',
@@ -217,11 +249,9 @@ function buildRescueSystem(hostId, host, skillContext) {
     for (const r of skillContext.rules) {
       lines.push('', `### 规则 · ${r.name}`, r.content.trim());
     }
-    for (const w of skillContext.workflows) {
-      lines.push('', `### 诊断流程 · ${w.name}`, w.content.trim());
-    }
-    for (const ref of skillContext.references) {
-      lines.push('', `### 参考 · ${ref.name}`, ref.content.trim());
+    if (skillContext.fileIndex?.length) {
+      lines.push('', '### 可按需读取的文件索引', '需要具体流程、参考、示例或脚本时，用 read_skill_file 读取单个文件，不要全量读取。');
+      for (const file of skillContext.fileIndex) lines.push(`- ${file}`);
     }
   }
 
@@ -300,6 +330,34 @@ function formatExecResult({ stdout, stderr, exitCode }) {
   if (!parts.length) parts.push('[stdout] (空)');
   parts.push(`[exitCode] ${exitCode}`);
   return parts.join('\n\n');
+}
+
+function readRescueSkillFile(tu, skillContext) {
+  if (!skillContext?.dir) {
+    return { type: 'tool_result', tool_use_id: tu.id, content: '[ERROR] Rescue Skill 上下文为空', is_error: true };
+  }
+  const rawPath = String(tu.input?.path || '').trim().replace(/\\/g, '/');
+  if (!rawPath) return { type: 'tool_result', tool_use_id: tu.id, content: '[ERROR] path 为空', is_error: true };
+  const normalized = path.posix.normalize(rawPath);
+  if (normalized.startsWith('../') || normalized === '..' || path.isAbsolute(rawPath)) {
+    return { type: 'tool_result', tool_use_id: tu.id, content: `[ERROR] 路径越界: ${rawPath}`, is_error: true };
+  }
+  const allowed = normalized === 'SKILL.md' || /^(rules|workflows|references|examples|scripts|templates)\//.test(normalized);
+  if (!allowed) {
+    return { type: 'tool_result', tool_use_id: tu.id, content: `[ERROR] 只能读取 SKILL.md 或 rules/workflows/references/examples/scripts/templates 下的文件: ${rawPath}`, is_error: true };
+  }
+  const abs = path.resolve(skillContext.dir, normalized);
+  if (!(abs.startsWith(skillContext.dir + path.sep) || abs === skillContext.dir)) {
+    return { type: 'tool_result', tool_use_id: tu.id, content: `[ERROR] 路径越界: ${rawPath}`, is_error: true };
+  }
+  try {
+    const stat = fs.statSync(abs);
+    if (!stat.isFile()) return { type: 'tool_result', tool_use_id: tu.id, content: `[ERROR] 不是文件: ${rawPath}`, is_error: true };
+    const content = fs.readFileSync(abs, 'utf8').slice(0, RESCUE_SKILL_FILE_READ_MAX_BYTES);
+    return { type: 'tool_result', tool_use_id: tu.id, content: `# ${skillContext.id}/${normalized}\n\n${content}` };
+  } catch (err) {
+    return { type: 'tool_result', tool_use_id: tu.id, content: `[ERROR] 读取失败: ${err.message}`, is_error: true };
+  }
 }
 
 // ─── Rescuer Factory ─────────────────────────────────────────────────────────
@@ -422,8 +480,11 @@ function createRescuer({ bridgeService, hostService, proxyConfigStore, port, log
       for (const tu of toolUses) {
         const { name, input = {}, id } = tu;
 
+        if (name === 'read_skill_file') {
+          toolResults.push(readRescueSkillFile(tu, skillContext));
+
         // ── execute_command ──────────────────────────────────────────────
-        if (name === 'execute_command') {
+        } else if (name === 'execute_command') {
           const command = String(input.command || '').trim();
           const timeout = Number(input.timeout) > 0 ? Number(input.timeout) : DEFAULT_EXEC_TIMEOUT_MS;
 

@@ -19,6 +19,8 @@ _debug*.txt
 _debug*.js
 _rescue_logs*.txt
 *.tmp
+probe-*.js
+fix-claude-mcp.js
 
 # 部署脚本（含服务器凭据，仅本地使用）
 deploy.js
@@ -28,6 +30,7 @@ deploy.js
 
 # Claude Code 本地配置
 .claude/
+CLAUDE.md
 
 # 后端 agent-panel 运行时工作目录
 data/cli-sandbox/
@@ -36,7 +39,11 @@ data/cli-sandbox/
 data/programs/
 
 # 外部 Claude Code Skill 托管仓库（运行时 clone，不入库）
-data/claude-code-skills/
+data/claude-code-skills/*
+!data/claude-code-skills/program-authoring/
+!data/claude-code-skills/program-authoring/**
+!data/claude-code-skills/oneshell-skill-authoring/
+!data/claude-code-skills/oneshell-skill-authoring/**
 
 # 视觉审查截图（不入库）
 /*.png
@@ -46,3 +53,19 @@ data/claude-code-skills/
 
 # Release 打包产物
 release/
+frontend/dist/
+
+# 运行时缓存/外部 clone/本地密钥
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+data/local-mcp/
+data/geoip/
+data/mcp-servers.json
+data/proxy-configs.json
+
+# 文档/视觉截图若需公开请重新生成脱敏版本
+docs/sections/images/

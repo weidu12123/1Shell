@@ -2,11 +2,20 @@
 // FileBrowserPanel.vue — MainConsole 刀 3 阶段 2 · 文件浏览器面板
 // 1:1 复刻 [public/file-browser.js](public/file-browser.js) + [public/index.html](public/index.html) #file-tree
 // 占左栏 aside 内 flex:5 块 (HostListSidebar 之下),自身容器内滚动,不外溢
-import { computed, onBeforeUnmount, onMounted } from 'vue';
+import { computed, onBeforeUnmount, onMounted, toRef } from 'vue';
 
 import { useFileBrowser, type DirItem } from '@/composables/useFileBrowser';
 
-const fb = useFileBrowser();
+const props = withDefaults(defineProps<{
+  hostId?: string | null;
+  title?: string;
+}>(), {
+  title: '文件浏览',
+});
+
+const fb = props.hostId === undefined
+  ? useFileBrowser()
+  : useFileBrowser({ hostId: toRef(props, 'hostId'), singleton: false });
 
 onMounted(() => { fb.initialize(); });
 onBeforeUnmount(() => { fb.closePreview(); });
@@ -110,7 +119,7 @@ function onMaskClick(event: MouseEvent): void {
   <div class="file-browser">
     <!-- toolbar -->
     <div class="fb-toolbar">
-      <span class="fb-toolbar-title">文件浏览</span>
+      <span class="fb-toolbar-title">{{ props.title }}</span>
       <div class="fb-toolbar-actions">
         <button
           type="button"
@@ -158,12 +167,26 @@ function onMaskClick(event: MouseEvent): void {
         <div class="fb-error">
           <span class="fb-error-icon">❌</span>
           <span class="fb-error-msg">{{ fb.error.value }}</span>
-          <button
-            v-if="fb.parent.value"
-            type="button"
-            class="fb-back-btn"
-            @click="fb.goBack"
-          >返回上级</button>
+          <span class="fb-error-hint">请检查主机 SSH/SFTP 连接、端口和认证配置。</span>
+          <div class="fb-error-actions">
+            <button
+              type="button"
+              class="fb-back-btn"
+              @click="fb.refreshCurrent"
+            >重试</button>
+            <button
+              v-if="fb.parent.value"
+              type="button"
+              class="fb-back-btn"
+              @click="fb.goBack"
+            >返回上级</button>
+            <button
+              v-if="fb.currentPath.value"
+              type="button"
+              class="fb-back-btn"
+              @click="fb.navigate('')"
+            >回到根目录</button>
+          </div>
         </div>
       </template>
 

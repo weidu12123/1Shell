@@ -31,9 +31,11 @@ function openFilePicker(): void {
       :open="r.historyDrawerOpen.value"
       :sessions="r.sessions.value"
       :current-session-id="r.currentSessionId.value"
+      :residual-count-for-session="r.residualCountForSession"
       @new-session="r.startNewChat"
       @switch-to="(id: string) => r.switchSession(id)"
       @delete="(id: string) => r.deleteSession(id)"
+      @cleanup-residuals="(id: string) => r.cleanupSessionResiduals(id)"
     />
 
     <!-- 主区域 -->
@@ -99,11 +101,33 @@ function openFilePicker(): void {
 
         <!-- 中栏：chat + 输入 -->
         <main class="flex-1 min-w-0 flex flex-col gap-2 min-h-0">
+          <div
+            v-if="r.authoringSession.value"
+            class="shrink-0 rounded-2xl border border-purple-200/80 bg-purple-50/80 px-3 py-2 text-xs text-purple-800 dark:border-purple-500/20 dark:bg-purple-500/10 dark:text-purple-200"
+          >
+            <div class="flex items-center justify-between gap-3 mb-2">
+              <div class="font-semibold">Authoring Session · {{ r.authoringSession.value.intent }} · {{ r.authoringSession.value.risk }} risk</div>
+              <div class="text-[11px] opacity-80">当前阶段：{{ r.authoringStageText.value }}</div>
+            </div>
+            <div class="flex flex-wrap gap-1.5">
+              <span
+                v-for="item in r.authoringStages.value"
+                :key="item.stage"
+                class="px-2 py-1 rounded-full border"
+                :class="item.active
+                  ? 'border-purple-500 bg-purple-600 text-white'
+                  : item.done
+                    ? 'border-emerald-300 bg-emerald-50 text-emerald-700 dark:border-emerald-500/30 dark:bg-emerald-500/10 dark:text-emerald-200'
+                    : 'border-purple-200/80 bg-white/60 text-purple-500 dark:border-purple-500/20 dark:bg-transparent dark:text-purple-300/70'"
+              >{{ item.label }}</span>
+            </div>
+          </div>
           <ChatArea
             :messages="r.currentMessages.value"
             :run-status-text="r.runStatusText.value"
             :show-clear-button="r.currentMessages.value.length > 0"
             @clear="r.clearCurrentChat"
+            @authoring-reply="(interaction, value, label) => r.respondAuthoring(interaction, value, label)"
           />
           <InputArea
             :task-value="r.taskInput.value"
@@ -111,6 +135,7 @@ function openFilePicker(): void {
             :safe-mode="r.safeMode.value"
             :unlimited-turns="r.unlimitedTurns.value"
             :cc-collab="r.ccCollab.value"
+            :refined-mode="r.refinedMode.value"
             :is-running="r.isRunning.value"
             @update:task-value="(v: string) => (r.taskInput.value = v)"
             @send="r.onSend"
@@ -118,6 +143,7 @@ function openFilePicker(): void {
             @update:safe-mode="(v: boolean) => r.setSafeMode(v)"
             @update:unlimited-turns="(v: boolean) => r.setUnlimitedTurns(v)"
             @update:cc-collab="(v: boolean) => r.setCcCollab(v)"
+            @update:refined-mode="(v: boolean) => r.setRefinedMode(v)"
           />
         </main>
 

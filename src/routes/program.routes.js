@@ -4,6 +4,16 @@ const fs   = require('fs');
 const path = require('path');
 const { Router } = require('express');
 const { ROOT_DIR } = require('../config/env');
+const {
+  loadManifest,
+  loadUiArtifact,
+  validateUiArtifact,
+  previewCheckUiArtifact,
+  safeResolveUiPath,
+  readTextFile,
+  bridgeCapabilitiesFor,
+  assertArtifactActionAllowed,
+} = require('../programs/ui-artifact');
 
 /**
  * Program Routes
@@ -13,7 +23,7 @@ const { ROOT_DIR } = require('../config/env');
  *   GET    /api/programs/:id                    详情
  *   GET    /api/programs/:id/instances          该 Program 的所有实例状态
  *   POST   /api/programs/:id/trigger            手动触发
- *     Body: { hostId?: string|'all', triggerId?: string, actionName?: string }
+ *     Body: { hostId?: string|'all', triggerId?: string, actionName?: string, inputs?: object }
  *   POST   /api/programs/:id/instances/:hostId/enable   启用实例
  *   POST   /api/programs/:id/instances/:hostId/disable  停用实例
  *   GET    /api/program-runs                    运行历史
@@ -44,6 +54,40 @@ function createProgramRouter({ registry, stateService, engine, hostService }) {
     });
   }
 
+  function programHostIds(program) {
+    return program.hosts === 'all'
+      ? (hostService?.listHosts?.() || []).map((h) => h.id)
+      : (program.hosts || []);
+  }
+
+  function assertHostAllowed(program, hostId) {
+    if (hostId === 'all') return;
+    const allowed = programHostIds(program);
+    if (!allowed.includes(hostId)) throw new Error(`目标主机不在 Program 范围内: ${hostId}`);
+  }
+
+  function actionConfirmText(program, actionName) {
+    const launchers = program.ui?.instance_actions || [];
+    const launcher = launchers.find((item) => item.action === actionName);
+    return launcher?.confirm || (launcher?.style === 'danger' ? `确认执行高风险 action: ${actionName}` : null);
+  }
+
+  function buildProgramSnapshot(program) {
+    const allHosts = hostService?.listHosts?.() || [];
+    const allowed = new Set(programHostIds(program));
+    let artifact = null;
+    try { artifact = loadUiArtifact(program); } catch { artifact = null; }
+    return {
+      program: stripDir(program),
+      hosts: allHosts
+        .filter((host) => program.hosts === 'all' || allowed.has(host.id))
+        .map((host) => ({ id: host.id, name: host.name || host.id, label: host.name || host.id })),
+      currentRuns: engine.listActive?.().filter((run) => run.programId === program.id) || [],
+      latestResults: [],
+      bridgeCapabilities: bridgeCapabilitiesFor(artifact?.manifest),
+    };
+  }
+
   router.get('/programs', (_req, res) => {
     const allHosts = hostService?.listHosts?.() || [];
     const programs = registry.list().map(stripDir);
@@ -52,13 +96,17 @@ function createProgramRouter({ registry, stateService, engine, hostService }) {
       p.instances = mergeInstances(p, db, allHosts);
       p.enabled = p.instances.some((i) => i.enabled === 1);
     }
-    res.json({ ok: true, programs });
+    res.json({ ok: true, programs, residuals: registry.getLastErrors?.() || [] });
+  });
+
+  router.get('/programs/residuals', (_req, res) => {
+    res.json({ ok: true, residuals: registry.getLastErrors?.() || [] });
   });
 
   router.post('/programs/reload', (_req, res) => {
     try {
-      engine.reload();
-      res.json({ ok: true, count: registry.list().length });
+      const result = engine.reload();
+      res.json({ ok: true, count: registry.list().length, residuals: result?.errors || registry.getLastErrors?.() || [] });
     } catch (err) {
       res.status(500).json({ ok: false, error: err.message });
     }
@@ -71,6 +119,107 @@ function createProgramRouter({ registry, stateService, engine, hostService }) {
     const db = stateService.listInstances(program.id);
     const instances = mergeInstances(program, db, allHosts);
     res.json({ ok: true, program: stripDir(program), instances });
+  });
+
+  router.get('/programs/:id/ui/manifest', (req, res) => {
+    const program = registry.get(req.params.id);
+    if (!program) return res.status(404).json({ ok: false, error: 'Program 不存在' });
+    try {
+      res.json({ ok: true, manifest: loadManifest(program), validation: validateUiArtifact(program) });
+    } catch (err) {
+      res.status(404).json({ ok: false, error: err.message, validation: validateUiArtifact(program) });
+    }
+  });
+
+  router.get('/programs/:id/ui/files/*', (req, res) => {
+    const program = registry.get(req.params.id);
+    if (!program) return res.status(404).json({ ok: false, error: 'Program 不存在' });
+    try {
+      const requestedPath = req.params[0] || '';
+      const filePath = safeResolveUiPath(program, requestedPath);
+      if (!fs.existsSync(filePath)) return res.status(404).json({ ok: false, error: 'UI artifact 文件不存在' });
+      res.json({ ok: true, path: requestedPath, content: readTextFile(filePath, requestedPath) });
+    } catch (err) {
+      res.status(400).json({ ok: false, error: err.message });
+    }
+  });
+
+  router.get('/programs/:id/ui/artifact', (req, res) => {
+    const program = registry.get(req.params.id);
+    if (!program) return res.status(404).json({ ok: false, error: 'Program 不存在' });
+    try {
+      const artifact = loadUiArtifact(program);
+      const previewCheck = previewCheckUiArtifact(program);
+      res.json({ ok: artifact.validation.ok && previewCheck.ok, ...artifact, previewCheck, snapshot: buildProgramSnapshot(program) });
+    } catch (err) {
+      res.status(400).json({ ok: false, error: err.message });
+    }
+  });
+
+  router.post('/programs/:id/ui/validate', (req, res) => {
+    const program = registry.get(req.params.id);
+    if (!program) return res.status(404).json({ ok: false, error: 'Program 不存在' });
+    const validation = validateUiArtifact(program);
+    res.status(validation.ok ? 200 : 400).json({ ok: validation.ok, validation });
+  });
+
+  router.post('/programs/:id/ui/preview-check', (req, res) => {
+    const program = registry.get(req.params.id);
+    if (!program) return res.status(404).json({ ok: false, error: 'Program 不存在' });
+    const previewCheck = previewCheckUiArtifact(program);
+    res.status(previewCheck.ok ? 200 : 400).json({ ok: previewCheck.ok, previewCheck });
+  });
+
+  router.get('/programs/:id/runs', (req, res) => {
+    const program = registry.get(req.params.id);
+    if (!program) return res.status(404).json({ ok: false, error: 'Program 不存在' });
+    const runs = stateService.listRuns({ programId: program.id, limit: Number(req.query?.limit) || 50 });
+    res.json({ ok: true, runs });
+  });
+
+  router.get('/programs/:id/results', (req, res) => {
+    const program = registry.get(req.params.id);
+    if (!program) return res.status(404).json({ ok: false, error: 'Program 不存在' });
+    const results = [];
+    for (const hostId of programHostIds(program)) {
+      for (const item of stateService.getLastRenders(program.id, hostId) || []) {
+        results.push({ hostId, ...item });
+      }
+    }
+    res.json({ ok: true, results });
+  });
+
+  router.get('/programs/:id/events', (req, res) => {
+    const program = registry.get(req.params.id);
+    if (!program) return res.status(404).json({ ok: false, error: 'Program 不存在' });
+    res.json({ ok: true, events: [] });
+  });
+
+  router.post('/programs/:id/actions/:action/run', async (req, res) => {
+    const program = registry.get(req.params.id);
+    if (!program) return res.status(404).json({ ok: false, error: 'Program 不存在' });
+
+    const actionName = String(req.params.action || '').trim();
+    const body = req.body || {};
+    try {
+      assertArtifactActionAllowed(program, actionName);
+      const hostId = String(body.hostId || '').trim();
+      if (!hostId) throw new Error('hostId 不能为空');
+      assertHostAllowed(program, hostId);
+      const confirmText = actionConfirmText(program, actionName);
+      if (confirmText && body.confirmToken !== `confirmed:${program.id}:${actionName}`) {
+        return res.status(409).json({ ok: false, requiresConfirm: true, confirmText });
+      }
+      const runIds = await engine.triggerManual({
+        programId: program.id,
+        hostId,
+        actionName,
+        inputs: body.inputs,
+      });
+      res.json({ ok: true, runIds });
+    } catch (err) {
+      res.status(400).json({ ok: false, error: err.message });
+    }
   });
 
   router.get('/programs/:id/instances', (req, res) => {
@@ -89,6 +238,25 @@ function createProgramRouter({ registry, stateService, engine, hostService }) {
     res.json({ ok: true, renders });
   });
 
+  router.delete('/program-residuals/:id', async (req, res) => {
+    const id = String(req.params.id || '').trim();
+    if (!/^[a-z0-9][a-z0-9-]*$/.test(id)) return res.status(400).json({ ok: false, error: 'Program id 不合法' });
+    if (registry.get(id)) return res.status(409).json({ ok: false, error: 'Program 已成功加载，请使用正常删除入口' });
+
+    try {
+      const programDir = path.join(ROOT_DIR, 'data', 'programs', id);
+      const programsRoot = path.join(ROOT_DIR, 'data', 'programs');
+      const rel = path.relative(programsRoot, programDir);
+      if (rel.startsWith('..') || path.isAbsolute(rel)) return res.status(400).json({ ok: false, error: 'Program 路径不合法' });
+      if (!fs.existsSync(programDir)) return res.status(404).json({ ok: false, error: '残留 Program 目录不存在' });
+      fs.rmSync(programDir, { recursive: true, force: true });
+      const result = engine.reload();
+      res.json({ ok: true, deleted: id, residuals: result?.errors || registry.getLastErrors?.() || [] });
+    } catch (err) {
+      res.status(500).json({ ok: false, error: err.message });
+    }
+  });
+
   router.post('/programs/:id/trigger', async (req, res) => {
     const program = registry.get(req.params.id);
     if (!program) return res.status(404).json({ ok: false, error: 'Program 不存在' });
@@ -100,6 +268,7 @@ function createProgramRouter({ registry, stateService, engine, hostService }) {
         hostId: body.hostId,
         triggerId: body.triggerId,
         actionName: body.actionName,
+        inputs: body.inputs,
       });
       res.json({ ok: true, runIds });
     } catch (err) {

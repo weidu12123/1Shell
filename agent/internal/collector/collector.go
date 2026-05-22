@@ -32,8 +32,10 @@ type Snapshot struct {
 }
 
 type CPUInfo struct {
-	Usage float64   // 0..100
-	Cores []float64 // per-core usage 0..100
+	Usage  float64   // 0..100, excludes iowait and steal
+	IOWait float64   // 0..100
+	Steal  float64   // 0..100
+	Cores  []float64 // per-core usage 0..100
 }
 
 type MemoryInfo struct {
@@ -70,7 +72,7 @@ type PlatformInfo struct {
 	PrettyName string
 }
 
-const sampleInterval = 100 * time.Millisecond
+const sampleInterval = 1 * time.Second
 
 // Collect gathers a Snapshot. CPU and Net rates are computed across
 // sampleInterval; memory / disk / load / uptime are single-shot.
@@ -177,8 +179,10 @@ func charsToString(chars []int8) string {
 // ────── /proc/stat ──────
 
 type cpuTimes struct {
-	total uint64
-	idle  uint64
+	total  uint64
+	idle   uint64
+	iowait uint64
+	steal  uint64
 }
 
 type cpuSnapshot struct {
@@ -210,7 +214,9 @@ func readCPUStat() (cpuSnapshot, error) {
 			total += v
 		}
 		idle, _ := strconv.ParseUint(fields[4], 10, 64)
-		t := cpuTimes{total: total, idle: idle}
+		iowait := parseCPUField(fields, 5)
+		steal := parseCPUField(fields, 8)
+		t := cpuTimes{total: total, idle: idle, iowait: iowait, steal: steal}
 		if fields[0] == "cpu" {
 			snap.overall = t
 		} else {
@@ -220,33 +226,59 @@ func readCPUStat() (cpuSnapshot, error) {
 	return snap, scanner.Err()
 }
 
+func parseCPUField(fields []string, index int) uint64 {
+	if len(fields) <= index {
+		return 0
+	}
+	value, _ := strconv.ParseUint(fields[index], 10, 64)
+	return value
+}
+
 func diffCPU(a, b cpuSnapshot) CPUInfo {
-	info := CPUInfo{Usage: usageFromTimes(a.overall, b.overall)}
+	overall := usageFromTimes(a.overall, b.overall)
+	info := CPUInfo{Usage: overall.usage, IOWait: overall.iowait, Steal: overall.steal}
 	n := len(a.cores)
 	if len(b.cores) < n {
 		n = len(b.cores)
 	}
 	info.Cores = make([]float64, 0, n)
 	for i := 0; i < n; i++ {
-		info.Cores = append(info.Cores, usageFromTimes(a.cores[i], b.cores[i]))
+		info.Cores = append(info.Cores, usageFromTimes(a.cores[i], b.cores[i]).usage)
 	}
 	return info
 }
 
-func usageFromTimes(a, b cpuTimes) float64 {
+type cpuUsageBreakdown struct {
+	usage  float64
+	iowait float64
+	steal  float64
+}
+
+func usageFromTimes(a, b cpuTimes) cpuUsageBreakdown {
 	dt := int64(b.total) - int64(a.total)
-	di := int64(b.idle) - int64(a.idle)
 	if dt <= 0 {
+		return cpuUsageBreakdown{}
+	}
+	idle := int64(b.idle) - int64(a.idle)
+	iowait := int64(b.iowait) - int64(a.iowait)
+	steal := int64(b.steal) - int64(a.steal)
+	busy := dt - idle - iowait - steal
+	return cpuUsageBreakdown{
+		usage:  percentFromDelta(busy, dt),
+		iowait: percentFromDelta(iowait, dt),
+		steal:  percentFromDelta(steal, dt),
+	}
+}
+
+func percentFromDelta(value int64, total int64) float64 {
+	if total <= 0 || value <= 0 {
 		return 0
 	}
-	usage := float64(dt-di) * 100 / float64(dt)
-	if usage < 0 {
-		usage = 0
+	percent := float64(value) * 100 / float64(total)
+	if percent > 100 {
+		percent = 100
 	}
-	if usage > 100 {
-		usage = 100
-	}
-	return roundTo(usage, 2)
+	return roundTo(percent, 2)
 }
 
 // ────── /proc/net/dev ──────

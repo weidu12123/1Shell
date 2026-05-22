@@ -8,13 +8,19 @@ interface Props {
   open: boolean;
   sessions: ChatSession[];
   currentSessionId: string | null;
+  residualCountForSession?: (session: ChatSession) => number;
 }
-defineProps<Props>();
+const props = defineProps<Props>();
 const emit = defineEmits<{
   newSession: [];
   switchTo: [id: string];
   delete: [id: string];
+  cleanupResiduals: [id: string];
 }>();
+
+function residualCount(session: ChatSession): number {
+  return props.residualCountForSession?.(session) || 0;
+}
 </script>
 
 <template>
@@ -42,9 +48,15 @@ const emit = defineEmits<{
         <div class="hi-meta flex items-center gap-1">
           <span>{{ formatSessionTime(s.createdAt) }}</span>
           <span class="flex-1"></span>
+          <button
+            v-if="residualCount(s) > 0"
+            class="rounded px-1 text-[10px] text-amber-600 hover:bg-amber-50 hover:text-amber-700 dark:text-amber-300 dark:hover:bg-amber-500/10"
+            :title="`只清理文件残留（${residualCount(s)} 个）`"
+            @click.stop="emit('cleanupResiduals', s.id)"
+          >清残留</button>
           <span
             class="text-red-400 hover:text-red-600 cursor-pointer px-1"
-            title="删除"
+            title="删除历史并清理残留"
             @click.stop="emit('delete', s.id)"
           >✕</span>
         </div>

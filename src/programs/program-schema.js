@@ -15,6 +15,7 @@ const yaml = require('js-yaml');
 const cron = require('node-cron');
 
 const { normalizeStep } = require('../skills/playbook-schema');
+const { validateFrontendContract } = require('./frontend-contract');
 
 function loadProgram(programDir) {
   const programPath = path.join(programDir, 'program.yaml');
@@ -43,6 +44,7 @@ function normalizeProgram(doc, id, sourcePath = 'program.yaml') {
   const description = doc.description ? String(doc.description) : '';
   const enabled = doc.enabled !== false;
   const hosts = normalizeHosts(doc.hosts, sourcePath);
+  const inputs = normalizeInputs(doc.inputs || [], `${sourcePath} inputs`);
 
   const rawActions = doc.actions || {};
   if (!rawActions || typeof rawActions !== 'object' || Array.isArray(rawActions)) {
@@ -53,7 +55,7 @@ function normalizeProgram(doc, id, sourcePath = 'program.yaml') {
 
   const actions = {};
   for (const [actName, raw] of Object.entries(rawActions)) {
-    actions[actName] = normalizeAction(raw, actName, sourcePath);
+    actions[actName] = normalizeAction(raw, actName, sourcePath, inputs);
   }
 
   const rawTriggers = Array.isArray(doc.triggers) ? doc.triggers : [];
@@ -77,12 +79,13 @@ function normalizeProgram(doc, id, sourcePath = 'program.yaml') {
     ? normalizeUi(doc.ui, actions, sourcePath)
     : null;
 
-  return {
+  const program = {
     id,
     name,
     description,
     enabled,
     hosts,
+    inputs,
     triggers,
     actions,
     l2,
@@ -92,6 +95,8 @@ function normalizeProgram(doc, id, sourcePath = 'program.yaml') {
     incidents,
     ui,
   };
+  program.frontendContract = validateFrontendContract(program);
+  return program;
 }
 
 function normalizeHosts(rawHosts, sourcePath) {
@@ -105,7 +110,7 @@ function normalizeHosts(rawHosts, sourcePath) {
   throw new Error(`${sourcePath}: hosts 必须是字符串、数组或 'all'`);
 }
 
-function normalizeAction(raw, actName, sourcePath) {
+function normalizeAction(raw, actName, sourcePath, rootInputs = []) {
   if (!raw || typeof raw !== 'object') {
     throw new Error(`${sourcePath}: action "${actName}" 必须是对象`);
   }
@@ -119,7 +124,62 @@ function normalizeAction(raw, actName, sourcePath) {
   if (!['repair', 'stop', 'ignore', 'escalate'].includes(onFail)) {
     throw new Error(`${sourcePath}: action "${actName}" on_fail 必须是 repair|stop|ignore|escalate`);
   }
-  return { name: raw.name ? String(raw.name) : actName, steps, on_fail: onFail };
+  const label = raw.label ? String(raw.label).trim() : '';
+  const inputs = normalizeInputs(raw.inputs || [], `${sourcePath} action="${actName}" inputs`);
+  validateInputReferences(steps, [...rootInputs, ...inputs], `${sourcePath} action="${actName}"`);
+  return { name: raw.name ? String(raw.name) : actName, label, inputs, steps, on_fail: onFail };
+}
+
+function validateInputReferences(steps, inputs, sourcePath) {
+  const known = new Set(inputs.map((input) => input.name));
+  for (const step of steps) {
+    if (step.type !== 'exec') continue;
+    const run = String(step.run || '');
+    for (const match of run.matchAll(/\{\{\s*inputs\.([a-zA-Z_][a-zA-Z0-9_]*)\s*\}\}/g)) {
+      if (!known.has(match[1])) throw new Error(`${sourcePath}: step "${step.id}" 引用了未声明 input: ${match[1]}`);
+    }
+  }
+}
+
+function normalizeInputs(raw, sourcePath) {
+  const items = Array.isArray(raw)
+    ? raw
+    : (raw && typeof raw === 'object'
+      ? Object.entries(raw).map(([name, value]) => ({ ...(value && typeof value === 'object' ? value : {}), name }))
+      : []);
+  return items.map((item, idx) => normalizeInput(item, idx, sourcePath));
+}
+
+function normalizeInput(raw, idx, sourcePath) {
+  if (!raw || typeof raw !== 'object') throw new Error(`${sourcePath}[${idx}] 必须是对象`);
+  const name = String(raw.name || raw.id || '').trim();
+  if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(name)) throw new Error(`${sourcePath}[${idx}] name "${name}" 不合法（必须 snake_case）`);
+  const type = String(raw.type || (raw.secret ? 'password' : 'string')).trim();
+  if (!['string', 'number', 'boolean', 'select', 'password', 'text'].includes(type)) throw new Error(`${sourcePath}[${idx}] type "${type}" 未知`);
+  const options = Array.isArray(raw.options)
+    ? raw.options.map((option) => {
+      if (option && typeof option === 'object') {
+        const value = String(option.value ?? option.id ?? option.label ?? '').trim();
+        return { value, label: String(option.label ?? value).trim(), description: option.description ? String(option.description) : '' };
+      }
+      const value = String(option ?? '').trim();
+      return { value, label: value, description: '' };
+    }).filter((option) => option.value)
+    : [];
+  if (type === 'select' && options.length === 0) throw new Error(`${sourcePath}[${idx}] select 类型必须提供 options`);
+  return {
+    name,
+    label: String(raw.label || name).trim(),
+    type,
+    required: raw.required === true,
+    secret: raw.secret === true || type === 'password',
+    placeholder: raw.placeholder ? String(raw.placeholder) : '',
+    description: raw.description ? String(raw.description) : '',
+    default: raw.default ?? raw.defaultValue ?? null,
+    min: raw.min ?? null,
+    max: raw.max ?? null,
+    options,
+  };
 }
 
 function normalizeProgramStep(step, idx, seenIds, sourcePath) {

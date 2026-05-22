@@ -635,7 +635,13 @@ function createProbeService({ hostRepository, hostService, sshShellPool, probeAg
   }
 
   async function collectAllProbes() {
-    const storedHosts = hostRepository.readStoredHosts();
+    const archivedHostIds = new Set(
+      hostRepository.readHostPreferences()
+        .filter((preference) => preference.archived)
+        .map((preference) => preference.hostId),
+    );
+    const storedHosts = hostRepository.readStoredHosts()
+      .filter((host) => !archivedHostIds.has(host.id));
     const agentStatuses = probeAgentService ? probeAgentService.getAgentStatusMap() : new Map();
     const relayStatuses = probeRelayService?.getRelayAgentStatusMap
       ? probeRelayService.getRelayAgentStatusMap()
@@ -668,15 +674,13 @@ function createProbeService({ hostRepository, hostService, sshShellPool, probeAg
     for (const relayProbe of relayProbes) {
       if (!relayProbe?.hostId) continue;
       const existing = byHostId.get(relayProbe.hostId);
-      byHostId.set(relayProbe.hostId, existing ? {
+      if (!existing) continue;
+      byHostId.set(relayProbe.hostId, {
         ...existing,
         ...relayProbe,
         name: existing.name || relayProbe.name,
         hostname: relayProbe.hostname || existing.hostname,
         sshOnline: existing.online,
-        source: 'relay_agent',
-      } : {
-        ...relayProbe,
         source: 'relay_agent',
       });
     }
@@ -724,6 +728,18 @@ function createProbeService({ hostRepository, hostService, sshShellPool, probeAg
     return latestSnapshot;
   }
 
+  function removeHost(hostId) {
+    const cleanHostId = String(hostId || '').trim();
+    if (!cleanHostId) return { ok: false };
+    latestSnapshot = {
+      ...latestSnapshot,
+      probes: latestSnapshot.probes.filter((probe) => probe?.hostId !== cleanHostId),
+    };
+    lastSuccessfulProbeMap.delete(cleanHostId);
+    hostLatencyHistory.delete(cleanHostId);
+    return { ok: true };
+  }
+
   function startScheduler({ onUpdate } = {}) {
     if (schedulerTimer) return;
 
@@ -753,6 +769,7 @@ function createProbeService({ hostRepository, hostService, sshShellPool, probeAg
     getLatestSnapshot: () => latestSnapshot,
     getSampleIntervalMs: () => PROBE_INTERVAL_MS,
     refreshSnapshot,
+    removeHost,
     startScheduler,
     stopScheduler,
   };

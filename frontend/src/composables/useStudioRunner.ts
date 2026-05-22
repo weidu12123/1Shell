@@ -1,5 +1,5 @@
 // useStudioRunner.ts — IDE 工作台核心 composable
-// 与 useProgramsRunner / usePlaybookRunner 同套路：集中 state + socket on/emit + cleanup
+// 与 useProgramsRunner 同套路：集中 state + socket on/emit + cleanup
 // 迭代 1 范围：7 socket on + 5 emit + 全部 state + API + deploy_mcp/refine 入口
 // 迭代 2：补 ide:mcp-status / ide:approve-request 监听 + ide:mcp-start/stop / ide:approve-response emit + ApproveBar
 
@@ -17,9 +17,10 @@ import {
   type FpItem,
   type ChatSession, type SessionMessage, type AiLineKind,
   type SendContext,
+  type AuthoringArtifact, type AuthoringInteraction, type AuthoringStage, type AuthoringSessionSnapshot,
   type ApprovePayload, type ApproveAction,
   HISTORY_KEY, ERROR_CONTEXT_KEY, SESSIONS_MAX, APPROVE_TIMEOUT_SEC,
-  truncate60, truncateOutput, newSessionId,
+  truncate60, newSessionId, collectAuthoringResidualPaths,
   DOCKER_SCAN_CMD, parseDockerScan,
 } from '@/utils/studio';
 
@@ -28,6 +29,7 @@ type RunStatusKind = 'idle' | 'starting' | 'running' | 'done' | 'error' | 'cance
 interface AckResponse { ok?: boolean; error?: string }
 interface ExecResponse { stdout?: string; stderr?: string }
 interface FpListResponse { path: string; parent: string | null; items: FpItem[] }
+interface CleanupResidualsResponse { ok?: boolean; deleted?: string[]; missing?: string[]; rejected?: Array<{ path: string; reason: string }> }
 
 interface StudioPrefs {
   selectedHostIds: string[];
@@ -41,10 +43,11 @@ interface StudioPrefs {
   safeMode: boolean;
   unlimitedTurns: boolean;
   ccCollab: boolean;
+  refinedMode: boolean;
   historyDrawerOpen: boolean;
 }
 
-const STUDIO_PREFS_KEY = '1shell.skill-studio.prefs.v1';
+const STUDIO_PREFS_KEY = '1shell.skill-studio.prefs.v4.0.0';
 
 export function useStudioRunner() {
   const socket = useSocket();
@@ -63,6 +66,7 @@ export function useStudioRunner() {
     safeMode: true,
     unlimitedTurns: false,
     ccCollab: false,
+    refinedMode: false,
     historyDrawerOpen: false,
   });
 
@@ -95,12 +99,14 @@ export function useStudioRunner() {
   const isRunning = ref(false);
   const runStatusKind = ref<RunStatusKind>('idle');
   const runStatusText = ref('待命');
+  const authoringSession = ref<AuthoringSessionSnapshot | null>(null);
 
   // 输入区
   const taskInput = ref(savedPrefs.taskInput);
   const safeMode = ref(savedPrefs.safeMode);
   const unlimitedTurns = ref(savedPrefs.unlimitedTurns);
   const ccCollab = ref(savedPrefs.ccCollab);
+  const refinedMode = ref(savedPrefs.refinedMode === true);
 
   // 历史抽屉
   const historyDrawerOpen = ref(savedPrefs.historyDrawerOpen);
@@ -112,6 +118,8 @@ export function useStudioRunner() {
   let currentTextHadDelta = false;
   let stopFallbackHandle: ReturnType<typeof setTimeout> | null = null;
   let sendAckHandle: ReturnType<typeof setTimeout> | null = null;
+  let sendConnectHandle: ReturnType<typeof setTimeout> | null = null;
+  let pendingConnectSend: (() => void) | null = null;
   let activeRunId: string | null = null;
   let stopRequested = false;
   const stoppedRunIds = new Set<string>();
@@ -180,6 +188,27 @@ export function useStudioRunner() {
     `主机: ${selectedHosts.value.size} · 路径: ${selectedPaths.value.length} · 容器: ${selectedContainers.value.size} · 工具: ${selectedTools.value.size}`
   );
 
+  const authoringStageOrder: AuthoringStage[] = ['discovery', 'options', 'spec', 'plan', 'draft', 'review', 'commit', 'verify'];
+  const authoringStageLabels: Record<AuthoringStage, string> = {
+    discovery: 'Discovery',
+    options: 'Options',
+    spec: 'Spec',
+    plan: 'Plan',
+    draft: 'Draft',
+    review: 'Review',
+    commit: 'Commit',
+    verify: 'Verify',
+    done: 'Done',
+    blocked: 'Blocked',
+  };
+  const authoringStages = computed(() => authoringStageOrder.map((stage) => ({
+    stage,
+    label: authoringStageLabels[stage],
+    active: authoringSession.value?.stage === stage,
+    done: authoringSession.value ? authoringStageOrder.indexOf(stage) < authoringStageOrder.indexOf(authoringSession.value.stage) : false,
+  })));
+  const authoringStageText = computed(() => authoringSession.value ? authoringStageLabels[authoringSession.value.stage] || authoringSession.value.stage : '');
+
   function hostName(hostId: string): string {
     if (hostId === 'local') return '本机';
     const h = hosts.value.find((x) => x.id === hostId);
@@ -199,6 +228,7 @@ export function useStudioRunner() {
       safeMode: safeMode.value,
       unlimitedTurns: unlimitedTurns.value,
       ccCollab: ccCollab.value,
+      refinedMode: refinedMode.value,
       historyDrawerOpen: historyDrawerOpen.value,
     });
   }
@@ -220,10 +250,28 @@ export function useStudioRunner() {
     return sessions.value.find((x) => x.id === id) || null;
   }
 
+  function sanitizeLoadedSessions(items: ChatSession[]): ChatSession[] {
+    const staleAckText = 'ide:message 未收到确认，请检查 Socket 连接';
+    let changed = false;
+    const cleaned = items.map((session) => {
+      const messages = (session.messages || []).filter((msg) => {
+        const keep = !(msg.role === 'ai' && String(msg.content || '').includes(staleAckText));
+        if (!keep) changed = true;
+        return keep;
+      });
+      return messages === session.messages ? session : { ...session, messages };
+    });
+    if (changed) {
+      try { localStorage.setItem(HISTORY_KEY, JSON.stringify(cleaned.slice(0, SESSIONS_MAX))); } catch { /* ignore */ }
+    }
+    return cleaned;
+  }
+
   function loadSessionsFromStorage(): void {
     try {
       const raw = localStorage.getItem(HISTORY_KEY);
-      sessions.value = raw ? JSON.parse(raw) : [];
+      const parsed = raw ? JSON.parse(raw) : [];
+      sessions.value = Array.isArray(parsed) ? sanitizeLoadedSessions(parsed) : [];
     } catch {
       sessions.value = [];
     }
@@ -280,6 +328,41 @@ export function useStudioRunner() {
     saveMessageToCurrent({ role: 'ai', kind: 'stream', content: text });
   }
 
+  function appendAuthoringInteraction(interaction: AuthoringInteraction): void {
+    const s = getSession(currentSessionId.value);
+    if (!s) return;
+    const exists = s.messages.some((m) => m.role === 'authoring' && m.interaction?.id === interaction.id);
+    if (exists) return;
+    saveMessageToCurrent({ role: 'authoring', interaction });
+  }
+
+  function appendAuthoringArtifact(artifact: AuthoringArtifact): void {
+    const s = getSession(currentSessionId.value);
+    if (!s) return;
+    const existing = s.messages.find((m) => m.role === 'authoring' && m.artifact?.id === artifact.id);
+    if (existing?.role === 'authoring') {
+      existing.artifact = artifact;
+      s.messages = [...s.messages];
+      sessions.value = [...sessions.value];
+      saveSessionsToStorage();
+      return;
+    }
+    saveMessageToCurrent({ role: 'authoring', artifact });
+  }
+
+  function markAuthoringAnswered(interactionId: string): void {
+    const s = getSession(currentSessionId.value);
+    if (!s) return;
+    for (const msg of s.messages) {
+      if (msg.role === 'authoring' && msg.interaction?.id === interactionId) {
+        msg.interaction = { ...msg.interaction, answered: true };
+      }
+    }
+    s.messages = [...s.messages];
+    sessions.value = [...sessions.value];
+    saveSessionsToStorage();
+  }
+
   function switchSession(id: string): void {
     if (getSession(id)) currentSessionId.value = id;
   }
@@ -288,6 +371,7 @@ export function useStudioRunner() {
     activeRunId = null;
     stopRequested = false;
     stoppedRunIds.clear();
+    authoringSession.value = null;
     currentSessionId.value = null;
   }
 
@@ -301,9 +385,65 @@ export function useStudioRunner() {
     saveSessionsToStorage();
   }
 
-  function deleteSession(id: string): void {
+  function residualCountForSession(session: ChatSession): number {
+    return collectAuthoringResidualPaths(session).paths.length;
+  }
+
+  async function cleanupSessionResiduals(id: string, silent = false): Promise<CleanupResidualsResponse | null> {
+    const session = getSession(id);
+    if (!session) return null;
+    const { paths } = collectAuthoringResidualPaths(session);
+    if (paths.length === 0) {
+      if (!silent) notify.info('这条历史没有可清理的文件残留');
+      return { ok: true, deleted: [], missing: [], rejected: [] };
+    }
+    if (!silent) {
+      const ok = await confirm({
+        title: '清理文件残留',
+        message: `只清理这条历史里未通过验证/未完成验证的落盘文件，共 ${paths.length} 个；不会删除历史记录。`,
+        okText: '清理残留',
+      });
+      if (!ok) return null;
+    }
+    try {
+      const result = await requestJson<CleanupResidualsResponse>('/api/skill-studio/cleanup-residuals', {
+        method: 'POST',
+        body: JSON.stringify({ sessionId: id, paths }),
+      });
+      if (!silent) {
+        const deleted = result.deleted?.length || 0;
+        const missing = result.missing?.length || 0;
+        const rejected = result.rejected?.length || 0;
+        if (deleted || missing) notify.success(`残留清理完成：删除 ${deleted} 个，已不存在 ${missing} 个${rejected ? `，跳过 ${rejected} 个已加载/受保护文件` : ''}`);
+        else if (rejected) notify.warn(`没有删除文件，${rejected} 个文件被跳过`);
+        else notify.info('没有发现可删除的残留文件');
+      }
+      return result;
+    } catch (err) {
+      if (!silent) notify.error('清理残留失败: ' + (err as Error).message);
+      return null;
+    }
+  }
+
+  async function deleteSession(id: string): Promise<void> {
+    const session = getSession(id);
+    if (!session) return;
+    const residualCount = residualCountForSession(session);
+    const ok = await confirm({
+      title: '删除历史记录',
+      message: residualCount > 0
+        ? `删除这条历史记录，并同步清理其中 ${residualCount} 个未通过验证/未完成验证的文件残留？`
+        : '删除这条历史记录？',
+      okText: '删除',
+    });
+    if (!ok) return;
+    if (residualCount > 0) await cleanupSessionResiduals(id, true);
     sessions.value = sessions.value.filter((s) => s.id !== id);
-    if (currentSessionId.value === id) currentSessionId.value = null;
+    if (currentSessionId.value === id) {
+      currentSessionId.value = null;
+      authoringSession.value = null;
+    }
+    socket.emit('ide:clear', { sessionId: id });
     saveSessionsToStorage();
   }
 
@@ -325,6 +465,22 @@ export function useStudioRunner() {
       currentTextHadDelta = false;
       setStatus('running', '思考中...');
     }],
+    ['ide:authoring-session', (msg: unknown) => {
+      const m = msg as IdeSocketMessage & { session?: AuthoringSessionSnapshot };
+      if (!m || m.sessionId !== currentSessionId.value || !m.session) return;
+      authoringSession.value = m.session;
+      setStatus('running', `创作流程：${authoringStageLabels[m.session.stage] || m.session.stage}`);
+    }],
+    ['ide:authoring-interaction', (msg: unknown) => {
+      const m = msg as IdeSocketMessage & { interaction?: AuthoringInteraction };
+      if (!m || m.sessionId !== currentSessionId.value || !m.interaction) return;
+      appendAuthoringInteraction(m.interaction);
+    }],
+    ['ide:authoring-artifact', (msg: unknown) => {
+      const m = msg as IdeSocketMessage & { artifact?: AuthoringArtifact };
+      if (!m || m.sessionId !== currentSessionId.value || !m.artifact) return;
+      appendAuthoringArtifact(m.artifact);
+    }],
     ['ide:text', (msg: unknown) => {
       const m = msg as IdeSocketMessage & { text?: string };
       if (!matchesCurrentRun(m) || !m.text || currentTextHadDelta) return;
@@ -338,16 +494,14 @@ export function useStudioRunner() {
       appendAiDelta(m.delta);
     }],
     ['ide:tool-start', (msg: unknown) => {
-      const m = msg as IdeSocketMessage & { name?: string; input?: unknown };
+      const m = msg as IdeSocketMessage & { name?: string };
       if (!matchesCurrentRun(m)) return;
-      const inputStr = m.input ? ` ${JSON.stringify(m.input).slice(0, 120)}` : '';
-      appendAiLine('info', `⚙ ${m.name || ''}${inputStr}`);
+      setStatus('running', m.name ? `调用工具：${m.name}` : '调用工具...');
     }],
     ['ide:tool-end', (msg: unknown) => {
-      const m = msg as IdeSocketMessage & { is_error?: boolean; result?: string };
+      const m = msg as IdeSocketMessage & { is_error?: boolean };
       if (!matchesCurrentRun(m)) return;
-      if (m.is_error) appendAiLine('stderr', truncateOutput(m.result));
-      else appendAiLine('stdout', truncateOutput(m.result));
+      setStatus('running', m.is_error ? '工具返回错误，继续分析...' : '思考中...');
     }],
     ['ide:done', (msg: unknown) => {
       const m = msg as IdeSocketMessage & { round?: number };
@@ -597,25 +751,17 @@ export function useStudioRunner() {
     }
   }
 
+  function setRefinedMode(enabled: boolean): void {
+    refinedMode.value = enabled;
+    if (currentSessionId.value) {
+      socket.emit('ide:refined-mode', { sessionId: currentSessionId.value, enabled });
+    }
+  }
+
   /* ─── onSend / onStop ─────────────────────────────── */
 
-  async function onSend(): Promise<void> {
-    const task = taskInput.value.trim();
-    if (!task) {
-      notify.error('请输入自然语言描述');
-      return;
-    }
-    if (isRunning.value) return;
-
-    activeRunId = null;
-    stopRequested = false;
-    appendUserMessage(task);
-    taskInput.value = '';
-
-    isRunning.value = true;
-    setStatus('starting', '启动中...');
-
-    const context: SendContext = {
+  function buildSendContext(): SendContext {
+    return {
       hosts: [...selectedHosts.value.values()].map((h) => ({
         id: h.id, name: h.name, host: h.host, username: h.username, port: h.port,
       })),
@@ -627,18 +773,23 @@ export function useStudioRunner() {
         return srv ? { id: srv.id, name: srv.name, url: srv.url } : { id };
       }),
     };
+  }
 
+  function emitIdeMessage(task: string): void {
     sendAckHandle = setTimeout(() => {
       setStatus('error', '启动超时');
-      appendAiLine('error', 'ide:message 未收到确认，请检查 Socket 连接');
+      appendAiLine('error', 'ide:message 已发送但未收到后端确认，请检查后端 Socket handler');
       finalize();
     }, 8000);
 
     socket.emit('ide:message', {
       sessionId: currentSessionId.value,
       message: task,
-      context,
+      context: buildSendContext(),
       safeMode: safeMode.value,
+      unlimitedTurns: unlimitedTurns.value,
+      claudeCodeEnabled: ccCollab.value,
+      refinedMode: refinedMode.value,
       entry: 'studio',
     }, (ack: AckResponse) => {
       if (sendAckHandle !== null) {
@@ -651,13 +802,89 @@ export function useStudioRunner() {
         finalize();
         return;
       }
-      // 启动 ack 后再同步一次 3 个 checkbox（确保后端拿到值）
       const sid = currentSessionId.value;
       if (sid) {
         socket.emit('ide:safe-mode', { sessionId: sid, enabled: safeMode.value });
-        if (unlimitedTurns.value) socket.emit('ide:unlimited-turns', { sessionId: sid, enabled: true });
-        if (ccCollab.value) socket.emit('ide:claude-code-collab', { sessionId: sid, enabled: true });
+        socket.emit('ide:unlimited-turns', { sessionId: sid, enabled: unlimitedTurns.value });
+        socket.emit('ide:claude-code-collab', { sessionId: sid, enabled: ccCollab.value });
+        socket.emit('ide:refined-mode', { sessionId: sid, enabled: refinedMode.value });
       }
+    });
+  }
+
+  function sendWhenSocketReady(task: string): void {
+    if (socket.connected) {
+      emitIdeMessage(task);
+      return;
+    }
+    setStatus('starting', '连接 Socket 中...');
+    pendingConnectSend = () => {
+      if (sendConnectHandle !== null) {
+        clearTimeout(sendConnectHandle);
+        sendConnectHandle = null;
+      }
+      pendingConnectSend = null;
+      emitIdeMessage(task);
+    };
+    socket.once('connect', pendingConnectSend);
+    socket.connect();
+    sendConnectHandle = setTimeout(() => {
+      if (pendingConnectSend) socket.off('connect', pendingConnectSend);
+      pendingConnectSend = null;
+      setStatus('error', 'Socket 未连接');
+      appendAiLine('error', 'Socket 尚未连接，ide:message 未发送；请确认后端已启动并刷新页面重试');
+      finalize();
+    }, 8000);
+  }
+
+  async function sendTask(task: string): Promise<void> {
+    activeRunId = null;
+    stopRequested = false;
+    appendUserMessage(task);
+
+    isRunning.value = true;
+    setStatus('starting', '启动中...');
+
+    sendWhenSocketReady(task);
+  }
+
+  async function onSend(): Promise<void> {
+    const task = taskInput.value.trim();
+    if (!task) {
+      notify.error('请输入自然语言描述');
+      return;
+    }
+    if (isRunning.value) return;
+    taskInput.value = '';
+    await sendTask(task);
+  }
+
+  function respondAuthoring(interaction: AuthoringInteraction, value: string, label: string): void {
+    if (isRunning.value) {
+      notify.error('请等待当前回复完成后再选择');
+      return;
+    }
+    if (!currentSessionId.value || !authoringSession.value) return;
+    const text = interaction.kind === 'commit_approval'
+      ? (value === 'approve'
+        ? `我确认执行：${label || '写入创作产物文件'}：${interaction.artifactId || ''}`
+        : `暂不写入，继续修改草案：${interaction.artifactId || ''}`)
+      : interaction.kind === 'options'
+        ? `我选择方案 ${value}：${label}`
+        : `${interaction.question || '我的回答'}：${label || value}`;
+    socket.emit('ide:authoring-reply', {
+      sessionId: currentSessionId.value,
+      authoringSessionId: authoringSession.value.id,
+      interactionId: interaction.id,
+      value,
+      text,
+    }, (ack: AckResponse) => {
+      if (!ack?.ok) {
+        notify.error(ack?.error || '提交选择失败');
+        return;
+      }
+      markAuthoringAnswered(interaction.id);
+      void sendTask(text);
     });
   }
 
@@ -696,6 +923,14 @@ export function useStudioRunner() {
       clearTimeout(sendAckHandle);
       sendAckHandle = null;
     }
+    if (sendConnectHandle !== null) {
+      clearTimeout(sendConnectHandle);
+      sendConnectHandle = null;
+    }
+    if (pendingConnectSend) {
+      socket.off('connect', pendingConnectSend);
+      pendingConnectSend = null;
+    }
     // 任务完成后重拉 skill 列表（用户可能新建了 skill）
     void loadSkills();
   }
@@ -719,21 +954,20 @@ export function useStudioRunner() {
 
     if (mode === 'refine' && target) {
       window.history.replaceState({}, '', window.location.pathname);
-      // 在 skillList（含 playbooks）查 target 的名字；找不到降级用 id
       const targetItem = skillList.value.find((s) => s.id === target);
-      const pbName = targetItem?.name || target;
+      const artifactName = targetItem?.name || target;
       let errorCtx = '';
       try {
         errorCtx = sessionStorage.getItem(ERROR_CONTEXT_KEY) || '';
         sessionStorage.removeItem(ERROR_CONTEXT_KEY);
       } catch { /* quota */ }
       setTimeout(() => {
-        const lines: string[] = [`请帮我改进 Playbook「${pbName}」（id: ${target}）。`];
+        const lines: string[] = [`请帮我改进产物「${artifactName}」（id: ${target}）。`];
         if (errorCtx) {
           lines.push('', '上一次运行的错误信息：', '```', errorCtx, '```', '');
-          lines.push('请分析以上错误的根因，定位是 Playbook YAML 写错了、还是执行命令本身有问题，并给出具体修改方案。');
+          lines.push('请分析以上错误的根因，定位是 Program L1/action、Skill 约束还是执行命令本身的问题，并给出具体修改方案。');
         } else {
-          lines.push('', '请分析这个 Playbook 当前的不足，并给出改进方案。');
+          lines.push('', '请分析这个产物当前的不足，并给出改进方案。');
         }
         taskInput.value = lines.join('\n');
         void onSend();
@@ -758,6 +992,7 @@ export function useStudioRunner() {
     safeMode,
     unlimitedTurns,
     ccCollab,
+    refinedMode,
     historyDrawerOpen,
   ], saveStudioPrefs, { deep: true });
 
@@ -786,7 +1021,8 @@ export function useStudioRunner() {
     toolFilter, toolItems, filteredToolItems, toolItemKey,
     sessions, currentSessionId, currentMessages,
     isRunning, runStatusKind, runStatusText,
-    taskInput, safeMode, unlimitedTurns, ccCollab,
+    authoringSession, authoringStages, authoringStageText,
+    taskInput, safeMode, unlimitedTurns, ccCollab, refinedMode,
     historyDrawerOpen,
     pendingApprove, approveCountdown,
     summaryText,
@@ -797,9 +1033,10 @@ export function useStudioRunner() {
     toggleHost, addPath, addPickedPath, removePath,
     toggleContainer, unpinContainer,
     toggleTool,
-    setSafeMode, setUnlimitedTurns, setCcCollab,
-    onSend, onStop,
+    setSafeMode, setUnlimitedTurns, setCcCollab, setRefinedMode,
+    onSend, onStop, respondAuthoring,
     switchSession, startNewChat, clearCurrentChat, deleteSession,
+    cleanupSessionResiduals, residualCountForSession,
     toggleHistoryDrawer,
     scanContainers, loadFpDir,
     respondApprove,

@@ -19,11 +19,11 @@
 
 ---
 
-## Skill vs Playbook 判断（Step 0 通过后做这个）
+## Skill vs Program L1 判断（Step 0 通过后做这个）
 
 **"如果我把步骤写死，不需要 AI 临场判断，能完成吗？"**
 
-- 能 → 这是 Playbook，改走 `workflows/generate-playbook.md`
+- 能 → 不应创建 Skill；改走 `workflows/generate-program.md`，把固定步骤放入 Program L1/action
 - 不能（需根据现场决策、有条件分支、有破坏性操作需确认）→ 是 Skill，继续
 
 ---

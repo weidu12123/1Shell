@@ -10,6 +10,7 @@ function createApp(rootDir) {
 
   // HTTP 安全头：禁用 X-Powered-By、添加 XSS / MIME / Frame 保护等
   app.use(helmet({
+    strictTransportSecurity: false,
     // Socket.IO 和 xterm.js 的 CDN 资源需要放行 CSP
     contentSecurityPolicy: {
       directives: {
@@ -19,6 +20,7 @@ function createApp(rootDir) {
         fontSrc: ["'self'", 'cdn.jsdelivr.net', 'cdn.tailwindcss.com', 'unpkg.com'],
         connectSrc: ["'self'", 'ws:', 'wss:'],
         imgSrc: ["'self'", 'data:'],
+        upgradeInsecureRequests: null,
       },
     },
   }));

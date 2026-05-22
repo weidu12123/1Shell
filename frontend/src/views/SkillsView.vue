@@ -49,6 +49,14 @@ const mcpLoadError = ref<string | null>(null);
 const remoteMcps = computed(() => allMcpServers.value.filter((m) => !isLocalMcp(m)));
 const localMcps  = computed(() => allMcpServers.value.filter((m) => isLocalMcp(m)));
 
+function isProtectedClaudeCodeSkill(s: ClaudeCodeSkillInfo): boolean {
+  return s.id === 'program-authoring'
+    || s.id === 'oneshell-skill-authoring'
+    || s.deletable === false
+    || s.builtin === true
+    || s.system === true;
+}
+
 function saveSkillsCache(): void {
   setCachedPageState<SkillsCache>(SKILLS_CACHE_KEY, {
     skills: skills.value,
@@ -156,6 +164,10 @@ async function onToggleClaudeCodeSkill(id: string): Promise<void> {
 async function onDeleteClaudeCodeSkill(id: string): Promise<void> {
   const s = claudeCodeSkills.value.find((x) => x.id === id);
   if (!s) return;
+  if (isProtectedClaudeCodeSkill(s)) {
+    notify.error('系统默认 Claude Code Skill 不允许删除', 4000);
+    return;
+  }
   const ok = await confirm({
     title: '删除 Claude Code Skill',
     message: `删除托管 Skill "${s.name || id}"？\n原始仓库副本和 manifest 将被删除，不会影响 1Shell 扩展。`,
@@ -343,11 +355,19 @@ onMounted(() => {
                   class="text-[9px] px-1.5 py-0.5 rounded font-semibold shrink-0"
                   :class="s.enabled === false ? 'bg-slate-100 text-slate-400 dark:bg-[#1e293b] dark:text-slate-500' : 'bg-emerald-100 text-emerald-600 dark:bg-emerald-500/15 dark:text-emerald-300'"
                 >{{ s.enabled === false ? 'disabled' : 'enabled' }}</span>
+                <span
+                  v-if="isProtectedClaudeCodeSkill(s)"
+                  class="text-[9px] px-1.5 py-0.5 rounded font-semibold shrink-0 bg-blue-100 text-blue-600 dark:bg-blue-500/15 dark:text-blue-300"
+                >系统默认</span>
               </div>
               <div class="text-[10px] text-slate-400 font-mono truncate">{{ s.id }}</div>
             </div>
             <button class="text-[10px] text-blue-500 hover:text-blue-600" @click="onToggleClaudeCodeSkill(s.id)">{{ s.enabled === false ? '启用' : '禁用' }}</button>
-            <button class="text-[10px] text-red-400 hover:text-red-500" @click="onDeleteClaudeCodeSkill(s.id)">删除</button>
+            <button
+              v-if="!isProtectedClaudeCodeSkill(s)"
+              class="text-[10px] text-red-400 hover:text-red-500"
+              @click="onDeleteClaudeCodeSkill(s.id)"
+            >删除</button>
           </div>
           <p class="text-[11px] text-slate-500 dark:text-slate-400 line-clamp-3 min-h-[42px]">{{ s.description || '标准 Claude Code Skill 托管包，暂不直接进入 1Shell runner。' }}</p>
           <div class="text-[10px] text-slate-400 font-mono truncate" :title="s.repoUrl">{{ s.repoUrl || 'local' }}</div>

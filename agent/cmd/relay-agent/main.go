@@ -34,6 +34,7 @@ const (
 	staleAfter        = 3 * time.Minute
 	trustMinReports   = 1
 	trustResetGap     = 6 * time.Minute
+	sampleRetention   = 7 * 24 * time.Hour
 )
 
 type Config struct {
@@ -66,10 +67,18 @@ type LatestPayload struct {
 	UpdatedAt  time.Time       `json:"updatedAt"`
 }
 
+type StoredSample struct {
+	HostID     string          `json:"hostId"`
+	Payload    json.RawMessage `json:"payload"`
+	ReportedAt time.Time       `json:"reportedAt"`
+	UpdatedAt  time.Time       `json:"updatedAt"`
+}
+
 type State struct {
 	InstallTokens map[string]InstallToken  `json:"installTokens"`
 	Agents        map[string]Agent         `json:"agents"`
 	Latest        map[string]LatestPayload `json:"latest"`
+	Samples       []StoredSample           `json:"samples"`
 }
 
 type Server struct {
@@ -106,6 +115,8 @@ func main() {
 	mux.HandleFunc("/api/agent/probe/relay-snapshot", srv.handleRelaySnapshot)
 	mux.HandleFunc("/api/agent/probe/register", srv.handleRegister)
 	mux.HandleFunc("/api/agent/probe/report", srv.handleReport)
+	mux.HandleFunc("/api/agent/probe/commands/next", srv.handleCommandNext)
+	mux.HandleFunc("/api/agent/probe/commands/", srv.handleCommandResult)
 
 	httpServer := &http.Server{Addr: cfg.ListenAddr, Handler: mux}
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
@@ -149,6 +160,7 @@ func (s *Server) loadState() error {
 		InstallTokens: map[string]InstallToken{},
 		Agents:        map[string]Agent{},
 		Latest:        map[string]LatestPayload{},
+		Samples:       []StoredSample{},
 	}
 	data, err := os.ReadFile(s.cfg.StateFile)
 	if errors.Is(err, os.ErrNotExist) {
@@ -172,10 +184,14 @@ func (s *Server) loadState() error {
 	if s.state.Latest == nil {
 		s.state.Latest = map[string]LatestPayload{}
 	}
+	if s.state.Samples == nil {
+		s.state.Samples = []StoredSample{}
+	}
 	return nil
 }
 
 func (s *Server) saveStateLocked() error {
+	s.pruneSamplesLocked(time.Now().UTC())
 	if err := os.MkdirAll(filepath.Dir(s.cfg.StateFile), 0700); err != nil {
 		return err
 	}
@@ -267,10 +283,12 @@ func (s *Server) handleRelaySnapshot(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusUnauthorized, "Relay token 无效")
 		return
 	}
+	since := parseOptionalTime(r.URL.Query().Get("since"))
 	s.mu.Lock()
 	probes := s.buildSnapshotLocked()
+	samples := s.buildSamplesLocked(since)
 	s.mu.Unlock()
-	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "relay": true, "generatedAt": time.Now().UTC().Format(time.RFC3339), "probes": probes})
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "relay": true, "generatedAt": time.Now().UTC().Format(time.RFC3339), "probes": probes, "samples": samples})
 }
 
 func (s *Server) handleRelayForgetHost(w http.ResponseWriter, r *http.Request) {
@@ -305,13 +323,23 @@ func (s *Server) handleRelayForgetHost(w http.ResponseWriter, r *http.Request) {
 	}
 	_, hadLatest := s.state.Latest[hostID]
 	delete(s.state.Latest, hostID)
+	keptSamples := s.state.Samples[:0]
+	removedSamples := 0
+	for _, sample := range s.state.Samples {
+		if sample.HostID == hostID {
+			removedSamples++
+			continue
+		}
+		keptSamples = append(keptSamples, sample)
+	}
+	s.state.Samples = keptSamples
 	err := s.saveStateLocked()
 	s.mu.Unlock()
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "hostId": hostID, "removedAgents": removedAgents, "removedLatest": hadLatest})
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "hostId": hostID, "removedAgents": removedAgents, "removedLatest": hadLatest, "removedSamples": removedSamples})
 }
 
 func (s *Server) handleRegister(w http.ResponseWriter, r *http.Request) {
@@ -424,6 +452,7 @@ func (s *Server) handleReport(w http.ResponseWriter, r *http.Request) {
 	if err == nil {
 		reportedAt := parseTime(fmt.Sprint(body["timestamp"]), now)
 		s.state.Latest[agent.HostID] = LatestPayload{Payload: payload, ReportedAt: reportedAt, UpdatedAt: now}
+		s.appendSampleLocked(StoredSample{HostID: agent.HostID, Payload: payload, ReportedAt: reportedAt, UpdatedAt: now})
 	}
 	s.state.Agents[tokenHash] = agent
 	err = s.saveStateLocked()
@@ -433,6 +462,46 @@ func (s *Server) handleReport(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "hostId": agent.HostID, "reportedAt": now.Format(time.RFC3339)})
+}
+
+func (s *Server) handleCommandNext(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+	bearer := bearerToken(r)
+	if bearer == "" {
+		writeError(w, http.StatusUnauthorized, "agent token 无效")
+		return
+	}
+	s.mu.Lock()
+	_, ok := s.state.Agents[hashToken(bearer)]
+	s.mu.Unlock()
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "agent token 无效")
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (s *Server) handleCommandResult(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+	bearer := bearerToken(r)
+	if bearer == "" {
+		writeError(w, http.StatusUnauthorized, "agent token 无效")
+		return
+	}
+	s.mu.Lock()
+	_, ok := s.state.Agents[hashToken(bearer)]
+	s.mu.Unlock()
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "agent token 无效")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
 }
 
 func (s *Server) checkSyncAuth(r *http.Request) bool {
@@ -449,13 +518,7 @@ func (s *Server) buildSnapshotLocked() []map[string]any {
 		latestByHost[hostID] = latest
 	}
 
-	agentsByHost := map[string]Agent{}
-	for _, agent := range s.state.Agents {
-		current, ok := agentsByHost[agent.HostID]
-		if !ok || agentRank(agent) >= agentRank(current) {
-			agentsByHost[agent.HostID] = agent
-		}
-	}
+	agentsByHost := s.agentsByHostLocked()
 
 	hostIDs := make([]string, 0, len(agentsByHost)+len(latestByHost))
 	seen := map[string]bool{}
@@ -480,6 +543,68 @@ func (s *Server) buildSnapshotLocked() []map[string]any {
 		probes = append(probes, buildProbe(agent, latest, hasLatest))
 	}
 	return probes
+}
+
+func (s *Server) agentsByHostLocked() map[string]Agent {
+	agentsByHost := map[string]Agent{}
+	for _, agent := range s.state.Agents {
+		current, ok := agentsByHost[agent.HostID]
+		if !ok || agentRank(agent) >= agentRank(current) {
+			agentsByHost[agent.HostID] = agent
+		}
+	}
+	return agentsByHost
+}
+
+func (s *Server) buildSamplesLocked(since time.Time) []map[string]any {
+	agentsByHost := s.agentsByHostLocked()
+	items := make([]StoredSample, 0, len(s.state.Samples))
+	for _, sample := range s.state.Samples {
+		if !since.IsZero() && !sample.ReportedAt.After(since) {
+			continue
+		}
+		items = append(items, sample)
+	}
+	sort.Slice(items, func(i, j int) bool {
+		if items[i].ReportedAt.Equal(items[j].ReportedAt) {
+			return items[i].HostID < items[j].HostID
+		}
+		return items[i].ReportedAt.Before(items[j].ReportedAt)
+	})
+	samples := make([]map[string]any, 0, len(items))
+	for _, item := range items {
+		agent := agentsByHost[item.HostID]
+		if agent.HostID == "" {
+			agent = Agent{HostID: item.HostID, LastSeenAt: item.UpdatedAt}
+		}
+		samples = append(samples, buildProbe(agent, LatestPayload{Payload: item.Payload, ReportedAt: item.ReportedAt, UpdatedAt: item.UpdatedAt}, true))
+	}
+	return samples
+}
+
+func (s *Server) appendSampleLocked(sample StoredSample) {
+	if sample.HostID == "" || sample.ReportedAt.IsZero() || len(sample.Payload) == 0 {
+		return
+	}
+	for i, existing := range s.state.Samples {
+		if existing.HostID == sample.HostID && existing.ReportedAt.Equal(sample.ReportedAt) {
+			s.state.Samples[i] = sample
+			return
+		}
+	}
+	s.state.Samples = append(s.state.Samples, sample)
+}
+
+func (s *Server) pruneSamplesLocked(now time.Time) {
+	cutoff := now.Add(-sampleRetention)
+	kept := s.state.Samples[:0]
+	for _, sample := range s.state.Samples {
+		if sample.ReportedAt.IsZero() || sample.ReportedAt.Before(cutoff) {
+			continue
+		}
+		kept = append(kept, sample)
+	}
+	s.state.Samples = kept
 }
 
 func agentRank(agent Agent) int64 {
@@ -639,6 +764,20 @@ func parseTime(value string, fallback time.Time) time.Time {
 		return t.UTC()
 	}
 	return fallback
+}
+
+func parseOptionalTime(value string) time.Time {
+	value = strings.TrimSpace(value)
+	if value == "" || value == "<nil>" {
+		return time.Time{}
+	}
+	if t, err := time.Parse(time.RFC3339, value); err == nil {
+		return t.UTC()
+	}
+	if ms, err := strconv.ParseInt(value, 10, 64); err == nil && ms > 0 {
+		return time.UnixMilli(ms).UTC()
+	}
+	return time.Time{}
 }
 
 func bearerToken(r *http.Request) string {

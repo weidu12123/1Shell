@@ -4,19 +4,9 @@ const fs = require('fs');
 const path = require('path');
 const log = require('../../lib/logger');
 
-/**
- * Host Repository
- *
- * 存储层：SQLite 优先，JSON 文件 fallback。
- * 首次启动时自动将 hosts.json 中的已有数据迁移到 SQLite。
- *
- * 接口保持不变：readStoredHosts / writeStoredHosts / ensureHostsFile
- * 上层（host.service.js、host.routes.js）无需任何改动。
- */
 function createHostRepository(hostsFile, db) {
   const jsonDir = path.dirname(hostsFile);
-
-  // ─── JSON 文件操作（fallback / 迁移源）────────────────────────────────
+  const preferencesFile = path.join(jsonDir, 'host-preferences.json');
 
   function ensureHostsFile() {
     if (!fs.existsSync(jsonDir)) fs.mkdirSync(jsonDir, { recursive: true });
@@ -38,17 +28,57 @@ function createHostRepository(hostsFile, db) {
     fs.writeFileSync(hostsFile, `${JSON.stringify(hosts, null, 2)}\n`, 'utf8');
   }
 
-  // ─── 无 SQLite 时使用 JSON fallback ───────────────────────────────────
+  function readJsonPreferences() {
+    try {
+      const raw = fs.readFileSync(preferencesFile, 'utf8').trim() || '{}';
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed)) return Object.fromEntries(parsed.map((item) => [item.hostId, item]).filter(([id]) => id));
+      return parsed && typeof parsed === 'object' ? parsed : {};
+    } catch {
+      return {};
+    }
+  }
+
+  function writeJsonPreferencesMap(map) {
+    ensureHostsFile();
+    fs.writeFileSync(preferencesFile, `${JSON.stringify(map, null, 2)}\n`, 'utf8');
+  }
+
+  function parsePreferenceRow(row) {
+    if (!row) return null;
+    let tags = [];
+    try { tags = JSON.parse(row.tags_json || '[]'); } catch { tags = []; }
+    return {
+      hostId: row.host_id,
+      showInConsole: Boolean(row.show_in_console),
+      consoleOrder: Number(row.console_order) || 0,
+      pinned: Boolean(row.pinned),
+      role: row.role || null,
+      tags: Array.isArray(tags) ? tags : [],
+      archived: Boolean(row.archived),
+      updatedAt: row.updated_at || null,
+    };
+  }
 
   if (!db) {
     return {
       ensureHostsFile,
       readStoredHosts: () => { ensureHostsFile(); return readJsonHosts(); },
       writeStoredHosts: writeJsonHosts,
+      readHostPreferences: () => Object.values(readJsonPreferences()),
+      readHostPreference: (hostId) => readJsonPreferences()[hostId] || null,
+      writeHostPreference: (preference) => {
+        const map = readJsonPreferences();
+        map[preference.hostId] = preference;
+        writeJsonPreferencesMap(map);
+      },
+      deleteHostPreference: (hostId) => {
+        const map = readJsonPreferences();
+        delete map[hostId];
+        writeJsonPreferencesMap(map);
+      },
     };
   }
-
-  // ─── SQLite 操作 ──────────────────────────────────────────────────────
 
   const stmts = {
     selectAll: db.prepare('SELECT data FROM hosts ORDER BY created_at ASC'),
@@ -61,6 +91,22 @@ function createHostRepository(hostsFile, db) {
     deleteOne: db.prepare('DELETE FROM hosts WHERE id = ?'),
     deleteAll: db.prepare('DELETE FROM hosts'),
     count: db.prepare('SELECT COUNT(*) as cnt FROM hosts'),
+    selectPreferences: db.prepare('SELECT * FROM host_preferences'),
+    selectPreference: db.prepare('SELECT * FROM host_preferences WHERE host_id = ?'),
+    upsertPreference: db.prepare(`
+      INSERT INTO host_preferences (
+        host_id, show_in_console, console_order, pinned, role, tags_json, archived, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(host_id) DO UPDATE SET
+        show_in_console = excluded.show_in_console,
+        console_order = excluded.console_order,
+        pinned = excluded.pinned,
+        role = excluded.role,
+        tags_json = excluded.tags_json,
+        archived = excluded.archived,
+        updated_at = excluded.updated_at
+    `),
+    deletePreference: db.prepare('DELETE FROM host_preferences WHERE host_id = ?'),
   };
 
   const upsertMany = db.transaction((hosts) => {
@@ -76,11 +122,9 @@ function createHostRepository(hostsFile, db) {
     }
   });
 
-  // ─── 自动迁移 ─────────────────────────────────────────────────────────
-
   function migrateFromJson() {
     const { cnt } = stmts.count.get();
-    if (cnt > 0) return; // SQLite 中已有数据，跳过
+    if (cnt > 0) return;
 
     ensureHostsFile();
     const jsonHosts = readJsonHosts();
@@ -89,7 +133,6 @@ function createHostRepository(hostsFile, db) {
     upsertMany(jsonHosts);
     log.info('已从 hosts.json 迁移主机到 SQLite', { count: jsonHosts.length });
 
-    // 备份原文件
     const backupPath = hostsFile + '.migrated';
     try {
       fs.copyFileSync(hostsFile, backupPath);
@@ -100,8 +143,6 @@ function createHostRepository(hostsFile, db) {
 
   migrateFromJson();
 
-  // ─── 对外接口（与 JSON 版完全一致）────────────────────────────────────
-
   function readStoredHosts() {
     const rows = stmts.selectAll.all();
     return rows.map((row) => {
@@ -111,14 +152,42 @@ function createHostRepository(hostsFile, db) {
 
   function writeStoredHosts(hosts) {
     replaceAll(hosts);
-    // 同步写 JSON 作为备份（不阻塞，不报错）
     try { writeJsonHosts(hosts); } catch { /* ignore */ }
+  }
+
+  function readHostPreferences() {
+    return stmts.selectPreferences.all().map(parsePreferenceRow).filter(Boolean);
+  }
+
+  function readHostPreference(hostId) {
+    return parsePreferenceRow(stmts.selectPreference.get(hostId));
+  }
+
+  function writeHostPreference(preference) {
+    stmts.upsertPreference.run(
+      preference.hostId,
+      preference.showInConsole ? 1 : 0,
+      Number(preference.consoleOrder) || 0,
+      preference.pinned ? 1 : 0,
+      preference.role || null,
+      JSON.stringify(Array.isArray(preference.tags) ? preference.tags : []),
+      preference.archived ? 1 : 0,
+      preference.updatedAt || new Date().toISOString()
+    );
+  }
+
+  function deleteHostPreference(hostId) {
+    stmts.deletePreference.run(hostId);
   }
 
   return {
     ensureHostsFile,
     readStoredHosts,
     writeStoredHosts,
+    readHostPreferences,
+    readHostPreference,
+    writeHostPreference,
+    deleteHostPreference,
   };
 }
 

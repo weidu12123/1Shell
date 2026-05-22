@@ -4,7 +4,7 @@
 
 **One Shell to rule them all.**
 
-基于 Web 的 AI 原生多服务器管理平台：终端、文件、探针、脚本、MCP、AI Agent 与三层自动运维集中在一个控制台。
+AI 时代的 VPS 集成管理中枢：终端、文件、探针、脚本、项目部署、MCP、AI Agent 与三层自动运维集中在一个控制台。
 
 [![version](https://img.shields.io/badge/version-4.0.0-4f8cff?style=flat-square)](https://github.com/weidu12123/1Shell/releases)
 [![node](https://img.shields.io/badge/node-%3E%3D18-43a047?style=flat-square&logo=node.js)](https://nodejs.org)
@@ -20,11 +20,11 @@
 
 ## 什么是 1Shell？
 
-1Shell 是一个面向个人开发者、小团队和轻量运维场景的**多服务器集中管理平台**。你可以通过浏览器统一管理多台 VPS / 云服务器，并让 AI 在授权范围内读取状态、执行命令、分析日志、修改文件、生成自动化程序和处理告警。
+1Shell 是一个面向个人开发者、小团队和轻量运维场景的 **AI 时代 VPS 集成管理中枢**。你可以通过浏览器统一管理多台 VPS / 云服务器，并让 AI 在授权范围内读取状态、执行命令、分析日志、修改文件、部署项目、生成自动化程序和处理告警。
 
-它不是传统的“Web SSH 面板”。传统面板解决的是“如何连上服务器”，1Shell 要解决的是**连上之后如何持续、安全、高效地管理一组服务器**。
+它不是传统的“Web SSH 面板”。传统面板解决的是“如何连上服务器”，1Shell 要解决的是**连上之后如何持续、安全、高效地管理 VPS 上的项目、服务、流量、证书、脚本、监控和 AI 自动化**。
 
-v4.0 将 1Shell 从旧版页面全面升级为 Vue 3 控制台，并把主机、探针、AI、Skill、Program、脚本库、MCP 与 Agent 面板重新整合成一个统一工作台。
+v4.0 将 1Shell 从旧版页面全面升级为 Vue 3 控制台，并把主机、探针、AI、Skill、Program、脚本库、MCP 与 Agent 面板重新整合成一个统一工作台。它的核心不是堆叠零散工具，而是把 VPS 的日常运维、项目部署、项目管理、监控诊断和 AI 协作放进同一个闭环。
 
 ---
 
@@ -35,8 +35,11 @@ v4.0 将 1Shell 从旧版页面全面升级为 Vue 3 控制台，并把主机、
 - **主控台重构**：主机列表、终端、文件浏览器、AI Chat、1Shell AI、AI Agent 面板整合为一个多栏工作区，并保留常用页面状态，返回时无需重新从零加载。
 - **探针系统 4.0**：默认支持 Agentless SSH 探针，也支持一键部署 probe-agent / probe-relay-agent，提供趋势、样本、流量、告警、网络诊断和 Agent 生命周期真实校验。
 - **1Shell AI 全局助手**：右下角全局唤起，自动感知当前页面上下文，调用内置工具管理主机、文件、脚本、Program、MCP 和探针。
-- **Program 三层自动运维**：L1 确定性执行、L2 Skill 约束维护 / AI 功能层、L3 Guardian AI 危机升级，并保证任一终态都进入结果界面。
-- **Skill / Program / 脚本库重构**：支持 1Shell Skill Extension、Claude Code Skill 托管、Program 自动化流程和可复用脚本管理。
+- **Program 三层自动运维完成重构**：L1 确定性执行、L2 Skill 约束维护 / AI 功能层、L3 Guardian AI 危机升级分层清晰，触发条件、升级边界、失败收束和结果界面全部闭环。
+- **Program UI Artifact 平台**：Program 不再只是固定表单或 YAML，而是 `program.yaml + ui/` 组成的专属小应用，可在 sandbox iframe 中运行自己的 `App.jsx / style.css / DESIGN.md`。
+- **创作台 Authoring Session**：Program / Skill 创作从“一句话直接写文件”升级为 discovery → options → spec → plan → draft → review → commit → verify 的阶段化流程，批准前不落盘。
+- **精修模式**：创作台新增可选需求扩写开关，适合证书、反代、部署、探针、MCP 等复杂高风险 Program；开启后先生成结构化 Brief，再进入方案、Spec、Plan 和 Draft。
+- **Skill / Program / 脚本库重构**：支持 1Shell Skill Extension、Claude Code Skill 托管、Program 自动化流程、UI Artifact 和可复用脚本管理。
 - **MCP 仓库与 Bridge 能力增强**：1Shell 可作为 MCP Server 暴露主机、远程文件、脚本、审计、探针、告警、流量、诊断和 Agent 生命周期能力，也可在内部接入外部 MCP 工具供 1Shell AI 调用。
 - **AI CLI 面板**：在 Web 控制台内运行 Claude Code / OpenCode / Codex，并支持一键接入 1Shell 能力。
 - **安全体系补强**：登录认证、凭据加密、CSRF、防暴力破解、IP 访问控制、AI 安全模式、审计日志和 Bridge Token 隔离。
@@ -53,6 +56,7 @@ v4.0 将 1Shell 从旧版页面全面升级为 Vue 3 控制台，并把主机、
 | **SFTP 文件浏览** | 本地 / 远程双模式，目录导航、文件预览、上传下载、在线编辑 |
 | **主机控制台** | 主机分组、状态卡片、连接管理、快捷入口、右侧 AI / Agent 工作区 |
 | **脚本库** | 脚本创建、编辑、执行、历史记录和跨主机运行 |
+| **项目部署与管理** | 面向 GitHub 项目、端口服务、反代证书和运行状态的 VPS 项目管理入口 |
 | **审计日志** | 关键操作写入 SQLite，支持查询和追溯 |
 
 ### 探针与监控
@@ -70,6 +74,7 @@ v4.0 将 1Shell 从旧版页面全面升级为 Vue 3 控制台，并把主机、
 | 功能 | 说明 |
 |------|------|
 | **1Shell AI** | 平台内置的全局 AI 运维助手，可调用 1Shell 工具完成跨主机操作 |
+| **创作台 AI** | 用 Authoring Session 创建 / 维护 Program、Skill、Script 和 MCP 接入，支持精修模式 |
 | **AI Chat** | 独立的 OpenAI 兼容聊天入口，用于普通问答、解释和上下文分析 |
 | **Ghost Text** | 终端输入时提供 AI 内联补全，Tab 采纳 |
 | **命令建议** | 用自然语言描述目标，AI 生成可执行命令并注入终端 |
@@ -80,8 +85,11 @@ v4.0 将 1Shell 从旧版页面全面升级为 Vue 3 控制台，并把主机、
 
 | 功能 | 说明 |
 |------|------|
-| **Program** | 声明式运维程序，可定时或手动在多台主机上执行 |
-| **三层 AI 引擎** | L1 规则执行 → L2 Skill 修复 → L3 Guardian AI 自主诊断 |
+| **Program** | 声明式运维小应用，由 `program.yaml` 能力契约和 `ui/` 专属界面组成 |
+| **Program UI Artifact** | AI 生成 `DESIGN.md / manifest.json / App.jsx / style.css`，在 sandbox 中通过 `$oneShell` bridge 调用 action |
+| **三层 AI 引擎** | L1 规则执行 → L2 Skill 修复 / AI 功能 → L3 Guardian 危机升级，失败也进入结果界面 |
+| **Authoring Session** | 创作台分阶段生成 Spec、Plan、Draft、Review、Commit、Verify，批准前不写入最终文件 |
+| **精修模式** | 可选需求扩写模式，把一句粗需求先整理成结构化 Brief，再生成高质量 Program / Skill |
 | **Skill Extension** | 面向 1Shell runner / Program L2 的 AI 约束包，按 rules / workflows / references 分层组织 |
 | **Claude Code Skill 托管** | 统一管理标准 Claude Code Skill 的导入、启用/禁用、查看和更新 |
 | **Program 流程** | 将临时巡检、批量修复和交付任务统一沉淀为可执行运维程序 |
@@ -215,16 +223,28 @@ AI Chat 与 1Shell AI 是两个入口：AI Chat 更适合普通聊天和解释�
 
 ## Program：三层渐进式自动运维
 
-Program 是 1Shell 的声明式自动运维程序，用 YAML 描述检查、执行、验证、修复、AI 介入和结果输出。它的执行原则是：**L1 能确定执行就不上 AI；L2 能在 Skill 约束内修复就不上 L3；任一终态都必须进入结果界面。**
+Program 是 1Shell 的声明式自动运维小应用，由两部分组成：
 
 ```text
-Manual / Cron Trigger
+data/programs/<program-id>/
+├── program.yaml        # 能力契约：触发器、action、输入、L1/L2/L3、verify、render、安全边界
+└── ui/                 # Program 专属 UI Artifact
+    ├── DESIGN.md       # 设计记忆和交互约束
+    ├── manifest.json   # runtime、权限声明和入口文件
+    ├── App.jsx         # sandbox 中运行的小应用
+    └── style.css       # 专属样式
+```
+
+它的执行原则是：**L1 能确定执行就不上 AI；L2 能在 Skill 约束内修复就不上 L3；任一终态都必须进入结果界面。**
+
+```text
+Manual / Cron / UI Action Trigger
         ↓
 L1 · 确定性执行
   运行 exec / verify / render，零 AI 消耗
-        ↓ verify 失败或显式 AI step
+        ↓ verify 失败 / on_fail: repair / 显式 type: skill
 L2 · Program Skill 约束层
-  作为维护兜底修复 L1 失败，或作为 Program 主动调用的 AI 功能库
+  修复 L1 失败、适配环境差异，或作为 Program 的受控 AI 功能库
         ↓ 越界 / 高风险 / 需人工 / 疑似事故 / 重复失败
 L3 · Guardian / 1Shell AI
   面向危机场景和意料之外异常，在审批、频率限制和审计下介入
@@ -235,9 +255,22 @@ Result · 结果界面
 
 | 层级 | 负责什么 | 典型触发 | 约束方式 |
 |------|----------|----------|----------|
-| L1 | 固定命令、verify 校验、key-value / table / message 渲染 | 手动触发、cron 触发、普通巡检步骤 | exit code、正则、阈值、结构化 verify |
+| L1 | 固定命令、verify 校验、key-value / table / list / message 渲染 | 手动触发、cron 触发、Program UI action、普通巡检步骤 | exit code、正则、阈值、结构化 verify、render schema |
 | L2 | L1 失败维护、环境差异适配、Program 显式 AI 功能 step | verify failed 后 `on_fail: repair`，或 step 声明 `type: skill` | Program 绑定 `l2.skill`，按 Skill 的 rules / workflows / references 执行 |
 | L3 | 危机升级、疑似攻击、高风险处置、超出 L2 边界的问题 | incident 命中、L2 返回 `risk_too_high` / `out_of_scope` / `needs_human_decision` / `suspected_incident`、重复修复失败、显式 escalate | Guardian 频率限制、危险命令拦截、人工审批、审计日志 |
+
+### Program UI Artifact
+
+Program 页面已经从固定 schema 表单升级为 Artifact Host。每个 Program 可以拥有自己的 UI，小到巡检面板，大到证书助手、反代控制台、探针安装器或备份工作台。宿主只负责 sandbox、bridge、安全确认、运行数据和验证闭环。
+
+UI Artifact 的核心边界：
+
+- `App.jsx` 运行在 iframe sandbox 中，使用内置 React runtime，不进入主应用 bundle。
+- UI 只能通过 `window.$oneShell` bridge 调用宿主能力，例如 `useProgram()`、`runAction()`、`getRuns()`、`getResults()`、`getEvents()`。
+- Program UI 不能直接访问父窗口 DOM、不能直接请求 1Shell 私有 API、不能使用 `eval/new Function/localStorage` 绕过边界。
+- Secret 只能作为表单 state 和 action input 进入后端；不得写入 DOM、console、localStorage、render result 或事件正文。
+- danger action 的确认由宿主强制执行，UI 自己的弹窗不能替代审批。
+- 创建和提交 Program 前必须通过 YAML schema、UI artifact、sandbox preview、secret 和 danger action gate。
 
 L2 的输出必须是结构化终态：`resolved` 表示已修复并继续后续步骤；`unresolved` 表示未解决但会在结果界面说明原因；`out_of_scope`、`risk_too_high`、`needs_human_decision` 和 `suspected_incident` 会作为 L3 升级依据。
 
@@ -272,9 +305,44 @@ Claude Code Skill 是 Claude Code 生态的标准 Skill 包，通常来自外部
 
 Claude Code Skill 默认不进入 1Shell runner 执行链，不自动注入日常 1Shell AI，也不自动转换为 1Shell Skill Extension；标准 Skill 的制作和执行仍属于 Claude Code 生态。
 
+### 创作工作台与 Authoring Session
+
+创作工作台用于创建和维护 Program、1Shell Skill Extension、Script 和 MCP 接入。复杂 Program / Skill 不再由 AI 直接写文件，而是进入 Authoring Session：
+
+```text
+用户需求
+  → discovery：理解目标、识别风险、收集关键缺失信息
+  → options：给出 2-3 个方案并等待选择
+  → spec：创建结构化 Program / Skill Spec artifact
+  → plan：创建实施计划 artifact
+  → draft：创建草案 artifact，不写入最终目录
+  → review：展示拟写入文件、危险动作、不可逆动作和验证方式
+  → commit：用户明确批准后受控写入并 reload registry
+  → verify：验证 registry、Program YAML、UI artifact 和 sandbox preview
+```
+
+创作台底部提供多个运行开关：
+
+| 开关 | 说明 |
+|------|------|
+| **安全模式** | 写操作、命令执行、部署、删除、安装等动作执行前弹出审批 |
+| **不限轮次** | 允许 AI 在复杂任务中继续多轮工具调用 |
+| **精修模式** | 先把一句粗需求扩写为结构化 Brief，再进入 options / spec / plan / draft；适合复杂高风险创作 |
+| **Claude Code 协作** | 允许调用 Claude Code 处理复杂代码或产物创作任务 |
+
+精修模式默认关闭，避免简单脚本和轻量 Skill 被额外流程拖慢。开启后 Brief 至少覆盖原始需求、Program / Skill 定位、用户操作流程、主机选择方式、输入字段与类型、secret 处理、安全边界、UI 质量目标、成功结果展示、失败 / L2 / L3 路径和 artifact gate 清单。Brief 确认后，后续 Spec / Plan / Draft 会沿用这些约束。
+
+创作机制的硬边界：
+
+- commit approval 前禁止写入最终 Program / Skill 文件。
+- commit approval 前禁止 reload registry 或触发 Program。
+- Program 创建必须同时交付 `program.yaml` 和 `ui/DESIGN.md`、`ui/manifest.json`、`ui/App.jsx`、`ui/style.css`。
+- Program UI 必须使用 1Shell 主机上下文或主机选择器，不能让用户手填 raw hostId。
+- validation / sandbox preview 失败时不能报告完成，必须回到 draft 修复。
+
 ### Program 流程与脚本库
 
-- **Program 流程**：承载巡检、批量修复和交付任务，统一进入 Program 的执行、验证、结果输出和 AI 介入链路。
+- **Program 流程**：承载巡检、批量修复和交付任务，统一进入 Program 的执行、验证、结果输出、UI Artifact 和 AI 介入链路。
 - **脚本库**：可复用脚本资产，支持执行历史、详情查看和跨主机运行，也可作为 Program 的执行单元。
 
 ---
@@ -375,6 +443,8 @@ Browser
   ├─ AI Service: OpenAI-compatible streaming API
   ├─ 1Shell AI Tools: platform-native tool calling
   ├─ Program Engine: L1 / L2 / L3
+  ├─ Program UI Artifact Loader / Validator / Sandbox Bridge
+  ├─ Authoring Session Manager / Artifact Commit Gate
   ├─ Skill Runner / Program Runner / Script Runner
   ├─ MCP Server / MCP Warehouse / Bridge API
   ├─ Agent Service: Claude Code / OpenCode / Codex PTY
@@ -392,7 +462,7 @@ Browser
 | 数据库 | SQLite、better-sqlite3 |
 | SSH / SFTP | ssh2、node-pty |
 | AI | OpenAI 兼容 API、流式对话、工具调用 |
-| 自动化 | Program Engine、Skill Runner、Program 流程、脚本库 |
+| 自动化 | Program Engine、Program UI Artifact、Authoring Session、Skill Runner、Program 流程、脚本库 |
 | 协议 | MCP、Bridge HTTP API |
 | 探针 | Agentless SSH、Go probe-agent、probe-relay-agent |
 | 部署 | Docker、docker-compose、systemd、便携包 |
@@ -421,8 +491,10 @@ Browser
 │   ├── skills/                  # Skill runner 与自动化能力支持
 │   └── sockets/                 # WebSocket 事件
 ├── data/
+│   ├── programs/                # Program 定义与 UI Artifact
 │   ├── skills/                  # 1Shell Skill Extension
 │   ├── claude-code-skills/      # Claude Code Skill 托管目录
+│   ├── local-mcp/               # 本地 MCP 托管目录
 │   └── geoip/                   # GeoIP 公开数据资源
 ├── agent/                       # Go probe-agent / relay-agent 源码与构建脚本
 ├── docs/                        # 使用指南和设计文档
@@ -438,11 +510,13 @@ Browser
 
 ## 适用场景
 
-- 个人开发者或小团队有多台 VPS，需要统一入口管理终端、文件、脚本和监控。
+- 个人开发者或小团队有多台 VPS，需要统一入口管理终端、文件、脚本、项目和监控。
+- 希望把 GitHub 项目部署、端口服务、反向代理、证书申请、日志查看和启停管理放进同一个 VPS 工作台。
 - 不希望在所有目标机预装复杂 Agent，但又希望保留可选常驻 Agent 的增强能力。
-- 希望 AI 能在安全审批下协助巡检、排障、执行命令、读写文件和生成自动化流程。
+- 希望 AI 能在安全审批下协助巡检、排障、执行命令、读写文件、部署项目和生成自动化流程。
 - 想让 Claude Code、Cursor 等外部 AI 工具安全调用远程服务器能力。
 - 需要把日常运维经验沉淀成 Program、Skill 和脚本资产。
+- 希望用自然语言生成带专属 UI 的运维小应用，例如证书助手、反代控制台、GitHub 一键部署器、探针安装器、备份工作台。
 
 ---
 
@@ -450,11 +524,12 @@ Browser
 
 | | 传统面板 | Ansible / Terraform | 1Shell |
 |---|---|---|---|
-| 核心定位 | 服务器面板 | 声明式自动化 / 基础设施编排 | AI 原生多服务器控制台 |
+| 核心定位 | 服务器面板 | 声明式自动化 / 基础设施编排 | AI 时代的 VPS 集成管理中枢 |
 | 接入方式 | 通常需要安装服务端组件 | SSH / API / Provider | Web 控制台 + SSH + 可选 Agent |
-| 实时交互 | 有限 | 弱 | 终端、文件、AI、探针、脚本一体化 |
+| 实时交互 | 有限 | 弱 | 终端、文件、AI、探针、脚本、项目一体化 |
 | AI 能力 | 通常没有 | 通常没有 | 1Shell AI + AI Chat + AI Agent + Program L2/L3 |
-| 自动化沉淀 | 面板任务 | 声明式配置 / State | Program / Skill / Script |
+| 自动化沉淀 | 面板任务 | 声明式配置 / State | Program / Skill / Script / UI Artifact |
+| 项目视角 | 网站 / 应用入口分散 | 偏基础设施资源 | VPS 上的项目部署、启停、日志、反代、证书和监控闭环 |
 | 外部协作 | API 能力不一 | CLI / Provider | MCP Server + Bridge API |
 
 ---

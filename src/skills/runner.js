@@ -38,6 +38,7 @@ const { createRescuer } = require('./rescuer');
 
 const MAX_TURNS = 50;
 const DEFAULT_EXEC_TIMEOUT_MS = 30000;
+const SKILL_FILE_READ_MAX_BYTES = 24 * 1024;
 
 // ─── Tool schemas (Anthropic Messages API 格式) ──────────────────────────
 
@@ -59,6 +60,19 @@ const TOOLS = [
         host_id: { type: 'string', description: '（可选）在指定主机上执行；省略则在绑定主机上执行' },
       },
       required: ['command'],
+    },
+  },
+  {
+    name: 'read_skill_file',
+    description:
+      '按需读取当前 Skill 或 referencedSkills 中的单个文件。SKILL.md 已在任务上下文中提供；workflows/references/examples/scripts 需要时再读，不要无目的全量读取。',
+    input_schema: {
+      type: 'object',
+      properties: {
+        path: { type: 'string', description: '相对 Skill 根目录的文件路径，如 workflows/generate.md、references/domain.md' },
+        skillId: { type: 'string', description: '可选；省略表示当前 Skill，只能读取当前 Skill 或 referencedSkills' },
+      },
+      required: ['path'],
     },
   },
   {
@@ -267,6 +281,7 @@ function buildSystemPrompt(skill, host, remoteHosts = [], rules = '') {
         `没有 ls/grep/cat/find；目录检查请直接用 write_local_file（自动创建父目录）。`
       : null,
     `- **write_local_file**: 将内容写入 1Shell 本机（宿主机）的文件系统，路径限定在 data/skills/ 或 data/playbooks/ 目录内。创建或修改 Skill / Playbook 文件时必须用此工具，不要用 execute_command + node/echo 写文件。自动创建父目录，无需提前 mkdir。`,
+    `- **read_skill_file**: 只在需要具体流程、参考资料、示例或脚本时读取单个文件；不要把 workflows/references/examples 全量读取一遍当提示词。`,
     `- **render_result**: 每完成一个阶段性成果就调用本工具推给前端。用户看不到 assistant 文本——只有 render_result 的内容才会显示。` +
       `\n  table 格式支持行操作按钮：rowActions（按钮定义）+ rowActionSkill（点击后运行哪个 Skill）+ rowInputKey（第一列值的参数名，如 "domain"/"container"）。`,
     `- **ask_user**: 需要用户选择、确认或补充输入时调用，不要替用户做决定。`,
@@ -323,18 +338,44 @@ function loadSkillDocs(skillDir) {
     parts.push(`# SKILL.md\n\n${body}`);
   }
 
-  // 注意：rules 已经通过 loadSkillRules → system prompt 注入，这里不再重复
-  for (const subdir of ['workflows', 'references']) {
-    const dir = path.join(skillDir, subdir);
-    if (!fs.existsSync(dir)) continue;
-    const files = fs.readdirSync(dir).filter((f) => f.endsWith('.md')).sort();
-    for (const file of files) {
-      const content = fs.readFileSync(path.join(dir, file), 'utf8');
-      parts.push(`## ${subdir}/${file}\n\n${content}`);
-    }
+  const index = listSkillReadableFiles(skillDir);
+  if (index.length > 0) {
+    parts.push([
+      '## 可按需读取的文件索引',
+      '',
+      '这些文件不会默认注入上下文；需要具体流程、参考资料、示例或脚本时，用 read_skill_file 读取单个文件。',
+      '',
+      ...index.map((file) => `- ${file}`),
+    ].join('\n'));
   }
 
   return parts.join('\n\n---\n\n');
+}
+
+function listSkillReadableFiles(skillDir) {
+  const roots = ['rules', 'workflows', 'references', 'examples', 'scripts', 'templates'];
+  const out = [];
+  for (const root of roots) {
+    const abs = path.join(skillDir, root);
+    if (!fs.existsSync(abs)) continue;
+    collectFiles(abs, root, out);
+  }
+  return out.sort();
+}
+
+function collectFiles(absDir, relDir, out) {
+  let entries;
+  try { entries = fs.readdirSync(absDir, { withFileTypes: true }); }
+  catch { return; }
+  for (const entry of entries) {
+    const abs = path.join(absDir, entry.name);
+    const rel = `${relDir}/${entry.name}`.replace(/\\/g, '/');
+    if (entry.isDirectory()) {
+      collectFiles(abs, rel, out);
+    } else if (entry.isFile()) {
+      out.push(rel);
+    }
+  }
 }
 
 function buildUserMessage(skill, inputs, skillRegistry) {
@@ -851,7 +892,7 @@ function createSkillRunner({
         const toolResults = [];
         for (const tu of toolUses) {
           if (runState.cancelled) break;
-          const result = await runTool(tu, { runId, hostId: effectiveHostId, runState });
+          const result = await runTool(tu, { runId, hostId: effectiveHostId, runState, skill, skillRegistry });
           toolResults.push(result);
         }
 
@@ -886,7 +927,7 @@ function createSkillRunner({
 
   async function runTool(tu, ctx) {
     const { name, input = {}, id } = tu;
-    const { runId, hostId, runState } = ctx;
+    const { runId, hostId, runState, skill, skillRegistry } = ctx;
 
     try {
       if (name === 'execute_command') {
@@ -894,6 +935,9 @@ function createSkillRunner({
       }
       if (name === 'write_local_file') {
         return await handleWriteLocalFile(runId, id, input, runState);
+      }
+      if (name === 'read_skill_file') {
+        return handleReadSkillFile(runId, id, input, skill, skillRegistry);
       }
       if (name === 'render_result') {
         runState.socket.emit('skill:render', { runId, toolUseId: id, payload: input });
@@ -927,6 +971,44 @@ function createSkillRunner({
         content: `Tool execution failed: ${err.message}`,
         is_error: true,
       };
+    }
+  }
+
+  function handleReadSkillFile(runId, toolUseId, input, skill, skillRegistry) {
+    const rawPath = String(input.path || '').trim().replace(/\\/g, '/');
+    const targetSkillId = String(input.skillId || skill?.id || '').trim();
+    if (!rawPath) {
+      return { type: 'tool_result', tool_use_id: toolUseId, content: '[ERROR] path 参数为空', is_error: true };
+    }
+    if (!targetSkillId) {
+      return { type: 'tool_result', tool_use_id: toolUseId, content: '[ERROR] skillId 为空', is_error: true };
+    }
+    if (targetSkillId !== skill.id && !(skill.referencedSkills || []).includes(targetSkillId)) {
+      return { type: 'tool_result', tool_use_id: toolUseId, content: `[ERROR] 只能读取当前 Skill 或 referencedSkills: ${targetSkillId}`, is_error: true };
+    }
+    const targetSkill = targetSkillId === skill.id ? skill : skillRegistry.getSkill?.(targetSkillId);
+    if (!targetSkill?.dir) {
+      return { type: 'tool_result', tool_use_id: toolUseId, content: `[ERROR] Skill 不存在: ${targetSkillId}`, is_error: true };
+    }
+    const normalized = path.posix.normalize(rawPath);
+    if (normalized.startsWith('../') || normalized === '..' || path.isAbsolute(rawPath)) {
+      return { type: 'tool_result', tool_use_id: toolUseId, content: `[ERROR] 路径越界: ${rawPath}`, is_error: true };
+    }
+    const allowed = normalized === 'SKILL.md' || /^(rules|workflows|references|examples|scripts|templates)\//.test(normalized);
+    if (!allowed) {
+      return { type: 'tool_result', tool_use_id: toolUseId, content: `[ERROR] 只能读取 SKILL.md 或 rules/workflows/references/examples/scripts/templates 下的文件: ${rawPath}`, is_error: true };
+    }
+    const abs = path.resolve(targetSkill.dir, normalized);
+    if (!(abs.startsWith(targetSkill.dir + path.sep) || abs === targetSkill.dir)) {
+      return { type: 'tool_result', tool_use_id: toolUseId, content: `[ERROR] 路径越界: ${rawPath}`, is_error: true };
+    }
+    try {
+      const stat = fs.statSync(abs);
+      if (!stat.isFile()) return { type: 'tool_result', tool_use_id: toolUseId, content: `[ERROR] 不是文件: ${rawPath}`, is_error: true };
+      const content = fs.readFileSync(abs, 'utf8').slice(0, SKILL_FILE_READ_MAX_BYTES);
+      return { type: 'tool_result', tool_use_id: toolUseId, content: `# ${targetSkillId}/${normalized}\n\n${content}` };
+    } catch (err) {
+      return { type: 'tool_result', tool_use_id: toolUseId, content: `[ERROR] 读取失败: ${err.message}`, is_error: true };
     }
   }
 

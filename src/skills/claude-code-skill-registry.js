@@ -5,6 +5,11 @@ const path = require('path');
 const { execFile } = require('child_process');
 const { parseFrontmatter } = require('./registry');
 
+const BUILTIN_CLAUDE_CODE_SKILL_IDS = new Set([
+  'program-authoring',
+  'oneshell-skill-authoring',
+]);
+
 function createClaudeCodeSkillRegistry({ dataDir, logger } = {}) {
   const rootDir = path.join(dataDir, 'claude-code-skills');
 
@@ -23,7 +28,7 @@ function createClaudeCodeSkillRegistry({ dataDir, logger } = {}) {
 
   async function inspect(input = {}) {
     const repo = normalizeGitHubRepoUrl(input.repoUrl);
-    const id = assertSafeId(input.id || `${repo.owner}-${repo.repo}`);
+    const id = assertMutableId(input.id || `${repo.owner}-${repo.repo}`);
     const packageDir = path.join(rootDir, id);
     const sourceDir = path.join(packageDir, 'source');
     await ensureRepo(repo.cloneUrl, sourceDir);
@@ -45,7 +50,7 @@ function createClaudeCodeSkillRegistry({ dataDir, logger } = {}) {
 
   async function register(input = {}) {
     const repo = normalizeGitHubRepoUrl(input.repoUrl);
-    const id = assertSafeId(input.id || `${repo.owner}-${repo.repo}`);
+    const id = assertMutableId(input.id || `${repo.owner}-${repo.repo}`);
     const packageDir = path.join(rootDir, id);
     const sourceDir = path.join(packageDir, 'source');
     await ensureRepo(repo.cloneUrl, sourceDir);
@@ -96,7 +101,7 @@ function createClaudeCodeSkillRegistry({ dataDir, logger } = {}) {
   }
 
   function deleteSkill(id) {
-    const safeId = assertSafeId(id);
+    const safeId = assertMutableId(id);
     const dir = path.join(rootDir, safeId);
     if (!fs.existsSync(dir)) return false;
     fs.rmSync(dir, { recursive: true, force: true });
@@ -198,7 +203,7 @@ function readPackage(rootDir, id) {
   const packageDir = path.join(rootDir, safeId);
   const manifestPath = path.join(packageDir, 'manifest.json');
   const manifest = readJson(manifestPath);
-  if (manifest) return manifest;
+  if (manifest) return withBuiltinFlags(manifest, safeId);
   if (!fs.existsSync(packageDir)) return null;
   const sourceDir = path.join(packageDir, 'source');
   return {
@@ -211,7 +216,24 @@ function readPackage(rootDir, id) {
     installDir: packageDir,
     sourceDir,
     skills: fs.existsSync(sourceDir) ? discoverSkills(sourceDir) : [],
+    builtin: BUILTIN_CLAUDE_CODE_SKILL_IDS.has(safeId),
+    deletable: !BUILTIN_CLAUDE_CODE_SKILL_IDS.has(safeId),
   };
+}
+
+function withBuiltinFlags(skill, id) {
+  if (!skill) return skill;
+  const builtin = BUILTIN_CLAUDE_CODE_SKILL_IDS.has(id);
+  if (!builtin) return skill;
+  return { ...skill, builtin: true, system: true, deletable: false };
+}
+
+function assertMutableId(value) {
+  const id = assertSafeId(value);
+  if (!BUILTIN_CLAUDE_CODE_SKILL_IDS.has(id)) return id;
+  const error = new Error('系统默认 Claude Code Skill 不允许删除或覆盖');
+  error.statusCode = 403;
+  throw error;
 }
 
 function normalizeGitHubRepoUrl(raw) {

@@ -106,6 +106,8 @@ function create(): AiFabApi {
   let currentTextHadDelta = false;
   let stopFallbackHandle: number | null = null;
   let sendAckHandle: number | null = null;
+  let sendConnectHandle: number | null = null;
+  let pendingConnectSend: (() => void) | null = null;
   let activeRunId: string | null = null;
   let stopRequested = false;
   const stoppedRunIds = new Set<string>();
@@ -193,6 +195,14 @@ function create(): AiFabApi {
     if (sendAckHandle !== null) {
       window.clearTimeout(sendAckHandle);
       sendAckHandle = null;
+    }
+    if (sendConnectHandle !== null) {
+      window.clearTimeout(sendConnectHandle);
+      sendConnectHandle = null;
+    }
+    if (pendingConnectSend && socket) {
+      socket.off('connect', pendingConnectSend);
+      pendingConnectSend = null;
     }
   }
 
@@ -336,6 +346,56 @@ function create(): AiFabApi {
     };
   }
 
+  function emitIdeMessage(socket: Socket, text: string): void {
+    sendAckHandle = window.setTimeout(() => {
+      setStatus('启动超时');
+      appendLine('error', 'ide:message 已发送但未收到后端确认，请检查后端 Socket handler');
+      finalize();
+    }, 8000);
+
+    socket.emit('ide:message', {
+      sessionId,
+      message: text,
+      context: buildContext(),
+      safeMode: safeMode.value,
+    }, (ack: { ok?: boolean; error?: string } | undefined) => {
+      if (sendAckHandle !== null) {
+        window.clearTimeout(sendAckHandle);
+        sendAckHandle = null;
+      }
+      if (!ack?.ok) {
+        setStatus('启动失败');
+        appendLine('error', ack?.error || 'ide:message 被拒绝');
+        finalize();
+      }
+    });
+  }
+
+  function sendWhenSocketReady(socket: Socket, text: string): void {
+    if (socket.connected) {
+      emitIdeMessage(socket, text);
+      return;
+    }
+    setStatus('连接 Socket 中...');
+    pendingConnectSend = () => {
+      if (sendConnectHandle !== null) {
+        window.clearTimeout(sendConnectHandle);
+        sendConnectHandle = null;
+      }
+      pendingConnectSend = null;
+      emitIdeMessage(socket, text);
+    };
+    socket.once('connect', pendingConnectSend);
+    socket.connect();
+    sendConnectHandle = window.setTimeout(() => {
+      if (pendingConnectSend) socket.off('connect', pendingConnectSend);
+      pendingConnectSend = null;
+      setStatus('Socket 未连接');
+      appendLine('error', 'Socket 尚未连接，ide:message 未发送；请确认后端已启动并刷新页面重试');
+      finalize();
+    }, 8000);
+  }
+
   function sendMessage(): void {
     const text = inputText.value.trim();
     if (!text || isRunning.value) return;
@@ -361,28 +421,7 @@ function create(): AiFabApi {
     isRunning.value = true;
     setStatus('启动中...');
 
-    sendAckHandle = window.setTimeout(() => {
-      setStatus('启动超时');
-      appendLine('error', 'ide:message 未收到确认，请检查 Socket 连接');
-      finalize();
-    }, 8000);
-
-    socket.emit('ide:message', {
-      sessionId,
-      message: text,
-      context: buildContext(),
-      safeMode: safeMode.value,
-    }, (ack: { ok?: boolean; error?: string } | undefined) => {
-      if (sendAckHandle !== null) {
-        window.clearTimeout(sendAckHandle);
-        sendAckHandle = null;
-      }
-      if (!ack?.ok) {
-        setStatus('启动失败');
-        appendLine('error', ack?.error || 'ide:message 被拒绝');
-        finalize();
-      }
-    });
+    sendWhenSocketReady(socket, text);
   }
 
   function stop(): void {

@@ -235,10 +235,9 @@ Skill 运行时，AI 通过四个结构化工具与 1Shell 交互。
 
 将文本内容写入 **1Shell 宿主机（本机）** 的文件系统。
 路径白名单（按产物类型）：
-- `data/skills/<id>/...`    — Skill / Rescue Skill
-- `data/playbooks/<id>/...` — Playbook
-- `data/programs/<id>/...`  — Program
-**创建或修改这三类产物的文件时必须用此工具**，不要用 `execute_command + node -e writeFileSync`。
+- `data/skills/<id>/...`    — Skill / companion L2 Skill
+- `data/programs/<id>/...`  — Program（含确定性 L1/action 步骤）
+**创建或修改这两类产物的文件时必须用此工具**，不要用 `execute_command + node -e writeFileSync`。
 
 ```json
 {

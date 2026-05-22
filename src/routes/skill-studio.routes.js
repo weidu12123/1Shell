@@ -14,7 +14,43 @@ const { ROOT_DIR } = require('../config/env');
  *
  * 不引入新的 AI 调用路径，保持单一执行模型。
  */
-function createSkillStudioRouter({ hostService, libraryService, mcpRegistry }) {
+function normalizeCleanupPath(input) {
+  const rel = String(input || '').trim().replace(/\\/g, '/');
+  if (!rel || rel.startsWith('/') || rel.includes('\0')) return '';
+  const normalized = path.posix.normalize(rel);
+  if (normalized === '.' || normalized.startsWith('../') || normalized.includes('/../')) return '';
+  return normalized;
+}
+
+function cleanupRootForPath(relPath) {
+  if (relPath.startsWith('data/programs/')) return path.resolve(ROOT_DIR, 'data', 'programs');
+  if (relPath.startsWith('data/skills/')) return path.resolve(ROOT_DIR, 'data', 'skills');
+  return null;
+}
+
+function artifactIdFromPath(relPath, kind) {
+  const parts = relPath.split('/');
+  if (kind === 'program' && parts[0] === 'data' && parts[1] === 'programs') return parts[2] || '';
+  if (kind === 'skill' && parts[0] === 'data' && parts[1] === 'skills') return parts[2] || '';
+  return '';
+}
+
+function cleanupEmptyArtifactDirs(relPath) {
+  const root = cleanupRootForPath(relPath);
+  if (!root) return;
+  let dir = path.dirname(path.resolve(ROOT_DIR, relPath));
+  while (dir.startsWith(root + path.sep) && dir !== root) {
+    try {
+      if (fs.existsSync(dir) && fs.readdirSync(dir).length === 0) fs.rmdirSync(dir);
+      else break;
+    } catch {
+      break;
+    }
+    dir = path.dirname(dir);
+  }
+}
+
+function createSkillStudioRouter({ hostService, libraryService, mcpRegistry, programRegistry }) {
   const router = Router();
 
   // GET /api/skill-studio/context — 返回创作台需要的上下文（主机列表等）
@@ -29,10 +65,74 @@ function createSkillStudioRouter({ hostService, libraryService, mcpRegistry }) {
     res.json({ ok: true, hosts });
   });
 
+  router.post('/skill-studio/cleanup-residuals', (req, res) => {
+    const rawPaths = Array.isArray(req.body?.paths) ? req.body.paths : [];
+    const paths = [...new Set(rawPaths.map(normalizeCleanupPath).filter(Boolean))];
+    const deleted = [];
+    const missing = [];
+    const rejected = [];
+
+    try { programRegistry?.reload?.(); } catch { /* best effort */ }
+    try { libraryService?.reload?.(); } catch { /* best effort */ }
+
+    const blockedProgramIds = new Set();
+    const blockedSkillIds = new Set();
+    for (const relPath of paths) {
+      const abs = path.resolve(ROOT_DIR, relPath);
+      const root = cleanupRootForPath(relPath);
+      if (!root || !(abs.startsWith(root + path.sep) || abs === root)) {
+        rejected.push({ path: relPath, reason: '路径不在 data/programs 或 data/skills 下' });
+        continue;
+      }
+      if (relPath.startsWith('data/programs/')) {
+        const programId = artifactIdFromPath(relPath, 'program');
+        if (!programId || programRegistry?.get?.(programId)) blockedProgramIds.add(programId || relPath);
+      } else if (relPath.startsWith('data/skills/')) {
+        const skillId = artifactIdFromPath(relPath, 'skill');
+        if (!skillId || libraryService?.getSkill?.(skillId)) blockedSkillIds.add(skillId || relPath);
+      }
+    }
+
+    for (const relPath of paths) {
+      const abs = path.resolve(ROOT_DIR, relPath);
+      const root = cleanupRootForPath(relPath);
+      if (!root || !(abs.startsWith(root + path.sep) || abs === root)) continue;
+      const programId = artifactIdFromPath(relPath, 'program');
+      const skillId = artifactIdFromPath(relPath, 'skill');
+      if (programId && blockedProgramIds.has(programId)) {
+        rejected.push({ path: relPath, reason: `Program 已被 registry 加载，跳过: ${programId}` });
+        continue;
+      }
+      if (skillId && blockedSkillIds.has(skillId)) {
+        rejected.push({ path: relPath, reason: `Skill 已被 registry 加载，跳过: ${skillId}` });
+        continue;
+      }
+      try {
+        if (!fs.existsSync(abs)) {
+          missing.push(relPath);
+          continue;
+        }
+        const stat = fs.statSync(abs);
+        if (!stat.isFile()) {
+          rejected.push({ path: relPath, reason: '只允许清理文件，不直接删除目录' });
+          continue;
+        }
+        fs.unlinkSync(abs);
+        cleanupEmptyArtifactDirs(relPath);
+        deleted.push(relPath);
+      } catch (err) {
+        rejected.push({ path: relPath, reason: err.message });
+      }
+    }
+
+    try { programRegistry?.reload?.(); } catch { /* best effort */ }
+    try { libraryService?.reload?.(); } catch { /* best effort */ }
+    res.json({ ok: true, deleted, missing, rejected });
+  });
+
   // POST /api/skill-studio/compose
-  //   { mode: 'classify'|'create-skill'|'create-program'|'create-bundle'|
-  //           'create-playbook'|'create-rescue-skill'|'refine',
-  //     targetSkillId?, targetPlaybookId?, task,
+  //   { mode: 'classify'|'create-skill'|'create-program'|'create-bundle'|'refine',
+  //     targetSkillId?, task,
   //     hosts?, containers?, files?, mcpServers?,
   //     cronSchedule?, guardianSkills? }
   //   → { ok, composedTask, targetSkillId, mode }
@@ -40,15 +140,12 @@ function createSkillStudioRouter({ hostService, libraryService, mcpRegistry }) {
     const body = req.body || {};
     const ALLOWED_MODES = [
       'classify', 'create-skill', 'create-program', 'create-bundle',
-      'create-playbook',
-      'create-rescue-skill',
       'refine',
       'edit-program', // 精准修改已有 Program
       'generate', // legacy alias
     ];
     const rawMode = ALLOWED_MODES.includes(body.mode) ? body.mode : 'classify';
-    // normalize legacy alias
-    const mode = rawMode === 'generate' ? 'create-playbook' : rawMode;
+    const mode = rawMode === 'generate' ? 'create-program' : rawMode;
     const task = String(body.task || '').trim();
     if (!task) {
       return res.status(400).json({ ok: false, error: 'task 不能为空' });
@@ -193,11 +290,6 @@ function createSkillStudioRouter({ hostService, libraryService, mcpRegistry }) {
       lines.push('**约束**：严格按 `data/skills/skill-authoring/workflows/generate-bundle.md` 执行。');
       lines.push('**顺序**：必须先写 Rescue Skill，再写 Program（保证 guardian.skills 引用存在）。');
 
-    } else if (mode === 'create-playbook') {
-      lines.push('**模式**：创建一次性 Playbook（确定性剧本）');
-      lines.push('**产物位置**：`data/playbooks/<playbook-id>/`');
-      lines.push('**约束**：严格按 `data/skills/skill-authoring/workflows/generate-playbook.md` 执行。');
-
     } else if (mode === 'refine') {
       const rawIds = String(body.targetSkillId || '').trim();
       if (!rawIds) {
@@ -210,14 +302,14 @@ function createSkillStudioRouter({ hostService, libraryService, mcpRegistry }) {
       if (missing.length > 0) {
         return res.status(404).json({ ok: false, error: `待改进的项目不存在: ${missing.join(', ')}` });
       }
+      const legacyPlaybooks = items.filter(({ item }) => item.kind === 'playbook').map(({ id }) => id);
+      if (legacyPlaybooks.length > 0) {
+        return res.status(400).json({ ok: false, error: `Playbook 已并入 Program，不再支持独立改进: ${legacyPlaybooks.join(', ')}` });
+      }
       lines.push(`**模式**：改进以下 ${items.length} 个项目`);
       for (const { id, item } of items) {
-        const subdir = item.kind === 'playbook' ? 'playbooks'
-          : item.kind === 'program' ? 'programs'
-          : 'skills';
-        const typeLabel = item.kind === 'playbook' ? 'Playbook'
-          : item.kind === 'program' ? 'Program'
-          : 'Skill';
+        const subdir = item.kind === 'program' ? 'programs' : 'skills';
+        const typeLabel = item.kind === 'program' ? 'Program' : 'Skill';
         lines.push(`- \`${id}\`（${typeLabel}）→ \`data/${subdir}/${id}/\``);
         lines.push(`  先用 execute_command 读取 data/${subdir}/${id}/ 下所有文件，再按用户意图做最小必要修改。`);
       }
@@ -246,53 +338,6 @@ function createSkillStudioRouter({ hostService, libraryService, mcpRegistry }) {
       lines.push('```yaml');
       lines.push(currentYaml.trim());
       lines.push('```');
-
-    } else if (mode === 'create-rescue-skill') {
-      const targetPlaybookId = String(body.targetPlaybookId || '').trim();
-      if (!targetPlaybookId) {
-        return res.status(400).json({
-          ok: false,
-          error: 'create-rescue-skill 模式必须提供 targetPlaybookId（要为哪个 Playbook 创作救援策略）',
-        });
-      }
-      const target = libraryService.getItem(targetPlaybookId);
-      if (!target || target.kind !== 'playbook') {
-        return res.status(404).json({
-          ok: false,
-          error: `目标 Playbook 不存在: ${targetPlaybookId}`,
-        });
-      }
-      const suggestedSkillId = String(body.targetSkillId || '').trim();
-      if (suggestedSkillId && !/^[a-z0-9][a-z0-9-]*$/.test(suggestedSkillId)) {
-        return res.status(400).json({
-          ok: false,
-          error: `建议的 Rescue Skill id 不合法（须 kebab-case）: ${suggestedSkillId}`,
-        });
-      }
-
-      lines.push(`**模式**：为 Playbook \`${targetPlaybookId}\` 创建 Rescue Skill`);
-      lines.push('');
-      lines.push('**产物位置**：`data/skills/<skill-id>/`（**绝不**写到 `data/playbooks/`）');
-      lines.push('**约束**：严格按 skill-authoring 的 `workflows/generate-rescue-skill.md` 执行。');
-      lines.push('');
-      if (suggestedSkillId) {
-        lines.push(`**建议 Skill id**：\`${suggestedSkillId}\`（可采用，或按目标 Playbook 的语义微调）`);
-        lines.push('');
-      }
-      lines.push(`## 目标 Playbook 摘要`);
-      lines.push(`- id: \`${target.id}\``);
-      lines.push(`- name: ${target.name || target.id}`);
-      if (target.description) {
-        const desc = String(target.description).replace(/\s+/g, ' ').trim().slice(0, 400);
-        lines.push(`- description: ${desc}`);
-      }
-      lines.push('');
-      lines.push(
-        '**必做**：用 `execute_command` 读 `data/playbooks/' + target.id +
-        '/SKILL.md`、`playbook.yaml`（若有）、以及 `workflows/*.md`，理解每个步骤的 run/verify/on_error_hint 后再设计 Rescue Skill。',
-      );
-      lines.push('');
-      lines.push('**完成后必做**：用 `render_result`（format: message）输出绑定提示，告诉用户在目标 Playbook 的 `playbook.yaml` 顶部加 `rescuer_skill: <skill-id>`。');
     }
 
     const composedTask = lines.join('\n');
@@ -301,7 +346,6 @@ function createSkillStudioRouter({ hostService, libraryService, mcpRegistry }) {
       ok: true,
       mode,
       targetSkillId: body.targetSkillId || null,
-      targetPlaybookId: body.targetPlaybookId || null,
       cronSchedule: body.cronSchedule || null,
       composedTask,
     });

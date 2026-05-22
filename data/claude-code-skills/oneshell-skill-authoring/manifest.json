@@ -1,0 +1,31 @@
+{
+  "id": "oneshell-skill-authoring",
+  "kind": "claude-code-skill",
+  "name": "1Shell Skill Authoring",
+  "description": "用于创建运行时 1Shell Skill Extension：在 data/skills/<id>/ 下生成规则、流程、参考资料，并约束 L2 维护和升级边界。",
+  "tags": [
+    "claude-code-skill",
+    "1shell",
+    "skill",
+    "authoring"
+  ],
+  "enabled": true,
+  "installDir": "E:\\1shell-1.0.1\\1Shell-v3.5.0-windows\\data\\claude-code-skills\\oneshell-skill-authoring",
+  "sourceDir": "E:\\1shell-1.0.1\\1Shell-v3.5.0-windows\\data\\claude-code-skills\\oneshell-skill-authoring\\source",
+  "importedAt": "2026-05-20T00:00:00.000Z",
+  "updatedAt": "2026-05-20T00:00:00.000Z",
+  "skills": [
+    {
+      "id": "oneshell-skill-authoring",
+      "name": "oneshell-skill-authoring",
+      "description": "创建运行时 1Shell Skill Extension：包含 SKILL.md 路由、规则约束、修复/升级流程、领域参考，以及 Program L2 结果分类汇报。",
+      "path": "SKILL.md",
+      "tags": [
+        "1shell",
+        "skill",
+        "authoring"
+      ],
+      "userInvocable": false
+    }
+  ]
+}

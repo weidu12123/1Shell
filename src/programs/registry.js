@@ -69,7 +69,12 @@ function scan(programsDir) {
     } catch (err) {
       const msg = `${entry.name}: ${err.message}`;
       console.warn(`[program-registry] 跳过 ${msg}`);
-      errors.push(msg);
+      errors.push({
+        id: entry.name,
+        path: programYamlPath,
+        error: err.message,
+        message: msg,
+      });
     }
   }
 

@@ -6,6 +6,14 @@ const {
   ONESHELL_AUTHORING_SYSTEM_PROMPT,
   SAFE_MODE_ADDENDUM,
 } = require('../ai/oneshell-ai-prompt');
+const {
+  AuthoringSessionManager,
+  createAuthoringPromptBlock,
+  gateAuthoringTool,
+  requiredAuthoringToolMessage,
+  recordAuthoringReply,
+  serializeAuthoringSession,
+} = require('../authoring/session-manager');
 
 // ─── 增量 SSE 解析（实时推送 text delta + 随时可中断） ─────────────────────
 /**
@@ -219,13 +227,28 @@ function createIdeService({ ideTools, proxyConfigStore, port, hostService, audit
 
   // sessionId → { messages[], system, hostId, abortController }
   const sessions = new Map();
+  const authoringSessions = new AuthoringSessionManager();
 
   const READONLY_TOOLS = new Set([
     'list_hosts', 'read_file', 'list_artifacts', 'query_format',
+    'ask_authoring_question', 'propose_options', 'create_program_spec', 'create_skill_spec',
+    'create_authoring_plan', 'create_program_draft', 'create_skill_draft', 'validate_program_draft', 'validate_skill_draft',
+    'request_commit_approval', 'commit_authoring_artifact', 'verify_authoring_artifact',
     'reload_registry', 'list_mcp_servers', 'list_scripts', 'query_audit',
     'query_probe', 'list_probes', 'get_probe', 'get_probe_samples',
     'get_probe_timeseries', 'get_probe_traffic', 'list_probe_alerts',
     'list_remote_dir', 'read_remote_file',
+  ]);
+
+  const AUTHORING_PAUSE_AFTER_TOOLS = new Set([
+    'ask_authoring_question',
+    'propose_options',
+    'create_program_spec',
+    'create_skill_spec',
+    'create_authoring_plan',
+    'create_program_draft',
+    'create_skill_draft',
+    'request_commit_approval',
   ]);
 
   function makeAbortError(message = 'Cancelled') {
@@ -394,13 +417,22 @@ function createIdeService({ ideTools, proxyConfigStore, port, hostService, audit
       safeMode: true,
       unlimitedTurns: false,
       claudeCodeEnabled: false,
+      refinedMode: false,
     };
     sessions.set(sessionId, session);
     return session;
   }
 
-  async function handleMessage({ socket, sessionId, message, context, safeMode, claudeCodeEnabled, unlimitedTurns, entry }) {
+  async function handleMessage({ socket, sessionId, message, context, safeMode, claudeCodeEnabled, unlimitedTurns, refinedMode, entry }) {
     const session = getOrCreateSession(sessionId, context, entry);
+    if (refinedMode !== undefined) {
+      session.refinedMode = refinedMode === true;
+    }
+    const authoringSession = authoringSessions.ensureForMessage({ ideSessionId: sessionId, message, context, entry: session.entry, refinedMode: session.refinedMode });
+    session.authoringSession = authoringSession;
+    if (authoringSession) {
+      socket.emit('ide:authoring-session', { sessionId, session: serializeAuthoringSession(authoringSession) });
+    }
     ensureSessionCancellation(session);
     const runId = newRunId();
     session.currentRunId = runId;
@@ -418,10 +450,16 @@ function createIdeService({ ideTools, proxyConfigStore, port, hostService, audit
     if (unlimitedTurns !== undefined) {
       session.unlimitedTurns = !!unlimitedTurns;
     }
+    if (refinedMode !== undefined) {
+      session.refinedMode = refinedMode === true;
+      if (session.authoringSession) {
+        session.authoringSession.refinedMode = session.refinedMode;
+      }
+    }
 
-    const userContent = session.messages.length === 0 && session.contextBlock
-      ? session.contextBlock + message
-      : message;
+    const authoringBlock = createAuthoringPromptBlock(authoringSession);
+    const firstContextBlock = session.messages.length === 0 && session.contextBlock ? session.contextBlock : '';
+    const userContent = firstContextBlock + authoringBlock + message;
 
     session.messages.push({ role: 'user', content: userContent });
 
@@ -554,6 +592,13 @@ function createIdeService({ ideTools, proxyConfigStore, port, hostService, audit
         session.messages.push({ role: 'assistant', content: data.content });
 
         if (toolCalls.length === 0 || data.stop_reason === 'end_turn') {
+          const requiredToolMessage = requiredAuthoringToolMessage(session.authoringSession);
+          const canRetryStageViolation = round < (session.unlimitedTurns ? 8 : MAX_TOOL_ROUNDS);
+          if (requiredToolMessage && canRetryStageViolation) {
+            session.messages.push({ role: 'user', content: requiredToolMessage });
+            if (isRunCurrent(session, runId)) socket.emit('ide:thinking', { sessionId, runId });
+            continue;
+          }
           if (isRunCurrent(session, runId)) socket.emit('ide:done', { sessionId, runId, round });
           return;
         }
@@ -565,8 +610,16 @@ function createIdeService({ ideTools, proxyConfigStore, port, hostService, audit
 
           socket.emit('ide:tool-start', { sessionId, runId, toolUseId: tc.id, name: tc.name, input: tc.input });
 
+          // Authoring Session 硬门：阶段不允许的创作副作用不进入用户审批，直接阻断。
+          let result = gateAuthoringTool(session.authoringSession, tc.name);
+          if (result) {
+            socket.emit('ide:authoring-session', { sessionId, session: serializeAuthoringSession(session.authoringSession) });
+            socket.emit('ide:tool-end', { sessionId, runId, toolUseId: tc.id, name: tc.name, result: result.content, is_error: true });
+            toolResults.push({ type: 'tool_result', tool_use_id: tc.id, content: result.content, is_error: true });
+            continue;
+          }
+
           // 安全模式审批门：非只读工具暂停等待用户审批
-          let result;
           if (session.safeMode && !READONLY_TOOLS.has(tc.name)) {
             const approval = await waitForApproval(socket, sessionId, tc, session, runId);
             throwIfStopped(session, runId);
@@ -635,6 +688,11 @@ function createIdeService({ ideTools, proxyConfigStore, port, hostService, audit
         throwIfStopped(session, runId);
         session.messages.push({ role: 'user', content: toolResults });
 
+        if (toolCalls.some((tc) => AUTHORING_PAUSE_AFTER_TOOLS.has(tc.name))) {
+          if (isRunCurrent(session, runId)) socket.emit('ide:done', { sessionId, runId, round, pausedForAuthoring: true });
+          return;
+        }
+
         if (isRunCurrent(session, runId)) socket.emit('ide:thinking', { sessionId, runId });
       }
 
@@ -677,6 +735,7 @@ function createIdeService({ ideTools, proxyConfigStore, port, hostService, audit
   function deleteSession(sessionId) {
     cancelSession(sessionId);
     sessions.delete(sessionId);
+    authoringSessions.deleteByIdeSessionId(sessionId);
   }
 
   function cancelSessionsForSocket(socketId) {
@@ -709,7 +768,32 @@ function createIdeService({ ideTools, proxyConfigStore, port, hostService, audit
     if (session) session.claudeCodeEnabled = enabled;
   }
 
-  return { handleMessage, cancelSession, cancelSessionsForSocket, deleteSession, hasSession, setSafeMode, getSafeMode, setUnlimitedTurns, setClaudeCodeEnabled };
+  function setRefinedMode(sessionId, enabled) {
+    const session = sessions.get(sessionId);
+    if (!session) return;
+    session.refinedMode = enabled === true;
+    if (session.authoringSession) {
+      session.authoringSession.refinedMode = session.refinedMode;
+      if (session.refinedMode && !session.authoringSession.facts?.requirementBrief) {
+        session.authoringSession.facts.requirementBrief = { status: 'pending' };
+      }
+    }
+  }
+
+  function recordAuthoringUserReply(sessionId, input) {
+    const session = sessions.get(sessionId);
+    const authoringSession = session?.authoringSession || authoringSessions.getByIdeSessionId(sessionId);
+    if (!authoringSession) return { ok: false, error: 'Authoring Session 不存在' };
+    if (input.authoringSessionId && String(input.authoringSessionId).trim() !== authoringSession.id) {
+      return { ok: false, error: `Authoring Session 不匹配: ${input.authoringSessionId}` };
+    }
+    const interaction = recordAuthoringReply(authoringSession, input);
+    if (!interaction) return { ok: false, error: 'Authoring interaction 不存在或无法回答' };
+    if (session) session.authoringSession = authoringSession;
+    return { ok: true, session: serializeAuthoringSession(authoringSession), interaction };
+  }
+
+  return { handleMessage, cancelSession, cancelSessionsForSocket, deleteSession, hasSession, setSafeMode, getSafeMode, setUnlimitedTurns, setClaudeCodeEnabled, setRefinedMode, recordAuthoringUserReply };
 }
 
 module.exports = { createIdeService };

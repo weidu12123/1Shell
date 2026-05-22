@@ -88,7 +88,7 @@ function createSkillRouter({ libraryService, skillRunner, claudeCodeSkillRegistr
       const result = await claudeCodeSkillRegistry.inspect(req.body || {});
       res.json({ ok: true, ...result });
     } catch (err) {
-      res.status(400).json({ ok: false, error: err.message });
+      res.status(err.statusCode || 400).json({ ok: false, error: err.message });
     }
   });
 
@@ -98,7 +98,7 @@ function createSkillRouter({ libraryService, skillRunner, claudeCodeSkillRegistr
       const skill = await claudeCodeSkillRegistry.register(req.body || {});
       res.status(201).json({ ok: true, skill });
     } catch (err) {
-      res.status(400).json({ ok: false, error: err.message });
+      res.status(err.statusCode || 400).json({ ok: false, error: err.message });
     }
   });
 
@@ -109,7 +109,7 @@ function createSkillRouter({ libraryService, skillRunner, claudeCodeSkillRegistr
       if (!skill) return res.status(404).json({ ok: false, error: 'Claude Code Skill 不存在' });
       res.json({ ok: true, skill });
     } catch (err) {
-      res.status(400).json({ ok: false, error: err.message });
+      res.status(err.statusCode || 400).json({ ok: false, error: err.message });
     }
   });
 
@@ -120,7 +120,7 @@ function createSkillRouter({ libraryService, skillRunner, claudeCodeSkillRegistr
       if (!ok) return res.status(404).json({ ok: false, error: 'Claude Code Skill 不存在' });
       res.json({ ok: true });
     } catch (err) {
-      res.status(400).json({ ok: false, error: err.message });
+      res.status(err.statusCode || 400).json({ ok: false, error: err.message });
     }
   });
 

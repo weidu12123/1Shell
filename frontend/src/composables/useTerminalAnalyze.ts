@@ -64,6 +64,7 @@ export interface TerminalAnalyzeApi {
   closePanel(): void;
   hideCtxMenu(): void;
   triggerAnalysis(): void;
+  copySelectedText(): Promise<void>;
   togglePreview(): void;
   copyCommand(): Promise<void>;
   handleInsertClick(): void;
@@ -221,6 +222,15 @@ function create(): TerminalAnalyzeApi {
     void runAnalysis(selectedText.value);
   }
 
+  async function copySelectedText(): Promise<void> {
+    const term = sessionTerminal.term.value;
+    const selection = typeof term?.getSelection === 'function' ? term.getSelection() : selectedText.value;
+    const text = selection || selectedText.value;
+    if (!text) return;
+    await navigator.clipboard.writeText(text);
+    hideCtxMenu();
+  }
+
   async function runAnalysis(text: string): Promise<void> {
     if (isAnalyzing) return;
     isAnalyzing = true;
@@ -365,6 +375,7 @@ function create(): TerminalAnalyzeApi {
     closePanel,
     hideCtxMenu,
     triggerAnalysis,
+    copySelectedText,
     togglePreview,
     copyCommand,
     handleInsertClick,

@@ -19,6 +19,8 @@ import {
   type AskPayload,
   type AskAnswer,
   type CurrentAsk,
+  type ProgramInputDef,
+  type ProgramResidualInfo,
   type EventEntry,
   type GuardianEntry,
   type L2Entry,
@@ -35,6 +37,7 @@ interface GuardianSessionLink {
 }
 
 interface AckResponse { ok?: boolean; error?: string; unlimitedTurns?: boolean; runIds?: number[] }
+interface ProgramRunRequest { program: ProgramInfo; hostId: string; actionName?: string }
 
 interface ProgramsPrefs {
   activeProgramId: string | null;
@@ -45,6 +48,7 @@ interface ProgramsPrefs {
 
 interface ProgramsCache {
   programs: ProgramInfo[];
+  residualPrograms: ProgramResidualInfo[];
   hosts: HostInfo[];
   activeRuns: ActiveRun[];
   statFailed24h: number | null;
@@ -68,6 +72,7 @@ export function useProgramsRunner() {
     l2Unlimited: false,
   });
   const programs = shallowRef<ProgramInfo[]>([]);
+  const residualPrograms = shallowRef<ProgramResidualInfo[]>([]);
   const hosts = shallowRef<HostInfo[]>([]);
   const activeProgramId = ref<string | null>(savedPrefs.activeProgramId);
   const currentTab = ref<TabKey>(savedPrefs.currentTab);
@@ -87,6 +92,7 @@ export function useProgramsRunner() {
   const guardianUnlimited = ref(savedPrefs.guardianUnlimited);
   const l2Unlimited = ref(savedPrefs.l2Unlimited);
   const improveBtnPending = ref(false);
+  const programRunRequest = ref<ProgramRunRequest | null>(null);
 
   // L2 改进所需的最近一次执行日志
   const lastL2Log = ref<L2Entry[]>([]);
@@ -110,6 +116,7 @@ export function useProgramsRunner() {
   function saveProgramsCache(): void {
     setCachedPageState<ProgramsCache>(PROGRAMS_CACHE_KEY, {
       programs: programs.value,
+      residualPrograms: residualPrograms.value,
       hosts: hosts.value,
       activeRuns: activeRuns.value,
       statFailed24h: statFailed24h.value,
@@ -120,6 +127,7 @@ export function useProgramsRunner() {
     const entry = getCachedPageState<ProgramsCache>(PROGRAMS_CACHE_KEY);
     if (!entry) return false;
     programs.value = entry.value.programs || [];
+    residualPrograms.value = entry.value.residualPrograms || [];
     hosts.value = entry.value.hosts || [];
     activeRuns.value = entry.value.activeRuns || [];
     statFailed24h.value = entry.value.statFailed24h ?? null;
@@ -258,12 +266,13 @@ export function useProgramsRunner() {
       });
     }],
     ['program:phase', (msg: unknown) => {
-      const m = msg as { runId?: string; programId?: string; hostId?: string; layer?: string; phase?: string; stepId?: string | null; reason?: string; attempt?: number; incidentId?: string | null };
+      const m = msg as { runId?: string; programId?: string; hostId?: string; layer?: string; phase?: string; stepId?: string | null; reason?: string; attempt?: number; incidentId?: string | null; escalationId?: string | null };
       pushEvent({
         type: 'phase', key: nextKey(), ts: nowTs(),
         runId: m.runId, programId: m.programId, hostId: m.hostId,
         layer: m.layer, phase: m.phase, stepId: m.stepId,
         reason: m.reason, attempt: m.attempt, incidentId: m.incidentId,
+        escalationId: m.escalationId,
       });
     }],
     ['program:run-ended', (msg: unknown) => {
@@ -412,12 +421,14 @@ export function useProgramsRunner() {
 
   async function loadPrograms(): Promise<void> {
     try {
-      const data = await requestJson<{ programs: ProgramInfo[] }>('/api/programs');
+      const data = await requestJson<{ programs: ProgramInfo[]; residuals?: ProgramResidualInfo[] }>('/api/programs');
       programs.value = data.programs || [];
+      residualPrograms.value = data.residuals || [];
       saveProgramsCache();
     } catch (err) {
       notify.error((err as Error).message || '加载 Programs 失败');
       programs.value = [];
+      residualPrograms.value = [];
     }
   }
 
@@ -443,7 +454,8 @@ export function useProgramsRunner() {
 
   async function reloadAll(): Promise<void> {
     try {
-      await requestJson('/api/programs/reload', { method: 'POST' });
+      const data = await requestJson<{ residuals?: ProgramResidualInfo[] }>('/api/programs/reload', { method: 'POST' });
+      residualPrograms.value = data.residuals || [];
       notify.success('已重扫 data/programs/');
       await loadPrograms();
       if (activeProgramId.value) await refreshDetail();
@@ -534,18 +546,47 @@ export function useProgramsRunner() {
     }
   }
 
-  async function triggerInstance(programId: string, hostId: string, actionName?: string): Promise<void> {
+  function inputsForAction(program: ProgramInfo, actionName?: string): ProgramInputDef[] {
+    return [...(program.inputs || []), ...(actionName ? program.actions?.[actionName]?.inputs || [] : [])];
+  }
+
+  async function runProgram(programId: string, hostId: string, actionName?: string, inputs?: Record<string, unknown>): Promise<void> {
     try {
       const body: Record<string, unknown> = { hostId };
       if (actionName) body.actionName = actionName;
+      if (inputs) body.inputs = inputs;
       const res = await requestJson<AckResponse>(
         `/api/programs/${encodeURIComponent(programId)}/trigger`,
         { method: 'POST', body: JSON.stringify(body) },
       );
       notify.success(`已触发（run #${(res.runIds || []).join(', ')}）`);
+      programRunRequest.value = null;
     } catch (err) {
       notify.error((err as Error).message || '触发失败');
     }
+  }
+
+  async function triggerInstance(programId: string, hostId: string, actionName?: string, inputs?: Record<string, unknown>): Promise<void> {
+    const program = programs.value.find((item) => item.id === programId);
+    if (inputs) {
+      await runProgram(programId, hostId, actionName, inputs);
+      return;
+    }
+    if (program && inputsForAction(program, actionName).length > 0) {
+      programRunRequest.value = { program, hostId, actionName };
+      return;
+    }
+    await runProgram(programId, hostId, actionName);
+  }
+
+  async function submitProgramRunInputs(inputs: Record<string, unknown>): Promise<void> {
+    const request = programRunRequest.value;
+    if (!request) return;
+    await runProgram(request.program.id, request.hostId, request.actionName, inputs);
+  }
+
+  function cancelProgramRunInputs(): void {
+    programRunRequest.value = null;
   }
 
   async function toggleInstance(programId: string, hostId: string, enable: boolean): Promise<void> {
@@ -559,6 +600,24 @@ export function useProgramsRunner() {
       await refreshDetail();
     } catch (err) {
       notify.error((err as Error).message || (enable ? '启用失败' : '停用失败'));
+    }
+  }
+
+  async function deleteResidualProgram(id: string): Promise<void> {
+    const item = residualPrograms.value.find((entry) => entry.id === id);
+    const ok = await confirm({
+      title: '删除残留 Program',
+      message: `确认删除残留 Program「${id}」？\n\n该 Program 当前无法加载，将删除 data/programs/${id}/ 目录。`,
+      okText: '删除',
+    });
+    if (!ok) return;
+    try {
+      const data = await requestJson<{ residuals?: ProgramResidualInfo[] }>(`/api/program-residuals/${encodeURIComponent(id)}`, { method: 'DELETE' });
+      residualPrograms.value = data.residuals || residualPrograms.value.filter((entry) => entry.id !== id);
+      await loadPrograms();
+      notify.success(`残留 Program「${item?.id || id}」已删除`);
+    } catch (err) {
+      notify.error((err as Error).message || '删除残留 Program 失败');
     }
   }
 
@@ -722,16 +781,18 @@ export function useProgramsRunner() {
 
   return {
     /* state (readonly via ref) */
-    programs, hosts, activeProgramId, activeProgram, currentTab,
+    programs, residualPrograms, hosts, activeProgramId, activeProgram, currentTab,
     activeRuns, isInstanceActive,
     eventEntries, guardianEntries, l2Entries, resultEntries, resultsHostLabel,
     guardianUnlimited, l2Unlimited, improveBtnPending,
+    programRunRequest,
     lastL2Log, lastL2Meta, currentAsk,
     statPrograms, statEnabled, statActive, statFailed24h,
     /* methods */
     selectProgram, switchTab,
     reloadAll, refreshAll, refreshDetail, refreshInstances, refreshRuns, loadLastRenders,
-    triggerInstance, toggleInstance, deleteProgram, updateStats,
+    triggerInstance, submitProgramRunInputs, cancelProgramRunInputs,
+    toggleInstance, deleteProgram, deleteResidualProgram, updateStats,
     setGuardianUnlimited, setL2Unlimited, requestL2Improve,
     answerAsk, cancelAsk,
   };

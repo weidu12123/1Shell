@@ -12,6 +12,18 @@ export interface HostLink {
 
 export type HostAuthType = 'password' | 'privateKey';
 export type HostType = 'local' | 'ssh';
+export type HostRole = 'primary' | 'project' | 'probe' | 'proxy' | 'relay' | 'test' | 'archive';
+
+export interface HostPreference {
+  hostId: string;
+  showInConsole: boolean;
+  consoleOrder: number;
+  pinned: boolean;
+  role: HostRole | null;
+  tags: string[];
+  archived: boolean;
+  updatedAt: string | null;
+}
 
 export interface MainHost {
   id: string;
@@ -25,6 +37,7 @@ export interface MainHost {
   links?: HostLink[];
   status?: string;
   tags?: string[];
+  preference?: HostPreference;
 }
 
 export interface HostFormPayload {
@@ -99,13 +112,4 @@ export function formatHostMeta(host: MainHost | null | undefined): string {
 
 export function isLocalHost(host: MainHost | null | undefined): boolean {
   return host?.id === LOCAL_HOST_ID || host?.type === 'local';
-}
-
-/** 检测是否 HTTP + 非 localhost — 用于 cookie 拦截警告 */
-export function shouldShowHttpWarning(): boolean {
-  if (typeof window === 'undefined') return false;
-  const proto = window.location.protocol;
-  const host = window.location.hostname;
-  const isLocalhost = host === 'localhost' || host === '127.0.0.1' || host === '::1';
-  return proto === 'http:' && !isLocalhost;
 }

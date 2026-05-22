@@ -1,10 +1,8 @@
 <script setup lang="ts">
 // 登录页 — 老 [public/index.html#L149-L175](public/index.html#L149-L175) + [public/auth.js](public/auth.js) 1:1
-// HTTP + 非 localhost 时显示 http-warning
 import { ref, onMounted, onBeforeUnmount, nextTick } from 'vue';
 import { useApiClient, ApiError } from '@/composables/useApiClient';
 import { useAuthStore } from '@/stores/auth';
-import { shouldShowHttpWarning } from '@/utils/mainConsole';
 import LoginGlobe from '@/components/main/LoginGlobe.vue';
 
 const emit = defineEmits<{
@@ -24,7 +22,6 @@ const usernameInput = ref<HTMLInputElement | null>(null);
 const passwordInput = ref<HTMLInputElement | null>(null);
 const capsLockOn = ref(false);
 const passwordFocused = ref(false);
-const showHttpWarning = shouldShowHttpWarning();
 
 function detectCapsLock(e: KeyboardEvent): void {
   if (typeof e.getModifierState === 'function') {
@@ -86,14 +83,7 @@ async function onSubmit(e: Event): Promise<void> {
       username.value = '';
       emit('logged-in');
     } else {
-      // 登录凭据正确，但仍未进入 → Cookie 被浏览器拦截
-      const isHttp = window.location.protocol === 'http:';
-      const isNotLocalhost = !['localhost', '127.0.0.1', '::1'].includes(window.location.hostname);
-      if (isHttp && isNotLocalhost) {
-        errorMsg.value = '登录凭据正确，但 Cookie 被浏览器拦截。请通过 HTTPS（域名 + SSL 证书）访问，或在浏览器设置中允许 http:// 下的 Cookie。';
-      } else {
-        errorMsg.value = '登录成功，但会话同步失败，请刷新页面重试。';
-      }
+      errorMsg.value = '登录成功，但会话同步失败，请刷新页面重试。';
     }
   } catch (err) {
     errorMsg.value = (err as ApiError | Error).message || '登录失败';
@@ -126,16 +116,6 @@ async function onSubmit(e: Event): Promise<void> {
       </div>
 
       <form class="mt-6 flex flex-col gap-4" autocomplete="off" @submit="onSubmit">
-        <!-- HTTP 访问警告 -->
-        <div
-          v-if="showHttpWarning"
-          class="px-3 py-2.5 rounded-xl bg-amber-50 border border-amber-200 text-xs text-amber-700 leading-relaxed
-                 dark:bg-amber-900/20 dark:border-amber-700/40 dark:text-amber-300"
-        >
-          <span class="font-semibold">⚠ 非 HTTPS 访问</span><br>
-          当前通过 <code class="font-mono bg-amber-100 dark:bg-amber-900/40 px-1 rounded">http://</code> 访问，部分浏览器（Safari / iOS / 隐私模式）会拦截 Cookie，导致登录后无法跳转。<br>
-          建议配置域名 + SSL 证书后通过 <code class="font-mono bg-amber-100 dark:bg-amber-900/40 px-1 rounded">https://</code> 访问。
-        </div>
 
         <div class="flex flex-col gap-1.5">
           <label for="login-username" class="text-xs font-semibold text-slate-500 dark:text-slate-400">用户名</label>

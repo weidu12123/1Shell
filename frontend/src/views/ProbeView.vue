@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { computed, onActivated, onBeforeUnmount, onDeactivated, onMounted, reactive, ref, shallowRef } from 'vue';
-import { useRouter } from 'vue-router';
+import { computed, nextTick, onActivated, onBeforeUnmount, onDeactivated, onMounted, reactive, ref, shallowRef, watch } from 'vue';
+import { useRoute, useRouter } from 'vue-router';
 import ProbeCard from '@/components/ProbeCard.vue';
 import DiagModal from '@/components/DiagModal.vue';
 import AppIcon from '@/components/AppIcon.vue';
@@ -26,6 +26,7 @@ import {
 const { requestJson } = useApiClient();
 const notify = useNotifyStore();
 const socket = useSocket();
+const route = useRoute();
 const router = useRouter();
 
 interface BridgeExecResult {
@@ -134,6 +135,23 @@ const alertLoading = ref(false);
 // 网络诊断 modal
 const diagTarget = ref<{ hostId: string; hostName?: string } | null>(null);
 const pageScrollRef = ref<HTMLElement | null>(null);
+const highlightedProbeHostId = ref<string | null>(null);
+
+function getRouteHostId(): string {
+  const value = route.query.hostId || route.query.host;
+  const hostId = Array.isArray(value) ? value[0] : value;
+  return String(hostId || '').trim();
+}
+
+async function focusRouteHost(): Promise<void> {
+  const hostId = getRouteHostId();
+  if (!hostId) return;
+  highlightedProbeHostId.value = hostId;
+  expandedDetailIds.add(hostId);
+  saveProbePrefs();
+  await nextTick();
+  document.querySelector(`[data-probe-host-id="${CSS.escape(hostId)}"]`)?.scrollIntoView({ block: 'center', behavior: 'smooth' });
+}
 
 function onDiagnose(hostId: string): void {
   const probe = probes.value.find((p) => p.hostId === hostId);
@@ -316,6 +334,7 @@ function applySnapshot(snap: ProbeSnapshot): void {
   appendLiveSample(list, generatedAt.value);
   probes.value = list;
   saveProbeCache();
+  void focusRouteHost();
 }
 
 async function loadRelayHosts(): Promise<void> {
@@ -844,10 +863,13 @@ onMounted(() => {
   restoreProbePrefs();
   const restored = restoreProbeCache();
   restoreElementScroll(PROBE_CACHE_KEY, pageScrollRef.value);
+  void focusRouteHost();
   loadRelayHosts();
   loadRelayUpstreams();
   refreshProbePageIfNeeded(restored);
 });
+
+watch(() => [route.query.hostId, route.query.host], () => { void focusRouteHost(); });
 
 onActivated(() => {
   restoreElementScroll(PROBE_CACHE_KEY, pageScrollRef.value);
@@ -1030,6 +1052,8 @@ onBeforeUnmount(() => {
             v-for="probe in probes"
             v-else
             :key="probe.hostId"
+            :data-probe-host-id="probe.hostId"
+            :class="highlightedProbeHostId === probe.hostId ? 'ring-2 ring-blue-400 ring-offset-2 ring-offset-slate-100 dark:ring-offset-slate-950' : ''"
             :probe="probe"
             :samples="historyMap.get(probe.hostId) ?? []"
             :samples-loading="samplesLoading"

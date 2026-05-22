@@ -13,8 +13,11 @@ const analyze = useTerminalAnalyze();
     data-analyze-ctx
     :style="{ left: analyze.ctxLeft.value + 'px', top: analyze.ctxTop.value + 'px' }"
   >
+    <button type="button" class="analyze-ctx-btn" @click="analyze.copySelectedText">
+      复制选区
+    </button>
     <button type="button" class="analyze-ctx-btn" @click="analyze.triggerAnalysis">
-      🤖 AI 分析选区
+      AI 分析选区
     </button>
   </div>
 </template>

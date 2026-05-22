@@ -4,15 +4,13 @@ icon: "✍️"
 hidden: true
 description: |
   Use when the user wants to create or refine a 1Shell artifact:
-  Program (long-running daemon), AI Tool/Skill (interactive operation), Playbook (one-shot script),
-  or Bundle (Program + Rescue Skill). Classifies intent, then routes to the correct generator.
+  Program (scheduled/manual L1 automation), AI Tool/Skill (interactive operation),
+  or Bundle (Program + companion L2 Skill). Classifies intent, then routes to the correct generator.
 category: system
 tags:
   - authoring
   - program
   - skill
-  - playbook
-  - rescue
   - bundle
 
 inputs:
@@ -34,10 +32,8 @@ inputs:
         label: Program · 长驻守护程序
       - value: create-skill
         label: AI 工具 · 用户主动触发的交互操作
-      - value: create-playbook
-        label: Playbook · 一次性确定性剧本
       - value: create-bundle
-        label: Bundle · Program + Rescue Skill 组合
+        label: Bundle · Program + companion L2 Skill 组合
       - value: refine
         label: 改进已有产物
       - value: explain
@@ -67,15 +63,14 @@ inputs:
 | `classify` | `workflows/classify.md` |
 | `create-program` | `workflows/generate-program.md` |
 | `create-skill` | `workflows/generate-skill.md` |
-| `create-playbook` | `workflows/generate-playbook.md` |
 | `create-bundle` | `workflows/generate-bundle.md` |
 | `refine` | `workflows/refine.md` |
 | `explain` | `workflows/explain.md` |
 
 ## Known Gotchas
 
-1. **AI 工具 vs Rescue Skill**：AI 工具是用户主动触发的交互操作；Rescue Skill 只通过 Bundle 创建，不单独创建
-2. `data/skills/` 下绝对禁止 `playbook.yaml`
+1. **AI 工具 vs companion L2 Skill**：AI 工具是用户主动触发的交互操作；companion L2 Skill 只约束 Program 失败后的维护边界
+2. `data/skills/` 下绝对禁止 `playbook.yaml`；确定性步骤归入 Program L1/action
 3. ID 一律 `kebab-case`，字母开头
 4. 写入前先 `execute_command ls data/<type>/<id>/` 确认无同名
 5. 所有 generate workflow 最后必须 `ask_user type=input` 等追问

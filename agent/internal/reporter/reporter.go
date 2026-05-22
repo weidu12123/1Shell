@@ -83,6 +83,7 @@ func buildPayload(hostID, agentVersion string, snap collector.Snapshot) map[stri
 	return map[string]any{
 		"hostId":       hostID,
 		"agentVersion": agentVersion,
+		"capabilities": []string{"file.listDir"},
 		"timestamp":    snap.Timestamp.UTC().Format(time.RFC3339),
 		"hostname":     snap.Hostname,
 		"platform":     formatPlatform(snap.Platform),
@@ -96,8 +97,10 @@ func buildPayload(hostID, agentVersion string, snap collector.Snapshot) map[stri
 		},
 		"uptimeSec": snap.UptimeSec,
 		"cpu": map[string]any{
-			"usage": snap.CPU.Usage,
-			"cores": snap.CPU.Cores,
+			"usage":  snap.CPU.Usage,
+			"iowait": snap.CPU.IOWait,
+			"steal":  snap.CPU.Steal,
+			"cores":  snap.CPU.Cores,
 		},
 		"memory": map[string]any{
 			"total": snap.Memory.Total,

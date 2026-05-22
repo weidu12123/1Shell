@@ -53,7 +53,7 @@ BRIDGE_TOKEN=$(head -c 32 /dev/urandom | base64 | tr -dc 'a-zA-Z0-9' | head -c 3
 
 echo ""
 echo -e "${BLUE}╔════════════════════════════════════════════════╗${NC}"
-echo -e "${BLUE}║         1Shell 一键安装脚本 v4.0.0            ║${NC}"
+echo -e "${BLUE}║         1Shell 一键安装脚本 v3.3.0            ║${NC}"
 echo -e "${BLUE}║     One Shell to rule them all.                ║${NC}"
 echo -e "${BLUE}╚════════════════════════════════════════════════╝${NC}"
 echo ""
@@ -196,7 +196,7 @@ write_env() {
 
   cat > .env << ENVEOF
 OPENAI_API_BASE=https://api.openai.com/v1
-OPENAI_API_KEY=replace-with-your-api-key
+OPENAI_API_KEY=sk-your-api-key-here
 OPENAI_MODEL=gpt-4o
 APP_SECRET=${APP_SECRET}
 APP_LOGIN_USERNAME=admin

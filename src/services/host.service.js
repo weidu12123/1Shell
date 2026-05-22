@@ -18,7 +18,14 @@ function createValidationError(message) {
   return error;
 }
 
+function createNotFoundError(message) {
+  const error = new Error(message);
+  error.status = 404;
+  return error;
+}
+
 const LOCAL_HOST_CONFIG_FILE = path.join(ROOT_DIR, 'data', 'local-host-config.json');
+const HOST_ROLES = new Set(['primary', 'project', 'probe', 'proxy', 'relay', 'test', 'archive']);
 
 function loadLocalHostConfig() {
   try {
@@ -183,8 +190,8 @@ function createHostService({ hostRepository }) {
       port: normalizePort(host.port, 22),
       username: host.username,
       readyTimeout: 15000,
-      keepaliveInterval: 10000,   // 每 10 秒发送 SSH keepalive，防止服务端关闭空闲连接
-      keepaliveCountMax: 3,        // 最多 3 次无响应后视为断开，触发 error 事件
+      keepaliveInterval: 10000,
+      keepaliveCountMax: 3,
     };
 
     if (host.authType === 'privateKey') {
@@ -198,17 +205,6 @@ function createHostService({ hostRepository }) {
     return config;
   }
 
-  /**
-   * 建立到目标主机的 ssh2 Client 连接（自动处理跳板机级联）。
-   *
-   * 如果目标主机设置了 proxyHostId，会先连接到跳板机，
-   * 通过 forwardOut 获取 stream 后再建立端到端加密连接。
-   *
-   * @param {string} hostId - 目标主机 ID
-   * @param {object} [options] - 额外选项
-   * @param {number} [options.readyTimeout] - 连接超时毫秒数
-   * @returns {Promise<{client: Client, proxyClient: Client|null}>}
-   */
   function connectToHost(hostId, options = {}) {
     const { Client } = require('ssh2');
 
@@ -222,7 +218,6 @@ function createHostService({ hostRepository }) {
 
       const proxyHostId = host.proxyHostId;
 
-      // 无跳板机：直连
       if (!proxyHostId) {
         const client = new Client();
         client.on('ready', () => resolve({ client, proxyClient: null }));
@@ -235,7 +230,6 @@ function createHostService({ hostRepository }) {
         return;
       }
 
-      // 有跳板机：先连 proxy，再 forwardOut 到 target
       const proxyHost = findStoredHost(proxyHostId);
       if (!proxyHost) return reject(new Error(`跳板机不存在: ${proxyHostId}`));
       if (proxyHost.proxyHostId) return reject(new Error('暂不支持多级跳板机级联'));
@@ -255,7 +249,6 @@ function createHostService({ hostRepository }) {
             return reject(new Error(`跳板机 forwardOut 失败: ${err.message}`));
           }
 
-          // 通过 forwardOut 的 stream 建立到目标机的连接
           const targetClient = new Client();
           const targetConnConfig = { ...targetConfig, sock: stream };
           delete targetConnConfig.host;
@@ -286,6 +279,230 @@ function createHostService({ hostRepository }) {
     });
   }
 
+  function normalizeTags(tags) {
+    if (!Array.isArray(tags)) return [];
+    const seen = new Set();
+    const result = [];
+    for (const tag of tags) {
+      const value = String(tag || '').trim();
+      if (!value || seen.has(value)) continue;
+      seen.add(value);
+      result.push(value);
+    }
+    return result;
+  }
+
+  function normalizePreference(hostId, raw = null, fallbackOrder = 0) {
+    const consoleOrder = Number(raw?.consoleOrder);
+    const role = raw?.role && HOST_ROLES.has(raw.role) ? raw.role : null;
+    return {
+      hostId,
+      showInConsole: raw?.showInConsole !== false,
+      consoleOrder: Number.isFinite(consoleOrder) ? consoleOrder : fallbackOrder,
+      pinned: Boolean(raw?.pinned),
+      role,
+      tags: normalizeTags(raw?.tags),
+      archived: Boolean(raw?.archived),
+      updatedAt: raw?.updatedAt || nowIso(),
+    };
+  }
+
+  function listPreferenceMap() {
+    return new Map(hostRepository.readHostPreferences().map((preference) => [preference.hostId, preference]));
+  }
+
+  function ensureHostPreferences(hosts = listHosts()) {
+    const map = listPreferenceMap();
+    const maxOrder = [...map.values()].reduce((max, preference) => {
+      const order = Number(preference.consoleOrder);
+      return Number.isFinite(order) ? Math.max(max, order) : max;
+    }, -1);
+    let nextOrder = maxOrder + 1;
+
+    return hosts.map((host, index) => {
+      const existing = map.get(host.id);
+      const fallbackOrder = existing ? index : nextOrder++;
+      const preference = normalizePreference(host.id, existing, fallbackOrder);
+      if (!existing) hostRepository.writeHostPreference(preference);
+      return { ...host, preference };
+    });
+  }
+
+  function ensurePreference(hostId) {
+    const host = listHosts().find((item) => item.id === hostId);
+    if (!host) throw createNotFoundError('主机不存在');
+    const existing = hostRepository.readHostPreference(hostId);
+    const preference = normalizePreference(hostId, existing, nextConsoleOrder());
+    if (!existing) hostRepository.writeHostPreference(preference);
+    return preference;
+  }
+
+  function nextConsoleOrder() {
+    return hostRepository.readHostPreferences().reduce((max, preference) => {
+      const order = Number(preference.consoleOrder);
+      return Number.isFinite(order) ? Math.max(max, order) : max;
+    }, -1) + 1;
+  }
+
+  function sortConsoleHosts(a, b) {
+    if (a.preference.pinned !== b.preference.pinned) return a.preference.pinned ? -1 : 1;
+    if (a.preference.consoleOrder !== b.preference.consoleOrder) {
+      return a.preference.consoleOrder - b.preference.consoleOrder;
+    }
+    return String(a.name || '').localeCompare(String(b.name || ''), 'zh-Hans-CN');
+  }
+
+  function listHostsWithPreferences() {
+    return ensureHostPreferences(listHosts());
+  }
+
+  function listConsoleHosts() {
+    return listHostsWithPreferences()
+      .filter((host) => host.preference.showInConsole && !host.preference.archived)
+      .sort(sortConsoleHosts);
+  }
+
+  function detectProbeMode(probe) {
+    if (!probe) return 'none';
+    if (probe.source === 'relay_agent' || probe.relaySource) return 'relay';
+    if (probe.source === 'agent' || probe.agentInstalled || probe.agentOnline) return 'agent';
+    return 'agentless';
+  }
+
+  function getProbePlatformText(probe) {
+    if (!probe) return null;
+    if (probe.platform) return probe.platform;
+    const info = probe.platformInfo;
+    if (!info) return null;
+    const name = info.prettyName || [info.distroId, info.versionId].filter(Boolean).join(' ') || info.os;
+    const suffix = [info.arch, info.kernel].filter(Boolean).join(' / ');
+    return [name, suffix].filter(Boolean).join(' / ') || null;
+  }
+
+  function toProbeSummary(probe, alertCount = 0) {
+    if (!probe) {
+      return {
+        status: 'unknown',
+        mode: 'none',
+        cpu: null,
+        cpuIowait: null,
+        cpuSteal: null,
+        memory: null,
+        disk: null,
+        load: null,
+        trafficMonth: null,
+        trafficPercent: null,
+        lastSampleAt: null,
+        alertCount,
+        platform: null,
+      };
+    }
+    return {
+      status: probe.online === true ? 'online' : 'offline',
+      mode: detectProbeMode(probe),
+      cpu: probe.cpuUsage ?? null,
+      cpuIowait: probe.cpuIowait ?? null,
+      cpuSteal: probe.cpuSteal ?? null,
+      memory: probe.memoryUsage ?? null,
+      disk: probe.diskUsage ?? null,
+      load: probe.load1 ?? null,
+      trafficMonth: probe.trafficUsedBytes ?? null,
+      trafficPercent: probe.trafficPercent ?? null,
+      lastSampleAt: probe.checkedAt || probe.agentLastSeenAt || probe.trafficLastSampleAt || probe.lastSuccessAt || null,
+      alertCount,
+      platform: getProbePlatformText(probe),
+    };
+  }
+
+  function toRepositoryItem(host, { probeMap, alertCountMap } = {}) {
+    const probe = probeMap?.get(host.id) || null;
+    return {
+      id: host.id,
+      name: host.name,
+      type: host.type,
+      host: host.host,
+      user: host.username,
+      username: host.username,
+      port: host.port,
+      authType: host.authType,
+      proxyHostId: host.proxyHostId || null,
+      links: host.links || [],
+      manualLocation: host.manualLocation || null,
+      preference: host.preference,
+      probe: toProbeSummary(probe, alertCountMap?.get(host.id) || 0),
+    };
+  }
+
+  function listRepositoryHosts(context = {}) {
+    return listHostsWithPreferences().map((host) => toRepositoryItem(host, context));
+  }
+
+  function updateHostPreference(hostId, patch) {
+    const current = ensurePreference(hostId);
+    const next = { ...current };
+
+    if (hasOwn(patch, 'showInConsole')) next.showInConsole = Boolean(patch.showInConsole);
+    if (hasOwn(patch, 'consoleOrder')) {
+      const order = Number(patch.consoleOrder);
+      if (!Number.isFinite(order)) throw createValidationError('主控排序必须是数字');
+      next.consoleOrder = order;
+    }
+    if (hasOwn(patch, 'pinned')) next.pinned = Boolean(patch.pinned);
+    if (hasOwn(patch, 'role')) {
+      const role = patch.role ? String(patch.role) : null;
+      if (role && !HOST_ROLES.has(role)) throw createValidationError('未知主机角色');
+      next.role = role;
+    }
+    if (hasOwn(patch, 'tags')) next.tags = normalizeTags(patch.tags);
+    if (hasOwn(patch, 'archived')) next.archived = Boolean(patch.archived);
+
+    next.updatedAt = nowIso();
+    const normalized = normalizePreference(hostId, next, next.consoleOrder);
+    hostRepository.writeHostPreference(normalized);
+    return normalized;
+  }
+
+  function setConsoleOrder(hostIds, { replace = false } = {}) {
+    if (!Array.isArray(hostIds)) throw createValidationError('hostIds 必须是数组');
+    const allHosts = listHosts();
+    const validIds = new Set(allHosts.map((host) => host.id));
+    const uniqueIds = [];
+    const seen = new Set();
+
+    for (const id of hostIds) {
+      const hostId = String(id || '').trim();
+      if (!hostId || seen.has(hostId)) continue;
+      if (!validIds.has(hostId)) throw createNotFoundError(`主机不存在: ${hostId}`);
+      seen.add(hostId);
+      uniqueIds.push(hostId);
+    }
+
+    ensureHostPreferences(allHosts);
+    uniqueIds.forEach((hostId, index) => {
+      updateHostPreference(hostId, {
+        showInConsole: true,
+        archived: false,
+        consoleOrder: index,
+      });
+    });
+
+    if (replace) {
+      for (const host of allHosts) {
+        if (!seen.has(host.id)) updateHostPreference(host.id, { showInConsole: false });
+      }
+    }
+
+    return listConsoleHosts();
+  }
+
+  function ensureDefaultPreference(hostId) {
+    const existing = hostRepository.readHostPreference(hostId);
+    if (existing) return normalizePreference(hostId, existing, nextConsoleOrder());
+    const preference = normalizePreference(hostId, null, nextConsoleOrder());
+    hostRepository.writeHostPreference(preference);
+    return preference;
+  }
+
   function updateLocalHostManualLocation(manualLocation) {
     const existing = loadLocalHostConfig();
     saveLocalHostConfig({
@@ -298,12 +515,18 @@ function createHostService({ hostRepository }) {
     buildConnectionConfig,
     buildStoredHost,
     connectToHost,
+    ensureDefaultPreference,
     findHost,
     findStoredHost,
     getLocalHost,
+    listConsoleHosts,
     listHosts,
+    listHostsWithPreferences,
+    listRepositoryHosts,
     saveLocalHostConfig,
+    setConsoleOrder,
     toPublicHost,
+    updateHostPreference,
     updateLocalHostManualLocation,
   };
 }

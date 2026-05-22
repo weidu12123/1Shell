@@ -1,0 +1,48 @@
+id: access-log-incident-smoke
+name: Access Log Incident Smoke
+description: Count suspicious access log patterns and define when L3 should review the run.
+enabled: false
+hosts: all
+l2:
+  skill: web-log-maintenance
+  max_repair_attempts: 1
+  escalate_after_failures: 2
+  allow_write_program: false
+l3:
+  skills:
+    - guardian-protocol
+  max_actions_per_hour: 5
+  require_confirmation: true
+triggers:
+  - id: manual_run
+    type: manual
+    action: inspect_logs
+actions:
+  inspect_logs:
+    on_fail: repair
+    steps:
+      - id: suspicious_count
+        label: Count suspicious requests
+        run: test -r /var/log/nginx/access.log && grep -E 'wp-login|\.env|/etc/passwd' /var/log/nginx/access.log | wc -l || echo 0
+        verify:
+          exit_code: 0
+          stdout_match: '^[0-9]+'
+        capture_stdout: true
+        on_error_hint: If logs are unreadable, classify as unresolved unless there is incident evidence.
+      - id: render_result
+        type: render
+        format: keyvalue
+        title: Suspicious request summary
+        level: warning
+        items_from_steps:
+          - key: Suspicious request count
+            value_from: suspicious_count
+incidents:
+  - id: suspected_web_probe
+    when:
+      step: suspicious_count
+      number_gt: 100
+    severity: critical
+    policy: ask_then_act
+ui:
+  instance_actions: []

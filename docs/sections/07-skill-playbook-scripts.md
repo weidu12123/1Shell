@@ -108,6 +108,7 @@ Claude Code Skill 默认**不直接进入 1Shell runner 执行链**，避免把�
 ### 2.5 创建、导入与启用状态
 
 - 创建 1Shell Skill Extension：在创作工作台中描述需求，由 AI 生成 `SKILL.md + rules/workflows/references`
+- 创作工作台可提供「精修模式 / 高质量创作 / 需求扩写」开关：开启后先把简短需求扩写为结构化 Brief，再生成 Skill / Program；关闭时保持快速创作
 - 导入 Claude Code Skill：在仓库页面粘贴 GitHub 链接，1Shell 下载并登记到内部托管目录
 - 禁用 Claude Code Skill：只改变 1Shell 仓库中的托管状态，表示该标准 Skill 暂不作为可用托管包展示或参与后续能力选择；不会删除原始仓库副本
 - 删除 Claude Code Skill：删除 `data/claude-code-skills/<skill-id>/` 下的托管副本和 manifest，不影响 `data/skills/` 中的 1Shell Skill Extension

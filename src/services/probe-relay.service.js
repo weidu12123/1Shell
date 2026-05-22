@@ -275,6 +275,12 @@ function createProbeRelayService({ db, hostService, probeAgentService }) {
     return ids;
   }
 
+  function evictHost(hostId) {
+    const cleanHostId = String(hostId || '').trim();
+    if (!cleanHostId) return { ok: false, removedCached: 0 };
+    return { ok: true, removedCached: removeCachedHost(cleanHostId) };
+  }
+
   async function requestInstallToken(upstreamId, { hostId, ttlMs } = {}) {
     const row = stmts ? stmts.getUpstream.get(upstreamId) : memory.upstreams.get(upstreamId);
     if (!row) {
@@ -334,14 +340,24 @@ function createProbeRelayService({ db, hostService, probeAgentService }) {
   async function syncUpstream(row) {
     const startedAt = nowIso();
     try {
-      const snapshot = await fetchJson(`${row.server_url}/api/agent/probe/relay-snapshot`, row.sync_token);
-      const probes = dedupeRelayProbes(Array.isArray(snapshot?.probes) ? snapshot.probes.map((probe) => ({
+      const lastSyncMs = timestampMs(row.last_sync_at);
+      const since = lastSyncMs
+        ? `?since=${encodeURIComponent(new Date(lastSyncMs - 60_000).toISOString())}`
+        : '';
+      const snapshot = await fetchJson(`${row.server_url}/api/agent/probe/relay-snapshot${since}`, row.sync_token);
+      const decorate = (probe) => ({
         ...probe,
         source: 'relay_agent',
         relaySource: true,
         relayId: row.id,
         relayName: row.name,
-      })) : []);
+      });
+      const samples = Array.isArray(snapshot?.samples) ? snapshot.samples.map(decorate) : [];
+      for (const sample of samples) {
+        if (hostService?.findHost && !hostService.findHost(sample.hostId)) continue;
+        probeAgentService.saveExternalProbeSample?.(sample, { source: 'relay_agent' });
+      }
+      const probes = dedupeRelayProbes(Array.isArray(snapshot?.probes) ? snapshot.probes.map(decorate) : []);
       for (const probe of probes) {
         if (hostService?.findHost && !hostService.findHost(probe.hostId)) continue;
         probeAgentService.saveExternalProbeSample?.(probe, { source: 'relay_agent' });
@@ -426,6 +442,7 @@ function createProbeRelayService({ db, hostService, probeAgentService }) {
     createRelayInstallToken,
     createRelayToken,
     deleteUpstream,
+    evictHost,
     forgetHost,
     getRelayAgentStatusMap,
     listUpstreams,
