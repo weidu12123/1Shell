@@ -160,8 +160,13 @@ deploy_native() {
   fi
 
   # 安装依赖
-  log "安装依赖..."
+  log "安装后端依赖..."
   npm install --omit=dev 2>&1 | tail -3
+
+  log "构建前端资源..."
+  npm --prefix frontend ci
+  npm --prefix frontend run build
+  rm -rf frontend/node_modules
 
   # 创建数据目录
   mkdir -p data

@@ -23,6 +23,9 @@ COPY package.json package-lock.json ./
 RUN npm ci --omit=dev
 
 COPY . .
+RUN npm --prefix frontend ci \
+    && npm --prefix frontend run build \
+    && rm -rf frontend/node_modules
 
 # 数据目录（挂载卷持久化）
 RUN mkdir -p /app/data
