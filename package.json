@@ -2,12 +2,24 @@
   "name": "1shell",
   "version": "4.0.0",
   "description": "1Shell - One Shell to rule them all. 零侵入式多机管理中枢 + AI 云端总司令",
-  "main": "server.js",
+  "main": "electron/main.js",
   "scripts": {
     "start": "node server.js",
     "dev": "nodemon server.js",
     "build:agent": "node scripts/build-agent.js",
-    "test": "echo \"no tests yet\" && exit 0"
+    "release:win-portable": "node scripts/package-windows-portable.js",
+    "release:win-portable:no-zip": "node scripts/package-windows-portable.js --no-zip",
+    "release:win-setup": "node scripts/build-windows-installer.js",
+    "desktop:dev": "electron .",
+    "desktop:tauri:dev": "tauri dev",
+    "release:desktop": "node scripts/build-electron.js",
+    "release:desktop:portable": "node scripts/build-electron.js",
+    "release:desktop:installer": "node scripts/build-electron.js --installer",
+    "release:tauri": "tauri build",
+    "tauri": "tauri",
+    "tauri:prepare": "node scripts/prepare-tauri-backend.js",
+    "test": "echo \"no tests yet\" && exit 0",
+    "release:desktop:mac": "node scripts/build-electron-macos.js"
   },
   "keywords": [
     "ssh",
@@ -38,6 +50,9 @@
     "ssh2": "^1.17.0"
   },
   "devDependencies": {
+    "@tauri-apps/cli": "^2.9.0",
+    "electron": "^42.1.0",
+    "electron-builder": "^26.8.1",
     "nodemon": "^3.1.4",
     "socket.io-client": "^4.8.3"
   }

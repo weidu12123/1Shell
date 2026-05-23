@@ -10,6 +10,8 @@ import AppAiFab from './components/AppAiFab.vue';
 import ConfirmModal from './components/ConfirmModal.vue';
 import AppBackground from './components/AppBackground.vue';
 import LoginScreen from './components/main/LoginScreen.vue';
+import SettingsModal from './components/main/SettingsModal.vue';
+import { isDesktopRuntime } from './utils/desktop';
 
 interface AuthStatusResp {
   enabled?: boolean;
@@ -21,13 +23,14 @@ const { requestJson } = useApiClient();
 
 const bootstrapping = ref(true);
 const bootstrapError = ref<string | null>(null);
+const settingsOpen = ref(false);
 
 function prefetchProbeSilently(force = false): void {
   void prefetchProbePageState(requestJson, force).catch(() => undefined);
 }
 
-// 全局登录闸门：auth 启用且未登录 → 必须先登录
-const needLogin = computed(() => auth.enabled && !auth.authenticated);
+const desktopRuntime = isDesktopRuntime();
+const needLogin = computed(() => !desktopRuntime && auth.enabled && !auth.authenticated);
 
 async function bootstrapAuth(): Promise<void> {
   try {
@@ -73,7 +76,7 @@ onMounted(() => {
   <!-- 已登录或 auth 关闭 → 正常 app shell -->
   <div v-else class="min-h-screen flex text-slate-100 isolate">
     <AppBackground />
-    <AppSidebar />
+    <AppSidebar @open-settings="settingsOpen = true" />
     <main class="flex-1 min-w-0 overflow-hidden">
       <RouterView v-slot="{ Component }">
         <KeepAlive>
@@ -84,5 +87,6 @@ onMounted(() => {
     <ToastHost />
     <AppAiFab />
     <ConfirmModal />
+    <SettingsModal :open="settingsOpen" @close="settingsOpen = false" />
   </div>
 </template>

@@ -13,7 +13,6 @@ interface NavItem {
 const navItems: NavItem[] = [
   { to: '/',             label: '主页', icon: 'globe',      title: '世界地图主页' },
   { to: '/console',      label: '主控', icon: 'console',    title: '主控台' },
-  { to: '/hosts',        label: '主机', icon: 'server',     title: 'VPS 仓库' },
   { to: '/programs',     label: '程序', icon: 'cog',        title: '长驻程序' },
   { to: '/scripts',      label: '脚本', icon: 'terminal',   title: '脚本库' },
   { to: '/skills',       label: '仓库', icon: 'package',    title: '技能仓库' },
@@ -22,6 +21,8 @@ const navItems: NavItem[] = [
   { to: '/probe',        label: '探针', icon: 'radio',      title: '探针' },
   { to: '/audit',        label: '审计', icon: 'clipboard',  title: '审计日志' },
 ];
+
+const emit = defineEmits<{ 'open-settings': [] }>();
 
 const isDark = ref(true);
 const themeIcon = ref<'sun' | 'moon'>('sun');
@@ -79,6 +80,15 @@ onMounted(syncFromDom);
       >
         <AppIcon :name="themeIcon" :size="18" />
         <span>主题</span>
+      </button>
+      <button
+        type="button"
+        class="side-nav-item"
+        title="系统设置"
+        @click="emit('open-settings')"
+      >
+        <AppIcon name="cog" :size="18" />
+        <span>设置</span>
       </button>
     </div>
   </aside>
