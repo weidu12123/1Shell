@@ -302,6 +302,11 @@ function createProbeService({ hostRepository, hostService, sshShellPool, bridgeS
     };
 
     rememberSuccessfulProbe(normalized, checkedAtMs);
+    if (normalized.hostId && normalized.hostId !== LOCAL_HOST_ID && normalized.platformInfo) {
+      try {
+        hostService?.syncHostOsInfo?.(normalized.hostId, normalized.platformInfo);
+      } catch { /* ignore */ }
+    }
     delete normalized._networkRxBytes;
     delete normalized._networkTxBytes;
     delete normalized._diskReadBytes;
@@ -576,7 +581,8 @@ function createProbeService({ hostRepository, hostService, sshShellPool, bridgeS
 
     try {
       const result = await sshShellPool.exec(host.id, REMOTE_PROBE_COMMAND, timeout);
-      const latencyMs = Date.now() - startedAt;
+      // 扣除 REMOTE_PROBE_COMMAND 内置的 sleep 0.2 (200ms) CPU 采样停顿
+      const latencyMs = Math.max(1, (Date.now() - startedAt) - 200);
       const stdout = result.stdout || '';
 
       if (result.exitCode !== 0 && !stdout.trim()) {

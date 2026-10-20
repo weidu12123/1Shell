@@ -46,16 +46,26 @@ func New(cfg *config.Config, logger *log.Logger) *Runner {
 }
 
 func (r *Runner) Loop(ctx context.Context) {
-	ticker := time.NewTicker(1200 * time.Millisecond)
-	defer ticker.Stop()
+	const baseInterval = 1200 * time.Millisecond
+	const maxBackoff = 60 * time.Second
+	delay := baseInterval
+	timer := time.NewTimer(delay)
+	defer timer.Stop()
 	for {
 		select {
 		case <-ctx.Done():
 			return
-		case <-ticker.C:
+		case <-timer.C:
 			if err := r.pollOnce(ctx); err != nil {
 				r.log.Printf("command poll error: %v", err)
+				delay *= 2
+				if delay > maxBackoff {
+					delay = maxBackoff
+				}
+			} else {
+				delay = baseInterval
 			}
+			timer.Reset(delay)
 		}
 	}
 }

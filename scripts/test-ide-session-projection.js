@@ -133,6 +133,43 @@ try {
   assert.strictEqual(attOnlyDetail.timeline[0].text, '', '纯附件消息气泡文本为空');
   assert.strictEqual(attOnlyDetail.timeline[0].attachments.length, 1);
 
+  // 用户原始多行结构与配置字段（如 private_key / password）保真，且剥离旧版注入头与运行时内部观察块
+  const rawConfigInput = [
+    '  {',
+    '    "private_key": "reality-private-key-placeholder",',
+    '    "password": "my-ss-password"',
+    '  }',
+    '帮我按上面配置搭建节点',
+  ].join('\n');
+  repo.upsertSession({
+    id: 'agent-projection-user-fidelity',
+    title: 'fidelity',
+    entry: 'core',
+    hostId: 'example-hk',
+    messages: [
+      {
+        role: 'user',
+        content: `**目标主机**：\n  - id=host_1 · hk (root@1.2.3.4:22) · OS: Debian GNU/Linux 12\n\n${rawConfigInput}`,
+      },
+      {
+        role: 'user',
+        content: [
+          {
+            type: 'text',
+            text: 'RUNTIME_EMPTY_MODEL_RESPONSE\nattempt=1\nThe previous provider response contained no assistant text.',
+          },
+        ],
+      },
+    ],
+  });
+  const fidelityDetail = ideService.getSessionDetail('agent-projection-user-fidelity');
+  assert.strictEqual(fidelityDetail.timeline.length, 1, '运行时内部重试观察块不应渲染为用户气泡');
+  assert.strictEqual(
+    fidelityDetail.timeline[0].text,
+    rawConfigInput,
+    '用户气泡应剥离旧版目标主机前缀并完整保留首行缩进、换行与原始字段内容',
+  );
+
   console.log('ide-session-projection checks passed');
 } finally {
   fs.rmSync(tmpDir, { recursive: true, force: true });

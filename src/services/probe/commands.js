@@ -25,11 +25,11 @@ function shellQuote(value) {
 }
 
 function buildNetworkBytesCommand(rxKey, txKey) {
-  return `awk -F'[: ]+' 'NR>2 && $2 != "lo" {rx+=$3; tx+=$11} END {printf "${rxKey}=%s\\n${txKey}=%s\\n", rx+0, tx+0}' /proc/net/dev 2>/dev/null`;
+  return `awk 'NR>2 && index($0, ":") > 0 {split($0, a, ":"); iface=a[1]; gsub(/^[ \\t]+|[ \\t]+$/, "", iface); if (iface !~ /^(lo|docker[0-9]*|br-.*|veth.*|virbr.*|tun[0-9]*|tap[0-9]*|wg[0-9]*|tailscale[0-9]*|zt.*|cni[0-9]*|flannel.*|cali.*|kube-.*)$/) {sub(/^[ \\t]+/, "", a[2]); split(a[2], f, /[ \\t]+/); rx+=f[1]; tx+=f[9]}} END {printf "${rxKey}=%.0f\\n${txKey}=%.0f\\n", rx+0, tx+0}' /proc/net/dev 2>/dev/null`;
 }
 
 function buildDiskIoBytesCommand(readKey, writeKey) {
-  return `awk '$3 ~ /^(sd[a-z]+|vd[a-z]+|xvd[a-z]+|hd[a-z]+|nvme[0-9]+n[0-9]+)$/ {read+=$6; write+=$10} END {printf "${readKey}=%s\\n${writeKey}=%s\\n", read*512, write*512}' /proc/diskstats 2>/dev/null`;
+  return `awk '$3 ~ /^(sd[a-z]+|vd[a-z]+|xvd[a-z]+|hd[a-z]+|nvme[0-9]+n[0-9]+)$/ {read+=$6; write+=$10} END {printf "${readKey}=%.0f\\n${writeKey}=%.0f\\n", read*512, write*512}' /proc/diskstats 2>/dev/null`;
 }
 
 function buildCpuUsageCommand(outputVar) {
@@ -75,12 +75,12 @@ const SYSTEM_HEALTH_COMMANDS = buildSystemHealthCommands();
 
 const REMOTE_PROBE_COMMAND = [
   'export LC_ALL=C LANG=C',
+  buildCpuUsageCommand('CPU'),
   'HOSTNAME=$(hostname 2>/dev/null || echo unknown)',
   'UPTIME=$(cut -d. -f1 /proc/uptime 2>/dev/null || echo 0)',
   "LOAD=$(cat /proc/loadavg 2>/dev/null | awk '{print $1\" \"$2\" \"$3}')",
   "MEM=$(awk '/MemTotal/ {t=$2} /MemAvailable/ {a=$2} END {if (t>0) printf \"%.2f\", (t-a)*100/t; else print \"\"}' /proc/meminfo 2>/dev/null)",
   "DISK=$(df -Pk / 2>/dev/null | awk 'NR==2 {gsub(/%/, \"\", $5); print $5}')",
-  buildCpuUsageCommand('CPU'),
   buildNetworkBytesCommand('NET_RX', 'NET_TX'),
   buildDiskIoBytesCommand('DISK_READ_BYTES', 'DISK_WRITE_BYTES'),
   buildProcessCountCommand('PROC_COUNT'),

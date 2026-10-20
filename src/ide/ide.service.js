@@ -1043,9 +1043,24 @@ function buildRunContextBlock(context = null) {
   ].filter(Boolean).join('\n') + '\n\n';
 }
 
+function preserveUserMessageStructure(value) {
+  const raw = String(value ?? '');
+  if (!raw.trim()) return '';
+  return raw.replace(/^(?:\r?\n)+|\s+$/g, '');
+}
+
+function stripLegacyInjectedUserPrefixes(text = '') {
+  let current = String(text || '');
+  current = current.replace(/^(?:\*\*(?:目标主机|相关文件|相关容器|MCP Server)\*\*：\r?\n(?:  -[^\r\n]*\r?\n|  注意：[^\r\n]*\r?\n|  请使用[^\r\n]*\r?\n)*\r?\n)+/, '');
+  current = current.replace(/^\*\*Current 1Shell goal\*\*:\r?\n(?:- [^\r\n]*(?:\r?\n  [^\r\n]*)*\r?\n)+\r?\n/, '');
+  return current;
+}
+
 function buildAgentUserContent({ firstContextBlock = '', runContextBlock = '', message = '', attachments = [], exactTextRegistry = null }) {
   const normalized = normalizeAgentAttachments(attachments);
-  const text = `${firstContextBlock || ''}${runContextBlock || ''}${message || ''}`.trim();
+  const prefix = `${firstContextBlock || ''}${runContextBlock || ''}`;
+  const cleanMessage = preserveUserMessageStructure(message);
+  const text = prefix ? `${prefix}${cleanMessage}`.trim() : cleanMessage;
   if (!normalized.length) return text;
 
   const blocks = [{ type: 'text', text: text || '请分析附件。' }];
@@ -2475,7 +2490,11 @@ const REWIND_MAX_FILE_BYTES = 6 * 1024 * 1024;
     }
     if (blocks.length > 0) {
       const lastMessage = session.messages[session.messages.length - 1];
-      if (lastMessage?.role === 'user' && Array.isArray(lastMessage.content)) {
+      const isPureToolResultMessage = lastMessage?.role === 'user'
+        && Array.isArray(lastMessage.content)
+        && lastMessage.content.length > 0
+        && lastMessage.content.every((b) => b?.type === 'tool_result');
+      if (isPureToolResultMessage) {
         lastMessage.content.push(...blocks);
       } else {
         session.messages.push({ role: 'user', content: blocks });
@@ -2724,7 +2743,11 @@ const REWIND_MAX_FILE_BYTES = 6 * 1024 * 1024;
         sanitizeProviderMessageHistory(session.messages);
         repairDanglingToolUseMessages(session.messages);
         const compactedMessages = projectMessagesForModelApi(compactMessages(session.messages));
-        const baseSystem = composeSystemPrompt(session.system, session.activeSkillContext);
+        const baseSystem = [
+          composeSystemPrompt(session.system, session.activeSkillContext),
+          String(session.contextBlock || '').trim(),
+          String(buildRunContextBlock(context) || '').trim(),
+        ].filter(Boolean).join('\n\n');
         const apiBody = JSON.stringify({
           model,
           max_tokens: 8192,
@@ -3243,11 +3266,50 @@ const REWIND_MAX_FILE_BYTES = 6 * 1024 * 1024;
     return String(context?.hostScope || '').trim() === 'all' ? 'all' : '';
   }
 
+  function buildSessionContextBlock(context) {
+    if (!context || typeof context !== 'object') return '';
+    const parts = [];
+    if (context.hosts?.length > 0) {
+      parts.push('**目标主机**：');
+      let anyWindows = false;
+      for (const h of context.hosts) {
+        // OS 以服务端探测结果为准：前端 context 里通常没有这个字段，
+        // 而"目标是什么系统"决定模型该吐 PowerShell 还是 bash。
+        const probed = hostService?.findHost?.(h.id)?.osInfo || null;
+        const osText = probed?.prettyName || probed?.os || h.platform || h.os || '';
+        if (String(probed?.os || '').toLowerCase() === 'windows') anyWindows = true;
+        const osSuffix = osText ? ` · OS: ${osText}` : '';
+        parts.push(`  - id=${h.id} · ${h.name || h.id} (${h.username || 'root'}@${h.host || '127.0.0.1'}:${h.port || 22})${osSuffix}`);
+      }
+      if (anyWindows) {
+        parts.push('  注意：标记为 Windows 的主机上，命令以 PowerShell 执行（不是 bash）。');
+        parts.push('  请使用 PowerShell 语法与 Windows 路径，不要用 apt/systemctl/ls 这类 POSIX 命令。');
+      }
+    }
+    if (context.files?.length > 0) {
+      parts.push('**相关文件**：');
+      for (const f of context.files) parts.push(`  - hostId=${f.hostId} path=${f.path}`);
+    }
+    if (context.containers?.length > 0) {
+      parts.push('**相关容器**：');
+      for (const c of context.containers) parts.push(`  - hostId=${c.hostId} name=${c.name || c.id}${c.image ? ` image=${c.image}` : ''}`);
+    }
+    if (context.mcpServers?.length > 0) {
+      parts.push('**MCP Server**：');
+      for (const s of context.mcpServers) parts.push(`  - name=${s.name} → ${s.url}`);
+    }
+    return parts.length > 0 ? parts.join('\n') + '\n\n' : '';
+  }
+
   function getOrCreateSession(sessionId, context, entry, approvalMode = null) {
+    const nextContextBlock = buildSessionContextBlock(context);
     if (sessions.has(sessionId)) {
       const session = sessions.get(sessionId);
       session.updatedAt = new Date().toISOString();
       applyPromptEntry(session, entry, approvalMode);
+      if (nextContextBlock || hasOwnObjectProperty(context, 'hosts') || hasOwnObjectProperty(context, 'workspaceHostIds')) {
+        session.contextBlock = nextContextBlock;
+      }
       if (hasOwnObjectProperty(context, 'toolPolicy')) session.toolPolicy = context.toolPolicy ? normalizeToolPolicy(context.toolPolicy) : null;
       if (hasOwnObjectProperty(context, 'workspaceHostIds') || Array.isArray(context?.hosts)) session.workspaceHostIds = workspaceHostIdsFromContext(context);
       const contextHostId = hostIdFromContext(context);
@@ -3256,40 +3318,7 @@ const REWIND_MAX_FILE_BYTES = 6 * 1024 * 1024;
       return session;
     }
 
-    let contextBlock = '';
-    if (context) {
-      const parts = [];
-      if (context.hosts?.length > 0) {
-        parts.push('**目标主机**：');
-        let anyWindows = false;
-        for (const h of context.hosts) {
-          // OS 以服务端探测结果为准：前端 context 里通常没有这个字段，
-          // 而"目标是什么系统"决定模型该吐 PowerShell 还是 bash。
-          const probed = hostService?.findHost?.(h.id)?.osInfo || null;
-          const osText = probed?.prettyName || probed?.os || h.platform || h.os || '';
-          if (String(probed?.os || '').toLowerCase() === 'windows') anyWindows = true;
-          const osSuffix = osText ? ` · OS: ${osText}` : '';
-          parts.push(`  - id=${h.id} · ${h.name || h.id} (${h.username || 'root'}@${h.host || '127.0.0.1'}:${h.port || 22})${osSuffix}`);
-        }
-        if (anyWindows) {
-          parts.push('  注意：标记为 Windows 的主机上，命令以 PowerShell 执行（不是 bash）。');
-          parts.push('  请使用 PowerShell 语法与 Windows 路径，不要用 apt/systemctl/ls 这类 POSIX 命令。');
-        }
-      }
-      if (context.files?.length > 0) {
-        parts.push('**相关文件**：');
-        for (const f of context.files) parts.push(`  - hostId=${f.hostId} path=${f.path}`);
-      }
-      if (context.containers?.length > 0) {
-        parts.push('**相关容器**：');
-        for (const c of context.containers) parts.push(`  - hostId=${c.hostId} name=${c.name || c.id}${c.image ? ` image=${c.image}` : ''}`);
-      }
-      if (context.mcpServers?.length > 0) {
-        parts.push('**MCP Server**：');
-        for (const s of context.mcpServers) parts.push(`  - name=${s.name} → ${s.url}`);
-      }
-      if (parts.length > 0) contextBlock = parts.join('\n') + '\n\n';
-    }
+    const contextBlock = nextContextBlock;
 
     const promptEntry = normalizePromptEntry(entry);
     const promptApprovalMode = normalizeIdeApprovalMode(approvalMode);
@@ -3662,23 +3691,35 @@ const REWIND_MAX_FILE_BYTES = 6 * 1024 * 1024;
     return Boolean(sessionId) && !String(sessionId).startsWith('mcp-ai-');
   }
 
+  function isRuntimeInjectedUserText(text = '') {
+    const trimmed = String(text || '').trimStart();
+    return trimmed.startsWith('RUNTIME_EMPTY_MODEL_RESPONSE')
+      || trimmed.startsWith('User input received for the interrupted run.')
+      || isDetachedToolResultText(trimmed);
+  }
+
   function sessionTextFromContent(content, options = {}) {
     const preserveWhitespace = options.preserveWhitespace === true;
+    const stripLegacyPrefix = options.stripLegacyPrefix === true;
     if (typeof content === 'string') {
-      const raw = content;
+      const raw = stripLegacyPrefix ? stripLegacyInjectedUserPrefixes(content) : content;
       if (isCompactSummaryText(raw)) return raw;
-      if (isDetachedToolResultText(raw)) return '';
+      if (isRuntimeInjectedUserText(raw)) return '';
       return preserveWhitespace ? raw : raw.replace(/\s+/g, ' ').trim();
     }
     if (!Array.isArray(content)) return '';
     const parts = [];
     for (const blk of content) {
-      if (typeof blk === 'string') parts.push(blk);
-      else if (blk && blk.type === 'text' && blk.text) parts.push(blk.text);
+      if (typeof blk === 'string') {
+        if (!isRuntimeInjectedUserText(blk)) parts.push(blk);
+      } else if (blk && blk.type === 'text' && blk.text && !isRuntimeInjectedUserText(blk.text)) {
+        parts.push(blk.text);
+      }
     }
-    const raw = parts.join('');
+    const joined = parts.join('');
+    const raw = stripLegacyPrefix ? stripLegacyInjectedUserPrefixes(joined) : joined;
     if (isCompactSummaryText(raw)) return raw;
-    if (isDetachedToolResultText(raw)) return '';
+    if (isRuntimeInjectedUserText(raw)) return '';
     return preserveWhitespace ? raw : raw.replace(/\s+/g, ' ').trim();
   }
 
@@ -3715,17 +3756,16 @@ const REWIND_MAX_FILE_BYTES = 6 * 1024 * 1024;
       if (!ideSessionRepository?.upsertSession || !isPersistableSessionId(sessionId)) return;
       const messages = Array.isArray(session?.messages) ? session.messages : [];
       if (messages.length === 0) return;
-      const persistedMessages = redactPotentialSecrets(messages);
       session.updatedAt = new Date().toISOString();
       ideSessionRepository.upsertSession({
         id: sessionId,
-        title: redactCredentialPatterns(session.firstUserMessage ? session.firstUserMessage.slice(0, 60) : deriveSessionTitle(messages)),
+        title: session.firstUserMessage ? session.firstUserMessage.slice(0, 60) : deriveSessionTitle(messages),
         entry: session.entry || 'core',
         hostId: session.hostId || '',
         workspaceHostIds: cleanWorkspaceHostIds(session.workspaceHostIds),
         modelLabel: modelLabel || '',
-        messages: persistedMessages,
-        preview: redactCredentialPatterns(deriveSessionPreview(messages)),
+        messages,
+        preview: deriveSessionPreview(messages),
       });
     } catch (err) {
       logger?.warn?.(`[ide] persist session failed: ${err.message}`);
@@ -3750,7 +3790,9 @@ const REWIND_MAX_FILE_BYTES = 6 * 1024 * 1024;
   function isAttachmentServiceTextBlock(blk) {
     if (blk?.type !== 'text' || typeof blk.text !== 'string') return false;
     const text = blk.text.trimStart();
-    return text.startsWith('用户随消息发送了以下附件：') || text.startsWith('<attachment ');
+    return text.startsWith('用户随消息发送了以下附件：')
+      || text.startsWith('<attachment ')
+      || isRuntimeInjectedUserText(text);
   }
 
   function normalizeStoredAttachmentsMeta(value) {
@@ -3792,7 +3834,7 @@ const REWIND_MAX_FILE_BYTES = 6 * 1024 * 1024;
         const displayContent = Array.isArray(content)
           ? content.filter((blk) => !isAttachmentServiceTextBlock(blk))
           : content;
-        const text = sessionTextFromContent(displayContent, { preserveWhitespace: true });
+        const text = sessionTextFromContent(displayContent, { preserveWhitespace: true, stripLegacyPrefix: true });
         const attachmentsMeta = normalizeStoredAttachmentsMeta(msg.attachments);
         if (text && isCompactSummaryText(text)) {
           items.push({ id: nextId('system'), kind: 'system', title: '/compact', text: compactSummaryTimelineText(text), tone: 'success' });
@@ -4104,10 +4146,8 @@ const REWIND_MAX_FILE_BYTES = 6 * 1024 * 1024;
     sanitizeProviderMessageHistory(session.messages);
     repairDanglingToolUseMessages(session.messages);
 
-    const firstContextBlock = session.messages.length === 0 && session.contextBlock ? session.contextBlock : '';
-    const runContextBlock = buildRunContextBlock(runContext);
     if (!(session.exactTextAttachments instanceof Map)) session.exactTextAttachments = new Map();
-    const userContent = buildAgentUserContent({ firstContextBlock, runContextBlock, message, attachments, exactTextRegistry: session.exactTextAttachments });
+    const userContent = buildAgentUserContent({ message, attachments, exactTextRegistry: session.exactTextAttachments });
 
     // 附件落盘（图床式回显）：base64 仍随消息进模型（1Shell AI 走多模态 block），
     // 同时写一份到 dataDir/agent-attachments/<sessionId>/，落盘元数据挂在消息

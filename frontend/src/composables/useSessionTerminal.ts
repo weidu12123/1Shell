@@ -133,6 +133,16 @@ function create(): SessionTerminalApi {
   let lastRenderedSizeKey = '';
   let userInputPaused = false;
   let suppressStrayInputUntil = 0;
+  let replayingBufferDepth = 0;
+
+  function stripTerminalQueriesForReplay(data: string): string {
+    return String(data || '')
+      .replace(/\x1b\[(?:>|=|\?)?0?c/g, '')
+      .replace(/\x1b\[\??[56]n/g, '')
+      .replace(/\x1b\[>0?q/g, '')
+      .replace(/\x1b\[\?[0-9;]+\$p/g, '')
+      .replace(/\x1b\](?:4;[0-9]+|10|11|12);\?(?:\x07|\x1b\\)/g, '');
+  }
 
   const activeHostId = ref<string>(LOCAL_HOST_ID);
   const activeSessionId = ref<string | null>(null);
@@ -335,6 +345,7 @@ function create(): SessionTerminalApi {
   }
 
   function focusTerminal(): void {
+    suppressStrayInputUntil = Math.max(suppressStrayInputUntil, Date.now() + 350);
     requestAnimationFrame(() => {
       try {
         fitTerminal();
@@ -413,7 +424,16 @@ function create(): SessionTerminalApi {
       syncTerminalSize(true);
       window.setTimeout(() => syncTerminalSize(true), 120);
       window.setTimeout(() => syncTerminalSize(true), 360);
-      _term.write(sessionBuffers.get(session.id) || '', () => scrollTerminalToBottom());
+      const replay = stripTerminalQueriesForReplay(sessionBuffers.get(session.id) || '');
+      suppressStrayInputUntil = Date.now() + 450;
+      if (replay) {
+        replayingBufferDepth += 1;
+        _term.write(replay, () => {
+          replayingBufferDepth = Math.max(0, replayingBufferDepth - 1);
+          suppressStrayInputUntil = Date.now() + 250;
+          scrollTerminalToBottom();
+        });
+      }
       scrollTerminalToBottom();
       if (hostId !== LOCAL_HOST_ID) {
         const hint = `当前终端已切换到 ${host.name}`;
@@ -463,10 +483,20 @@ function create(): SessionTerminalApi {
   }
 
   function normalizeXtermInput(data: string): string {
-    if (userInputPaused) return '';
+    if (userInputPaused || replayingBufferDepth > 0) return '';
     let payload = String(data || '');
     payload = payload.replace(/\x1b\[(?:I|O)/g, '');
-    if (payload === ']' && Date.now() < suppressStrayInputUntil) return '';
+    if (Date.now() < suppressStrayInputUntil) {
+      payload = payload
+        .replace(/\x1b\[\?[0-9;]*c/g, '')
+        .replace(/\x1b\[>[0-9;]*c/g, '')
+        .replace(/\x1b\[\?[0-9;]*\$y/g, '')
+        .replace(/\x1b\[[0-9]+;[0-9]+R/g, '')
+        .replace(/\x1b\](?:4;[0-9]+|10|11|12);[^\x07\x1b]*(?:\x07|\x1b\\)/g, '')
+        .replace(/^\[\?[0-9;]*c$/g, '')
+        .replace(/^>[0-9;]*c$/g, '');
+      if (payload === ']') return '';
+    }
     return payload;
   }
 
@@ -539,7 +569,7 @@ function create(): SessionTerminalApi {
       if (!sessionId) return;
       const output = String(data || '');
       const previous = sessionBuffers.get(sessionId) || '';
-      const next = trimSessionBuffer(previous + output);
+      const next = trimSessionBuffer(previous + stripTerminalQueriesForReplay(output));
       sessionBuffers.set(sessionId, next);
       if (sessionId !== activeSessionId.value) return;
       notifyOutput({ sessionId, data: output });

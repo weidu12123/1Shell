@@ -46,8 +46,9 @@ function registerIdeSocketHandlers(io, { ideService, ideTools, localMcpService, 
     socket.on('ide:message', (payload = {}, reply) => {
       if (typeof reply !== 'function') reply = () => {};
       const sessionId = String(payload.sessionId || '').trim();
-      const message = String(payload.message || '').trim();
-      if (!sessionId || !message) {
+      const rawMessage = String(payload.message ?? '');
+      const message = rawMessage.replace(/^(?:\r?\n)+|\s+$/g, '');
+      if (!sessionId || !rawMessage.trim()) {
         return reply({ ok: false, error: 'sessionId 和 message 为必填' });
       }
 

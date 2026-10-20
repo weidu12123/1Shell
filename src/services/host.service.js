@@ -260,6 +260,31 @@ function createHostService({ hostRepository }) {
     return hosts[index].osInfo;
   }
 
+  function syncHostOsInfo(hostId, platformInfo) {
+    if (!hostId || hostId === LOCAL_HOST_ID || !platformInfo || typeof platformInfo !== 'object') return null;
+    const nextOs = normalizeOsInfo({
+      os: platformInfo.os,
+      distroId: platformInfo.distroId,
+      versionId: platformInfo.versionId,
+      prettyName: platformInfo.prettyName,
+      arch: platformInfo.arch,
+      kernel: platformInfo.kernel,
+      source: 'probe',
+      detectedAt: nowIso(),
+    });
+    if (!nextOs || (!nextOs.prettyName && !nextOs.distroId && !nextOs.os)) return null;
+    const current = normalizeOsInfo(findStoredHost(hostId)?.osInfo);
+    const sameIdentity = current
+      && current.os === nextOs.os
+      && current.distroId === nextOs.distroId
+      && current.versionId === nextOs.versionId
+      && current.prettyName === nextOs.prettyName
+      && current.arch === nextOs.arch
+      && current.kernel === nextOs.kernel;
+    if (sameIdentity && isOsInfoFresh(current)) return current;
+    return updateStoredHostOsInfo(hostId, nextOs);
+  }
+
   async function probeOsInfoFromConnection(client) {
     const command = "cat /etc/os-release 2>/dev/null; printf '\\n__1SHELL_OS_SPLIT__\\n'; uname -m 2>/dev/null; printf '\\n__1SHELL_OS_SPLIT__\\n'; uname -r 2>/dev/null";
     const result = await runSshCommand(client, command);
@@ -881,6 +906,7 @@ function createHostService({ hostRepository }) {
     saveLocalHostConfig,
     setConsoleOrder,
     setRepositoryOrder,
+    syncHostOsInfo,
     toPublicHost,
     updateHostPreference,
     updateLocalHostManualLocation,

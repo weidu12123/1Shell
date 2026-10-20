@@ -178,11 +178,11 @@ function createProtocolAgentService({ catalog, ideSessionRepository, dataDir = '
       // 主机绑定 / 入口洗掉（会话可在 oneshell 与协议 agent 间来回切换）
       ideSessionRepository.upsertSession({
         id: session.sessionId,
-        title: redactCredentialPatterns(String(session.firstUserMessage || '').slice(0, 60)) || spec?.name || session.agentId,
+        title: String(session.firstUserMessage || '').slice(0, 60) || spec?.name || session.agentId,
         workspaceHostIds: session.workspaceHostIds,
         modelLabel: spec?.name || session.agentId,
-        messages: redactPotentialSecrets(session.messages),
-        preview: redactCredentialPatterns(previewFromMessages(session.messages)),
+        messages: session.messages,
+        preview: previewFromMessages(session.messages),
         agentId: agentIdOverride || session.agentId,
         cwd: session.cwd,
         nativeSessionId: agentIdOverride === ONESHELL_AGENT_ID ? '' : (session.nativeSessionId || ''),

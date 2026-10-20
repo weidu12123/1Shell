@@ -1770,7 +1770,7 @@ function send(): void {
     sendToTerminal();
     return;
   }
-  const t = composerInput.value.trim();
+  const t = composerInput.value.trim() ? composerInput.value.replace(/^(?:\r?\n)+|\s+$/g, '') : '';
   if (isBusy.value) return;
   if (isGoalComposerMode.value) {
     if (!t) return;
@@ -2161,7 +2161,7 @@ function onSecretRefSubmit(secretRef: string): void {
           <template v-for="(item, index) in ide.timeline.value" :key="item.id">
             <!-- user -->
             <div v-if="item.kind === 'user'" class="flex flex-col items-end gap-2">
-              <div v-if="(item as IdeChatMessage).text" class="max-w-[76%] px-4 py-2.5 rounded-2xl rounded-br-md bg-slate-900 dark:bg-slate-100 border border-slate-900 dark:border-slate-100 text-sm leading-relaxed text-white dark:text-slate-900 shadow-sm">{{ (item as IdeChatMessage).text }}</div>
+              <div v-if="(item as IdeChatMessage).text" class="max-w-[76%] px-4 py-2.5 rounded-2xl rounded-br-md bg-slate-900 dark:bg-slate-100 border border-slate-900 dark:border-slate-100 text-sm leading-relaxed text-white dark:text-slate-900 shadow-sm whitespace-pre-wrap break-words">{{ (item as IdeChatMessage).text }}</div>
               <!-- 附件回显：图片=缩略图（点击放大灯箱），其余=文件卡，点击开右栏文件面板 -->
               <div v-if="(item as IdeChatMessage).attachments?.length" class="max-w-[76%] flex flex-wrap justify-end gap-2">
                 <template v-for="(att, attIndex) in (item as IdeChatMessage).attachments" :key="`${item.id}-att-${attIndex}`">

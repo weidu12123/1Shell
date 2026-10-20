@@ -193,7 +193,9 @@ function makeId(prefix: string): string {
 }
 
 function messageText(value: unknown): string {
-  return String(value ?? '').trim();
+  const raw = String(value ?? '');
+  if (!raw.trim()) return '';
+  return raw.replace(/^(?:\r?\n)+|\s+$/g, '');
 }
 
 const COMPLETE_SHORT_ASSISTANT_TEXT = new Set([

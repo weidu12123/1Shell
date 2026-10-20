@@ -216,6 +216,15 @@ onBeforeUnmount(() => {
         </h1>
         <p class="relative mt-3 text-xs italic tracking-[0.35em] text-slate-400 sm:text-sm">One Shell to rule them all.</p>
         <p class="relative mt-2 text-sm text-slate-500 dark:text-slate-400">自托管 VPS 运维控制台 · 探针监控 · AI Agent</p>
+        <a
+          href="https://github.com/weidu12123/vps-switch"
+          target="_blank"
+          rel="noopener noreferrer"
+          class="relative mt-3 inline-flex items-center gap-1.5 rounded-full border border-sky-200 bg-sky-50/90 px-3.5 py-1 text-xs font-medium text-sky-700 shadow-sm transition-colors hover:border-sky-300 hover:bg-sky-100 dark:border-sky-400/25 dark:bg-sky-500/10 dark:text-sky-300 dark:hover:bg-sky-500/20"
+        >
+          <AppIcon name="spark" :size="13" />
+          <span>全新一代 Rust + GPUI 原生重构版 <b>VPS Switch</b> 已发布 →</span>
+        </a>
 
         <!-- KPI chips -->
         <div class="relative mt-7 flex flex-wrap items-center justify-center gap-2">

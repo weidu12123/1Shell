@@ -56,8 +56,9 @@ const SECURITY_MODE_LABELS: Record<SecurityMode, string> = {
 
 type Tab = 'account' | 'security' | 'ipfilter' | 'desktop' | 'about';
 
-const APP_VERSION = '4.7.7';
+const APP_VERSION = '4.7.8';
 const GITHUB_URL = 'https://github.com/weidu12123/1Shell';
+const VPS_SWITCH_URL = 'https://github.com/weidu12123/vps-switch';
 
 const TAB_ITEMS: Array<{ key: Tab; label: string; icon: string; desc: string }> = [
   { key: 'account',  label: '账号设置',    icon: 'lock',    desc: '用户名与访问口令' },
@@ -174,7 +175,7 @@ interface ServerUpdateStatus {
 const srvUpdate = ref<ServerUpdateStatus | null>(null);
 const srvBusy = ref('');           // '' | 'check' | 'apply' | 'rollback' | 'docker' | 'token' | 'verify' | 'restart'
 const srvError = ref('');
-const srvNotesOpen = ref(false);
+const srvNotesOpen = ref(true);
 const srvRestarting = ref(false);
 const srvRestartText = ref('');
 const tokenInput = ref('');
@@ -1201,15 +1202,29 @@ async function onDesktopToggle(key: DesktopBooleanKey, event: Event): Promise<vo
                   </div>
                 </div>
               </div>
-              <a
-                :href="GITHUB_URL"
-                target="_blank"
-                rel="noopener noreferrer"
-                class="mt-4 inline-flex items-center gap-2 h-9 px-4 rounded-lg border border-slate-200 dark:border-[#1e293b] bg-white dark:bg-[#1a2332] text-xs font-semibold text-slate-600 dark:text-slate-300 hover:border-blue-300 hover:text-blue-500 transition-all"
-              >
-                <AppIcon name="github" :size="16" />
-                GitHub 项目主页
-              </a>
+              <div class="mt-4 flex flex-wrap items-center gap-2">
+                <a
+                  :href="GITHUB_URL"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  class="inline-flex items-center gap-2 h-9 px-4 rounded-lg border border-slate-200 dark:border-[#1e293b] bg-white dark:bg-[#1a2332] text-xs font-semibold text-slate-600 dark:text-slate-300 hover:border-blue-300 hover:text-blue-500 transition-all"
+                >
+                  <AppIcon name="github" :size="16" />
+                  1Shell 项目主页
+                </a>
+                <a
+                  :href="VPS_SWITCH_URL"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  class="inline-flex items-center gap-2 h-9 px-4 rounded-lg bg-gradient-to-r from-sky-500 to-indigo-600 text-white text-xs font-semibold shadow-sm hover:shadow-md transition-all"
+                >
+                  <AppIcon name="spark" :size="15" />
+                  前往全新重构版 VPS Switch →
+                </a>
+              </div>
+              <div class="mt-3 rounded-lg border border-sky-200/80 bg-sky-50/70 px-3 py-2.5 text-xs leading-relaxed text-sky-900 dark:border-sky-500/20 dark:bg-sky-500/10 dark:text-sky-200">
+                <b>项目演进通知：</b>1Shell 已进入收官维护阶段（v4.7.8）。全新继任项目 <a :href="VPS_SWITCH_URL" target="_blank" rel="noopener noreferrer" class="font-semibold underline hover:text-sky-600 dark:hover:text-sky-100">VPS Switch</a> 采用 Rust + GPUI 原生硬件加速架构重构，内存占用直降 70%，终端、文件流式传输、精准探针与 MCP Server 全面升级。
+              </div>
             </div>
             <!-- 服务端在线更新（binary/docker 部署）-->
             <template v-if="!isDesktopMode && srvUpdate">
@@ -1433,7 +1448,17 @@ async function onDesktopToggle(key: DesktopBooleanKey, event: Event): Promise<vo
                 <div class="h-full rounded-full bg-blue-500 transition-all" :style="{ width: `${updateState?.percent || 0}%` }"></div>
               </div>
 
-              <div v-if="updateState?.status === 'available' && updateState?.releaseNotes" class="mt-3 max-h-32 overflow-y-auto whitespace-pre-wrap rounded-lg bg-slate-50 dark:bg-[#0b1324] px-3 py-2 text-[11px] text-slate-500 dark:text-slate-400">{{ updateState.releaseNotes }}</div>
+              <div v-if="(updateState?.status === 'available' || updateState?.status === 'downloading' || updateState?.status === 'downloaded') && updateState?.releaseNotes" class="mt-3 max-h-40 overflow-y-auto whitespace-pre-wrap rounded-lg bg-slate-50 dark:bg-[#0b1324] px-3 py-2 text-[11px] text-slate-500 dark:text-slate-400">{{ updateState.releaseNotes }}</div>
+
+              <div class="mt-3 flex items-center justify-between gap-3 rounded-lg border border-sky-200/80 bg-sky-50/70 px-3 py-2 text-xs text-sky-900 dark:border-sky-500/20 dark:bg-sky-500/10 dark:text-sky-200">
+                <span>1Shell 桌面版已升级换代为 <b>VPS Switch</b>（Rust + GPUI 原生客户端，内存占用直降 70%）</span>
+                <a
+                  :href="VPS_SWITCH_URL"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  class="shrink-0 font-semibold text-sky-600 underline hover:text-sky-500 dark:text-sky-300"
+                >前往下载 →</a>
+              </div>
 
               <div v-if="updateState?.status === 'error' && updateState?.error" class="mt-2 text-xs text-red-500">{{ updateState.error }}</div>
             </div>

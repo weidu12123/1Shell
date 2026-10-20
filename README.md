@@ -8,14 +8,19 @@
 
 给人和 AI Agent 共用的本地优先多主机运维平台。人可以把它当作 WebSSH / VPS 控制台使用；AI Agent 可以通过 MCP、1Shell AI 和受控工具层调用它，让多台 VPS 成为可观察、可操作、可审计、可协作的运维对象。
 
-[![version](https://img.shields.io/badge/version-4.7.7-4f8cff?style=flat-square)](https://github.com/weidu12123/1Shell/releases)
+[![version](https://img.shields.io/badge/version-4.7.8-4f8cff?style=flat-square)](https://github.com/weidu12123/1Shell/releases)
 [![node](https://img.shields.io/badge/node-20%20%2F%2022%20%2F%2024-43a047?style=flat-square&logo=node.js)](https://nodejs.org)
 [![license](https://img.shields.io/badge/license-MIT-f9a825?style=flat-square)](LICENSE)
 [![docker](https://img.shields.io/badge/docker-ready-2496ed?style=flat-square&logo=docker)](https://hub.docker.com)
 
-[项目主页](https://github.com/weidu12123/1Shell)
+[项目主页](https://github.com/weidu12123/1Shell) · [**全新重构继任项目：VPS Switch (Rust + GPUI) →**](https://github.com/weidu12123/vps-switch)
 
 </div>
+
+> **项目演进通知（v4.7.8 收官版）**：`v4.7.8` 是 1Shell 的收官维护版本。我们已基于 **Rust + GPUI 原生架构**完成了全面重写与升级，推出全新继任项目 **[VPS Switch](https://github.com/weidu12123/vps-switch)**：
+> - **极速轻量**：告别 Electron / Chromium，Windows 桌面端常驻内存直降 70%（约 100 MB），Linux 无头服务空闲仅 **9.7 MB RSS**；
+> - **核心体验重做**：`alacritty_terminal` 权威终端状态机 + 2 MiB 历史回放 + 随包新版 ConPTY、16 MiB 窗口高速流式文件传输（断点续传 + SHA-256 对账）、精准物理网卡探针、本机代理端口（SOCKS5 / HTTP CONNECT）出口路由；
+> - **标准 MCP Server**：收敛为 7 个核心工具，支持主机名直达与多机并发调度。欢迎前往 [**weidu12123/vps-switch**](https://github.com/weidu12123/vps-switch) 下载体验。
 
 ---
 

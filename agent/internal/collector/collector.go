@@ -353,7 +353,19 @@ func readNetDev() (netSnapshot, error) {
 			continue
 		}
 		iface := strings.TrimSpace(line[:colon])
-		if iface == "lo" || strings.HasPrefix(iface, "docker") || strings.HasPrefix(iface, "br-") || strings.HasPrefix(iface, "veth") {
+		if iface == "lo" ||
+			strings.HasPrefix(iface, "docker") ||
+			strings.HasPrefix(iface, "br-") ||
+			strings.HasPrefix(iface, "veth") ||
+			strings.HasPrefix(iface, "virbr") ||
+			strings.HasPrefix(iface, "tun") ||
+			strings.HasPrefix(iface, "tap") ||
+			strings.HasPrefix(iface, "wg") ||
+			strings.HasPrefix(iface, "tailscale") ||
+			strings.HasPrefix(iface, "zt") ||
+			strings.HasPrefix(iface, "cni") ||
+			strings.HasPrefix(iface, "flannel") ||
+			strings.HasPrefix(iface, "cali") {
 			continue
 		}
 		fields := strings.Fields(line[colon+1:])
